@@ -114,6 +114,8 @@ The alert fires **once per excursion** above the threshold (not once per second)
 
 ## Live Dashboard (TUI)
 
+![TUI](docs/images/Image_TUI.png)
+
 ```bash
 powerwatch-tui
 ```
@@ -144,6 +146,8 @@ The TUI can evaluate power-draw patterns and surface energy-saving suggestions. 
 Each suggestion carries a confirmation token to prevent accidental or remote-triggered changes, you must explicitly confirm before any action runs.
 
 ## Web Dashboard
+
+![WEB](docs/images/Image_WEB.png)
 
 ```bash
 powerwatch-web               # http://127.0.0.1:3000
