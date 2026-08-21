@@ -1,0 +1,867 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PowerWatch</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --muted: #8b949e;
+    --measured: #3fb950;
+    --estimated: #d29922;
+    --error: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+    padding: 24px;
+  }
+  h1 {
+    font-size: 1.1rem;
+    margin: 0 0 16px;
+    color: var(--text);
+  }
+  .total {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+    margin-bottom: 16px;
+    font-size: 1.4rem;
+  }
+  .total .value { font-weight: bold; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 24px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  th { color: var(--muted); font-weight: normal; font-size: 0.85rem; }
+  tr:last-child td { border-bottom: none; }
+  .measured { color: var(--measured); }
+  .estimated { color: var(--estimated); }
+  .error-text { color: var(--error); }
+  .chart-panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+  }
+  canvas {
+    width: 100%;
+    height: 280px;
+    display: block;
+    cursor: crosshair;
+  }
+  .legend {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 10px 0 0;
+    font-size: 0.85rem;
+  }
+  .legend button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font: inherit;
+    padding: 3px 8px;
+    cursor: pointer;
+  }
+  .legend button.hidden-series {
+    color: var(--muted);
+    opacity: 0.5;
+  }
+  .legend button:hover { border-color: var(--muted); }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .chart-caption {
+    color: var(--muted);
+    font-size: 0.78rem;
+    margin-top: 8px;
+  }
+  #status { color: var(--muted); font-size: 0.85rem; margin-top: 24px; }
+
+  /* Suggestions styling */
+  #suggestions-section {
+    margin-top: 24px;
+    border-top: 1px solid var(--border);
+    padding-top: 20px;
+  }
+  .suggestion-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 12px;
+  }
+  .suggestion-card.warning {
+    border-left: 3px solid var(--estimated);
+  }
+  .suggestion-card.info {
+    border-left: 3px solid var(--measured);
+  }
+  .suggestion-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .suggestion-message {
+    font-size: 0.95rem;
+    color: var(--text);
+  }
+  .suggestion-severity {
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: var(--border);
+    color: var(--muted);
+  }
+  .suggestion-severity.warning {
+    background: rgba(210, 153, 34, 0.2);
+    color: var(--estimated);
+  }
+  .suggestion-severity.info {
+    background: rgba(63, 185, 80, 0.2);
+    color: white;
+  }
+  .suggestion-action {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+  .suggestion-label {
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .apply-btn {
+    background: transparent;
+    border: 1px solid var(--measured);
+    color: var(--measured);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .apply-btn:hover {
+    background: var(--measured);
+    color: var(--bg);
+  }
+  .apply-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .suggestion-token {
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-family: monospace;
+  }
+
+  /* Modal overlay */
+  .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .modal-overlay.active {
+    opacity: 1;
+    pointer-events: all;
+  }
+  .modal {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    max-width: 420px;
+    width: 90%;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    transform: scale(0.95);
+    transition: transform 0.2s ease;
+  }
+  .modal-overlay.active .modal {
+    transform: scale(1);
+  }
+  .modal-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin: 0 0 12px;
+    color: var(--text);
+  }
+  .modal-body {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin-bottom: 20px;
+    line-height: 1.5;
+  }
+  .modal-command {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-family: monospace;
+    font-size: 0.85rem;
+    color: var(--measured);
+    margin: 12px 0;
+    word-break: break-all;
+  }
+  .modal-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+  }
+  .modal-btn {
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text);
+    transition: all 0.15s ease;
+  }
+  .modal-btn:hover {
+    background: var(--border);
+  }
+  .modal-btn.primary {
+    background: var(--measured);
+    color: var(--bg);
+    border-color: var(--measured);
+  }
+  .modal-btn.primary:hover {
+    background: #2ea043;
+  }
+  .modal-btn.danger {
+    background: var(--error);
+    color: white;
+    border-color: var(--error);
+  }
+  .modal-btn.danger:hover {
+    background: #da3633;
+  }
+  .modal-icon {
+    font-size: 2rem;
+    margin-bottom: 12px;
+  }
+  .process-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+    margin: 12px 0;
+  }
+  .process-table th,
+  .process-table td {
+    padding: 6px 8px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .process-table th {
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+  }
+  .process-table td.pid { color: var(--measured); }
+  .process-table td.cpu { color: var(--estimated); text-align: right; }
+  .process-table td.mem { color: #bc8cff; text-align: right; }
+  .process-table td.command { color: var(--text); font-family: monospace; }
+  .process-output {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-family: monospace;
+    font-size: 0.8rem;
+    color: var(--measured);
+    white-space: pre-wrap;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+</style>
+</head>
+<body>
+  <h1>PowerWatch</h1>
+  <div class="total" id="total">loading…</div>
+  <table id="sensors">
+    <thead>
+      <tr><th>component</th><th>watts</th><th>confidence</th></tr>
+    </thead>
+    <tbody id="sensors-body"></tbody>
+  </table>
+
+  <div class="chart-panel">
+    <canvas id="chart"></canvas>
+    <div class="legend" id="legend"></div>
+    <div class="chart-caption" id="chart-caption"></div>
+  </div>
+
+  <div id="status"></div>
+
+  <!-- Suggestions Section -->
+  <div id="suggestions-section" style="display: none;">
+    <h2 style="font-size: 1rem; margin: 24px 0 12px; color: var(--text);">Energy Suggestions</h2>
+    <div id="suggestions-container"></div>
+  </div>
+
+  <!-- Confirm Modal -->
+  <div id="confirm-modal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-icon">⚡</div>
+      <h3 class="modal-title">Apply Energy Action</h3>
+      <div class="modal-body">
+        <p id="confirm-message"></p>
+        <div class="modal-command" id="confirm-command"></div>
+        <p style="font-size: 0.8rem; color: var(--muted);">This will change your system power profile.</p>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn" onclick="closeConfirmModal()">Cancel</button>
+        <button class="modal-btn primary" onclick="confirmApplyAction()">Apply</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Success Modal -->
+  <div id="success-modal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-icon">✅</div>
+      <h3 class="modal-title">Action Applied</h3>
+      <div class="modal-body">
+        <p id="success-message">The energy-saving action has been applied successfully.</p>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn primary" onclick="closeSuccessModal()">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Error Modal -->
+  <div id="error-modal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-icon">❌</div>
+      <h3 class="modal-title">Action Failed</h3>
+      <div class="modal-body">
+        <p id="error-message">Failed to apply the action.</p>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn danger" onclick="closeErrorModal()">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Processes Modal -->
+  <div id="processes-modal" class="modal-overlay">
+    <div class="modal" style="max-width: 600px;">
+      <div class="modal-icon">📊</div>
+      <h3 class="modal-title">Top CPU Processes (Auto-refresh: 2s)</h3>
+      <div class="modal-body">
+        <p>These are the processes consuming the most CPU right now:</p>
+        <div id="process-output" class="process-output">Loading...</div>
+      </div>
+      <div class="modal-actions">
+        <button id="refresh-processes-btn" class="modal-btn secondary" onclick="toggleProcessRefresh()">⏹ Stop Refresh</button>
+        <button class="modal-btn primary" onclick="closeProcessesModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+const PALETTE = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#bc8cff", "#39c5cf"];
+
+
+let lastReadings = [];
+let hiddenSeries = new Set();
+let hoverClientX = null;
+
+function componentLabel(component) {
+  if (typeof component === "string") {
+    return component.toLowerCase();
+  }
+  const key = Object.keys(component)[0];
+  const value = component[key];
+  const inner = typeof value === "string" ? value.toLowerCase() : JSON.stringify(value);
+  return `${key.toLowerCase()} (${inner})`;
+}
+
+function confidenceClass(confidence) {
+  return confidence === "Measured" ? "measured" : "estimated";
+}
+
+async function refreshSnapshot() {
+  try {
+    const res = await fetch("/api/snapshot");
+    if (!res.ok) throw new Error(`snapshot request failed: ${res.status}`);
+    const data = await res.json();
+    renderSnapshot(data);
+    setStatus("");
+  } catch (err) {
+    setStatus(`could not reach the server: ${err.message}`);
+  }
+}
+
+function renderSnapshot(data) {
+  const totalEl = document.getElementById("total");
+  if (data.total) {
+    const cls = confidenceClass(data.total.confidence);
+    totalEl.innerHTML = `total: <span class="value ${cls}">${data.total.watts.toFixed(1)} W</span> (${data.total.confidence.toLowerCase()})`;
+  } else {
+    totalEl.innerHTML = `<span class="error-text">total: no data (all sensors failed)</span>`;
+  }
+
+  const body = document.getElementById("sensors-body");
+  body.innerHTML = "";
+  for (const sensor of data.sensors) {
+    const row = document.createElement("tr");
+    if (sensor.reading) {
+      const cls = confidenceClass(sensor.reading.confidence);
+      row.innerHTML = `
+        <td>${componentLabel(sensor.reading.component)}</td>
+        <td class="${cls}">${sensor.reading.watts.toFixed(1)} W</td>
+        <td class="${cls}">${sensor.reading.confidence.toLowerCase()}</td>
+      `;
+    } else {
+      row.innerHTML = `
+        <td>${sensor.name}</td>
+        <td class="error-text" colspan="2">${sensor.error}</td>
+      `;
+    }
+    body.appendChild(row);
+  }
+}
+
+function setStatus(message) {
+  document.getElementById("status").textContent = message;
+}
+
+
+async function refreshSuggestions() {
+  try {
+    const res = await fetch("/api/suggestions");
+    if (!res.ok) return;
+    const suggestions = await res.json();
+    renderSuggestions(suggestions);
+  } catch (err) {
+
+  }
+}
+
+function renderSuggestions(proposals) {
+  const section = document.getElementById("suggestions-section");
+  const container = document.getElementById("suggestions-container");
+
+  if (!proposals || proposals.length === 0) {
+    section.style.display = "none";
+    return;
+  }
+
+  section.style.display = "block";
+  container.innerHTML = "";
+
+  for (const proposal of proposals) {
+    const s = proposal.suggestion;
+    const card = document.createElement("div");
+    card.className = `suggestion-card ${s.severity.toLowerCase()}`;
+
+    const severityLabel = s.severity === "Warning" ? "WARNING" : "INFO";
+
+    let actionHTML = "";
+    if (s.action) {
+      actionHTML = `
+        <div class="suggestion-action">
+          <span class="suggestion-label">Action:</span>
+          <span style="color: var(--text);">${s.action.label}</span>
+          ${proposal.token ? `
+            <button class="apply-btn" onclick="applySuggestion('${proposal.token}', '${s.action.label.replace(/'/g, "\\'")}')">
+              Apply
+            </button>
+            <span class="suggestion-token">token: ${proposal.token.substring(0, 8)}...</span>
+          ` : ""}
+        </div>
+      `;
+    } else {
+      actionHTML = "";
+    }
+
+    card.innerHTML = `
+      <div class="suggestion-header">
+        <span class="suggestion-message">${s.message}</span>
+        <span class="suggestion-severity ${s.severity.toLowerCase()}">${severityLabel}</span>
+      </div>
+      ${actionHTML}
+    `;
+    container.appendChild(card);
+  }
+}
+
+let pendingApplyToken = null;
+let pendingApplyLabel = null;
+
+async function applySuggestion(token, actionLabel) {
+  pendingApplyToken = token;
+  pendingApplyLabel = actionLabel;
+  
+  document.getElementById('confirm-message').textContent = `Are you sure you want to apply: "${actionLabel}"?`;
+  document.getElementById('confirm-command').textContent = `powerprofilesctl set power-saver`;
+  openModal('confirm-modal');
+}
+
+function openModal(modalId) {
+  document.getElementById(modalId).classList.add('active');
+}
+
+function closeModal(modalId) {
+  document.getElementById(modalId).classList.remove('active');
+}
+
+function closeConfirmModal() {
+  closeModal('confirm-modal');
+  pendingApplyToken = null;
+  pendingApplyLabel = null;
+}
+
+async function confirmApplyAction() {
+  closeModal('confirm-modal');
+  
+  if (!pendingApplyToken) return;
+  
+  try {
+    const res = await fetch("/api/suggestions/apply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: pendingApplyToken }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      document.getElementById('success-message').textContent = data.message || "Action applied successfully!";
+      openModal('success-modal');
+      refreshSuggestions();
+    } else {
+      const err = await res.text();
+      document.getElementById('error-message').textContent = `Failed to apply: ${err}`;
+      openModal('error-modal');
+    }
+  } catch (err) {
+    document.getElementById('error-message').textContent = `Error: ${err.message}`;
+    openModal('error-modal');
+  }
+  
+  pendingApplyToken = null;
+  pendingApplyLabel = null;
+}
+
+function closeSuccessModal() {
+  closeModal('success-modal');
+}
+
+function closeErrorModal() {
+  closeModal('error-modal');
+}
+
+let processRefreshInterval = null;
+
+function openProcessesModal() {
+  openModal('processes-modal');
+  fetchTopProcesses();
+  processRefreshInterval = setInterval(fetchTopProcesses, 2000);
+  const btn = document.getElementById('refresh-processes-btn');
+  if (btn) btn.textContent = '⏹ Stop Refresh';
+}
+
+function closeProcessesModal() {
+  if (processRefreshInterval) {
+    clearInterval(processRefreshInterval);
+    processRefreshInterval = null;
+  }
+  closeModal('processes-modal');
+}
+
+function toggleProcessRefresh() {
+  const btn = document.getElementById('refresh-processes-btn');
+  if (processRefreshInterval) {
+    clearInterval(processRefreshInterval);
+    processRefreshInterval = null;
+    btn.textContent = '▶ Auto Refresh';
+  } else {
+    processRefreshInterval = setInterval(fetchTopProcesses, 2000);
+    btn.textContent = '⏹ Stop Refresh';
+  }
+}
+
+async function fetchTopProcesses() {
+  const outputEl = document.getElementById('process-output');
+  outputEl.textContent = 'Loading...';
+  
+  try {
+    const res = await fetch('/api/processes/top');
+    if (!res.ok) {
+      outputEl.textContent = `Failed to fetch: ${res.status}`;
+      return;
+    }
+    const data = await res.json();
+    outputEl.textContent = data.output || 'No output';
+  } catch (err) {
+    outputEl.textContent = `Error: ${err.message}`;
+  }
+}
+
+const originalApplySuggestion = applySuggestion;
+applySuggestion = function(token, actionLabel) {
+  if (actionLabel === 'Show top processes') {
+    openProcessesModal();
+    return;
+  }
+  return originalApplySuggestion(token, actionLabel);
+};
+
+async function refreshHistory() {
+  try {
+    const res = await fetch("/api/history?since=10m");
+    if (!res.ok) return;
+    lastReadings = await res.json();
+    renderChart();
+  } catch (err) {
+
+  }
+}
+
+function syncCanvasResolution(canvas) {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const targetWidth = Math.round(rect.width * dpr);
+  const targetHeight = Math.round(rect.height * dpr);
+
+  if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+  }
+
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, width: rect.width, height: rect.height };
+}
+
+function groupByComponent(readings) {
+  const series = new Map();
+  for (const r of readings) {
+    const key = componentLabel(r.component);
+    if (!series.has(key)) series.set(key, []);
+    series.get(key).push(r);
+  }
+  for (const points of series.values()) {
+    points.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  }
+  return series;
+}
+
+function formatTime(ms) {
+  return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function nearestPoints(series, targetTime) {
+  const result = new Map();
+  for (const [key, points] of series) {
+    let best = points[0];
+    let bestDiff = Math.abs(new Date(best.timestamp) - targetTime);
+    for (const p of points) {
+      const diff = Math.abs(new Date(p.timestamp) - targetTime);
+      if (diff < bestDiff) {
+        best = p;
+        bestDiff = diff;
+      }
+    }
+    result.set(key, best);
+  }
+  return result;
+}
+
+function renderLegend(seriesKeys) {
+  const legend = document.getElementById("legend");
+  legend.innerHTML = "";
+  seriesKeys.forEach((key, i) => {
+    const color = PALETTE[i % PALETTE.length];
+    const btn = document.createElement("button");
+    btn.dataset.key = key;
+    if (hiddenSeries.has(key)) btn.classList.add("hidden-series");
+    btn.innerHTML = `<span class="swatch" style="background:${color}"></span>${key}`;
+    legend.appendChild(btn);
+  });
+}
+
+function renderChart() {
+  const canvas = document.getElementById("chart");
+  const { ctx, width, height } = syncCanvasResolution(canvas);
+  ctx.clearRect(0, 0, width, height);
+
+  const caption = document.getElementById("chart-caption");
+
+  if (lastReadings.length === 0) {
+    ctx.fillStyle = "#8b949e";
+    ctx.font = "13px monospace";
+    ctx.fillText("no history yet - waiting for data", 16, height / 2);
+    caption.textContent = "";
+    renderLegend([]);
+    return;
+  }
+
+  const series = groupByComponent(lastReadings);
+  renderLegend([...series.keys()]);
+
+  const visibleSeries = new Map([...series].filter(([key]) => !hiddenSeries.has(key)));
+  const visibleReadings = [...visibleSeries.values()].flat();
+
+  caption.textContent = `${lastReadings.length} points - last updated ${formatTime(Date.now())}`;
+
+  if (visibleReadings.length === 0) {
+    ctx.fillStyle = "#8b949e";
+    ctx.font = "13px monospace";
+    ctx.fillText("every series is hidden - click the legend to show one", 16, height / 2);
+    return;
+  }
+
+  const allTimes = lastReadings.map((r) => new Date(r.timestamp).getTime());
+  const minTime = Math.min(...allTimes);
+  const maxTime = Math.max(...allTimes);
+  const maxWatts = Math.max(...visibleReadings.map((r) => r.watts), 1);
+
+  const padding = { top: 12, right: 12, bottom: 20, left: 48 };
+  const w = width - padding.left - padding.right;
+  const h = height - padding.top - padding.bottom;
+  const x = (t) => padding.left + ((t - minTime) / Math.max(maxTime - minTime, 1)) * w;
+  const y = (watts) => padding.top + h - (watts / maxWatts) * h;
+
+  ctx.strokeStyle = "#21262d";
+  ctx.fillStyle = "#8b949e";
+  ctx.font = "11px monospace";
+  ctx.textAlign = "right";
+  const divisions = 4;
+  for (let i = 0; i <= divisions; i++) {
+    const watts = (maxWatts / divisions) * i;
+    const py = y(watts);
+    ctx.beginPath();
+    ctx.moveTo(padding.left, py);
+    ctx.lineTo(padding.left + w, py);
+    ctx.stroke();
+    ctx.fillText(watts.toFixed(1), padding.left - 6, py + 3);
+  }
+
+  ctx.textAlign = "left";
+  ctx.fillText(formatTime(minTime), padding.left, height - 4);
+  ctx.textAlign = "right";
+  ctx.fillText(formatTime(maxTime), padding.left + w, height - 4);
+  ctx.textAlign = "left";
+
+  const colorFor = (key) => {
+    const index = [...series.keys()].indexOf(key);
+    return PALETTE[index % PALETTE.length];
+  };
+
+  for (const [key, points] of visibleSeries) {
+    ctx.strokeStyle = colorFor(key);
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    points.forEach((p, i) => {
+      const px = x(new Date(p.timestamp).getTime());
+      const py = y(p.watts);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+  }
+
+  if (hoverClientX !== null) {
+    const rect = canvas.getBoundingClientRect();
+    const cursorX = hoverClientX - rect.left;
+    if (cursorX >= padding.left && cursorX <= padding.left + w) {
+      const targetTime = minTime + ((cursorX - padding.left) / w) * (maxTime - minTime);
+      const nearest = nearestPoints(visibleSeries, targetTime);
+
+      ctx.strokeStyle = "#8b949e";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(cursorX, padding.top);
+      ctx.lineTo(cursorX, padding.top + h);
+      ctx.stroke();
+
+      const lines = [...nearest.entries()].map(([key, p]) => `${key}: ${p.watts.toFixed(1)} W`);
+      const boxWidth = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 16;
+      const boxHeight = lines.length * 16 + 10;
+      const boxX = Math.min(cursorX + 8, width - boxWidth - 4);
+      const boxY = padding.top + 4;
+
+      ctx.fillStyle = "rgba(22, 27, 34, 0.95)";
+      ctx.strokeStyle = "#30363d";
+      ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+      ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+
+      ctx.fillStyle = "#c9d1d9";
+      lines.forEach((line, i) => {
+        ctx.fillText(line, boxX + 8, boxY + 16 + i * 16);
+      });
+    }
+  }
+}
+
+function setupChartInteractions() {
+  const canvas = document.getElementById("chart");
+  canvas.addEventListener("mousemove", (e) => {
+    hoverClientX = e.clientX;
+    renderChart();
+  });
+  canvas.addEventListener("mouseleave", () => {
+    hoverClientX = null;
+    renderChart();
+  });
+
+  document.getElementById("legend").addEventListener("click", (e) => {
+    const key = e.target.closest("[data-key]")?.dataset.key;
+    if (!key) return;
+    if (hiddenSeries.has(key)) hiddenSeries.delete(key);
+    else hiddenSeries.add(key);
+    renderChart();
+  });
+
+  window.addEventListener("resize", () => renderChart());
+}
+
+setupChartInteractions();
+refreshSnapshot();
+refreshHistory();
+refreshSuggestions();
+setInterval(refreshSnapshot, 1500);
+setInterval(refreshHistory, 5000);
+setInterval(refreshSuggestions, 5000);
+</script>
+</body>
+</html>

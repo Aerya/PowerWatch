@@ -1,0 +1,12 @@
+[package]
+name = "powerwatch-tui"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ratatui = "0.26"
+crossterm = "0.27"
+powerwatch-core = { path = "../powerwatch-core" }
+unicode-segmentation = "=1.11.0"
+chrono = "0.4"
+clap = { version = "=4.5.4", features = ["derive"] }
