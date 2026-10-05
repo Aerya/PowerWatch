@@ -293,7 +293,10 @@ mod tests {
     #[test]
     fn aggregated_history_returns_average_min_max_and_count() {
         let storage = Storage::open_in_memory().unwrap();
-        let base = Utc::now() - Duration::minutes(2);
+        // Keep both samples deterministically inside the same 60-second
+        // aggregation bucket. Using Utc::now() made this test flaky whenever
+        // base + 10s crossed a minute boundary.
+        let base = DateTime::<Utc>::from_timestamp(1_700_000_040, 0).unwrap();
 
         storage
             .insert_reading(&reading(
