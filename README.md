@@ -20,6 +20,7 @@ Linux is the primary, fully tested platform. Windows and macOS are supported in 
 > - le support **Docker** avec images multi-architecture **amd64 / arm64** publiées via GitHub Actions ;
 > - une gestion des **alertes depuis la WebUI**, avec règles persistantes et notifications **Discord / Apprise** ;
 > - une WebUI accessible sur le **réseau local** grâce à une adresse d’écoute configurable ;
+> - une **WebUI bilingue français / anglais**, avec détection automatique au premier accès et mémorisation du choix ;
 > - une détection RAPL plus robuste en conteneur, avec montage direct du powercap de l’hôte ;
 > - la détection et le suivi de **tous les disques physiques**, avec exclusion des couches virtuelles, RAID/LVM et des pseudo-périphériques eMMC `boot`/`rpmb` ;
 > - un **mode NAS/headless** qui désactive les suggestions desktop inutiles ;
@@ -34,6 +35,7 @@ Linux is the primary, fully tested platform. Windows and macOS are supported in 
 > - **Docker** support with multi-architecture **amd64 / arm64** images published through GitHub Actions;
 > - **Web UI alert management**, with persistent rules and **Discord / Apprise** notifications;
 > - LAN access to the Web UI through a configurable bind address;
+> - a **bilingual French / English Web UI**, with automatic first-visit detection and persistent language selection;
 > - more robust RAPL discovery in containers, including a direct host powercap mount;
 > - detection and monitoring of **all physical disks**, excluding virtual/RAID/LVM layers and eMMC `boot`/`rpmb` pseudo devices;
 > - a **NAS/headless mode** that disables desktop-only energy suggestions;
@@ -192,6 +194,8 @@ powerwatch-web --log
 powerwatch-web --history-interval 300
 powerwatch-web --nas-mode
 ```
+
+The Web UI is available in **English and French**. On the first visit it follows the browser language when French is detected, otherwise it falls back to English. The selected language can be changed at any time with the `🇫🇷 FR` / `🇬🇧 EN` controls and is remembered in the browser.
 
 The dashboard provides live readings plus historical views. Presets include `1 h`, `24 h`, `7 d`, `30 d`, and `1 y`, with custom ranges in hours, days, weeks, months, or years.
 

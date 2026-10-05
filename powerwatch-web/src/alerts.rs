@@ -68,6 +68,7 @@ pub(crate) struct AlertEvent {
     pub component: String,
     pub watts: f64,
     pub threshold_watts: f64,
+    pub sustained_seconds: u64,
     pub message: String,
 }
 
@@ -339,6 +340,7 @@ impl AlertService {
                                     component: rule.component.clone(),
                                     watts,
                                     threshold_watts: rule.threshold_watts,
+                                    sustained_seconds: rule.sustained_seconds,
                                     message: format!(
                                         "{}: {} is {:.1} W (threshold {:.1} W for {}s)",
                                         rule.name, rule.component, watts, rule.threshold_watts, rule.sustained_seconds
@@ -360,6 +362,7 @@ impl AlertService {
                                         component: rule.component.clone(),
                                         watts,
                                         threshold_watts: rule.threshold_watts,
+                                        sustained_seconds: rule.sustained_seconds,
                                         message: format!(
                                             "{} recovered: {} is {:.1} W (threshold {:.1} W)",
                                             rule.name, rule.component, watts, rule.threshold_watts

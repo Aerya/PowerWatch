@@ -99,6 +99,10 @@
   }
   #status { color: var(--muted); font-size: 0.85rem; margin-top: 24px; }
 
+  .language-switcher { display:flex; gap:6px; align-items:center; margin-left:auto; }
+  .language-switcher button { background:transparent; border:1px solid var(--border); border-radius:4px; color:var(--muted); font:inherit; font-size:.78rem; padding:4px 7px; cursor:pointer; }
+  .language-switcher button:hover, .language-switcher button.active { color:var(--text); border-color:var(--measured); }
+
   #app-footer {
     margin-top: 18px;
     padding-top: 14px;
@@ -392,23 +396,27 @@
   }
 </style>
 </head>
-<body>
-  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;">
+<body data-page="dashboard">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
     <h1 style="margin:0;">PowerWatch</h1>
-    <a href="/alerts" style="color:var(--text);text-decoration:none;border-bottom:1px dotted var(--muted);">Alerts</a>
+    <div class="language-switcher" aria-label="Language">
+      <button type="button" data-lang="fr" onclick="setPowerWatchLanguage('fr')">🇫🇷 FR</button>
+      <button type="button" data-lang="en" onclick="setPowerWatchLanguage('en')">🇬🇧 EN</button>
+    </div>
+    <a href="/alerts" data-i18n="nav.alerts" style="color:var(--text);text-decoration:none;border-bottom:1px dotted var(--muted);">Alerts</a>
   </div>
-  <div class="total" id="total">loading…</div>
+  <div class="total" id="total" data-i18n="common.loading">Loading...</div>
   <div id="alerts-summary" style="margin:-6px 0 16px;color:var(--muted);font-size:.82rem;"></div>
   <table id="sensors">
     <thead>
-      <tr><th>component</th><th>watts</th><th>confidence</th></tr>
+      <tr><th data-i18n="dashboard.table.component">component</th><th data-i18n="dashboard.table.watts">watts</th><th data-i18n="dashboard.table.confidence">confidence</th></tr>
     </thead>
     <tbody id="sensors-body"></tbody>
   </table>
 
   <div class="history-toolbar">
     <div class="range-buttons">
-      <button class="range-btn active" id="range-live" type="button">Live</button>
+      <button class="range-btn active" id="range-live" type="button" data-i18n="dashboard.live">Live</button>
       <button class="range-btn" type="button" data-range-amount="1" data-range-unit="hours" data-range-label="1 hour">1 h</button>
       <button class="range-btn" type="button" data-range-amount="24" data-range-unit="hours" data-range-label="24 hours">24 h</button>
       <button class="range-btn" type="button" data-range-amount="7" data-range-unit="days" data-range-label="7 days">7 d</button>
@@ -417,24 +425,24 @@
     </div>
 
     <form class="custom-range" id="history-form">
-      <span style="color:var(--muted);font-size:.8rem;">Custom:</span>
+      <span style="color:var(--muted);font-size:.8rem;" data-i18n="dashboard.custom">Custom:</span>
       <input id="history-amount" type="number" min="1" max="10000" value="7" required>
       <select id="history-unit">
-        <option value="hours">hours</option>
-        <option value="days" selected>days</option>
-        <option value="weeks">weeks</option>
-        <option value="months">months</option>
-        <option value="years">years</option>
+        <option value="hours" data-i18n="dashboard.hours">hours</option>
+        <option value="days" selected data-i18n="dashboard.days">days</option>
+        <option value="weeks" data-i18n="dashboard.weeks">weeks</option>
+        <option value="months" data-i18n="dashboard.months">months</option>
+        <option value="years" data-i18n="dashboard.years">years</option>
       </select>
-      <button class="range-submit" type="submit">Show</button>
+      <button class="range-submit" type="submit" data-i18n="common.show">Show</button>
     </form>
   </div>
 
   <div class="stats-grid">
-    <div class="stat-card"><span class="stat-label">Average</span><span class="stat-value" id="stat-avg">—</span></div>
-    <div class="stat-card"><span class="stat-label">Minimum</span><span class="stat-value" id="stat-min">—</span></div>
-    <div class="stat-card"><span class="stat-label">Maximum</span><span class="stat-value" id="stat-max">—</span></div>
-    <div class="stat-card"><span class="stat-label">Energy</span><span class="stat-value" id="stat-energy">—</span></div>
+    <div class="stat-card"><span class="stat-label" data-i18n="dashboard.average">Average</span><span class="stat-value" id="stat-avg">—</span></div>
+    <div class="stat-card"><span class="stat-label" data-i18n="dashboard.minimum">Minimum</span><span class="stat-value" id="stat-min">—</span></div>
+    <div class="stat-card"><span class="stat-label" data-i18n="dashboard.maximum">Maximum</span><span class="stat-value" id="stat-max">—</span></div>
+    <div class="stat-card"><span class="stat-label" data-i18n="dashboard.energy">Energy</span><span class="stat-value" id="stat-energy">—</span></div>
   </div>
 
   <div class="chart-panel">
@@ -448,12 +456,12 @@
     <span>© 2026 <strong>Aerya</strong></span>
     <span> · <a href="https://github.com/Aerya/PowerWatch" target="_blank" rel="noopener noreferrer">GitHub</a></span>
     <span> · <a href="https://upandclear.org" target="_blank" rel="noopener noreferrer">UpAndClear</a></span>
-    <span> · Based on <a href="https://github.com/lnpotter/PowerWatch" target="_blank" rel="noopener noreferrer">lnpotter/PowerWatch</a> — thank you for the original project.</span>
+    <span> · <span data-i18n="dashboard.footerBasedOn">Based on</span> <a href="https://github.com/lnpotter/PowerWatch" target="_blank" rel="noopener noreferrer">lnpotter/PowerWatch</a> — <span data-i18n="dashboard.footerThanks">thank you for the original project.</span></span>
   </footer>
 
   <!-- Suggestions Section -->
   <div id="suggestions-section" style="display: none;">
-    <h2 style="font-size: 1rem; margin: 24px 0 12px; color: var(--text);">Energy Suggestions</h2>
+    <h2 style="font-size: 1rem; margin: 24px 0 12px; color: var(--text);" data-i18n="dashboard.suggestions">Energy Suggestions</h2>
     <div id="suggestions-container"></div>
   </div>
 
@@ -461,15 +469,15 @@
   <div id="confirm-modal" class="modal-overlay">
     <div class="modal">
       <div class="modal-icon">⚡</div>
-      <h3 class="modal-title">Apply Energy Action</h3>
+      <h3 class="modal-title" data-i18n="dashboard.applyEnergyAction">Apply Energy Action</h3>
       <div class="modal-body">
         <p id="confirm-message"></p>
         <div class="modal-command" id="confirm-command"></div>
-        <p style="font-size: 0.8rem; color: var(--muted);">This will change your system power profile.</p>
+        <p style="font-size: 0.8rem; color: var(--muted);" data-i18n="dashboard.changeProfileHint">This will change your system power profile.</p>
       </div>
       <div class="modal-actions">
-        <button class="modal-btn" onclick="closeConfirmModal()">Cancel</button>
-        <button class="modal-btn primary" onclick="confirmApplyAction()">Apply</button>
+        <button class="modal-btn" onclick="closeConfirmModal()" data-i18n="common.cancel">Cancel</button>
+        <button class="modal-btn primary" onclick="confirmApplyAction()" data-i18n="common.apply">Apply</button>
       </div>
     </div>
   </div>
@@ -478,9 +486,9 @@
   <div id="success-modal" class="modal-overlay">
     <div class="modal">
       <div class="modal-icon">✅</div>
-      <h3 class="modal-title">Action Applied</h3>
+      <h3 class="modal-title" data-i18n="dashboard.actionApplied">Action Applied</h3>
       <div class="modal-body">
-        <p id="success-message">The energy-saving action has been applied successfully.</p>
+        <p id="success-message" data-i18n="dashboard.actionAppliedDefault">The energy-saving action has been applied successfully.</p>
       </div>
       <div class="modal-actions">
         <button class="modal-btn primary" onclick="closeSuccessModal()">OK</button>
@@ -492,12 +500,12 @@
   <div id="error-modal" class="modal-overlay">
     <div class="modal">
       <div class="modal-icon">❌</div>
-      <h3 class="modal-title">Action Failed</h3>
+      <h3 class="modal-title" data-i18n="dashboard.actionFailed">Action Failed</h3>
       <div class="modal-body">
-        <p id="error-message">Failed to apply the action.</p>
+        <p id="error-message" data-i18n="dashboard.actionFailedDefault">Failed to apply the action.</p>
       </div>
       <div class="modal-actions">
-        <button class="modal-btn danger" onclick="closeErrorModal()">Dismiss</button>
+        <button class="modal-btn danger" onclick="closeErrorModal()" data-i18n="common.dismiss">Dismiss</button>
       </div>
     </div>
   </div>
@@ -506,18 +514,19 @@
   <div id="processes-modal" class="modal-overlay">
     <div class="modal" style="max-width: 600px;">
       <div class="modal-icon">📊</div>
-      <h3 class="modal-title">Top CPU Processes (Auto-refresh: 2s)</h3>
+      <h3 class="modal-title" data-i18n="dashboard.topProcessesTitle">Top CPU Processes (Auto-refresh: 2s)</h3>
       <div class="modal-body">
-        <p>These are the processes consuming the most CPU right now:</p>
-        <div id="process-output" class="process-output">Loading...</div>
+        <p data-i18n="dashboard.topProcessesHelp">These are the processes consuming the most CPU right now:</p>
+        <div id="process-output" class="process-output" data-i18n="common.loading">Loading...</div>
       </div>
       <div class="modal-actions">
-        <button id="refresh-processes-btn" class="modal-btn secondary" onclick="toggleProcessRefresh()">⏹ Stop Refresh</button>
-        <button class="modal-btn primary" onclick="closeProcessesModal()">Close</button>
+        <button id="refresh-processes-btn" class="modal-btn secondary" onclick="toggleProcessRefresh()" data-i18n="dashboard.stopRefresh">⏹ Stop Refresh</button>
+        <button class="modal-btn primary" onclick="closeProcessesModal()" data-i18n="common.close">Close</button>
       </div>
     </div>
   </div>
 
+<script src="/static/i18n.js"></script>
 <script>
 const PALETTE = [
   "#58a6ff", "#3fb950", "#d29922", "#f85149", "#bc8cff", "#39c5cf",
@@ -530,7 +539,7 @@ let hiddenSeries = new Set();
 let hoverClientX = null;
 let liveMode = true;
 let currentRange = null;
-let historyMeta = { label: "Live · 10 min", bucketSeconds: 0, rangeSeconds: 600 };
+let historyMeta = { label: t("dashboard.live10m"), bucketSeconds: 0, rangeSeconds: 600 };
 
 function componentLabel(component) {
   if (typeof component === "string") {
@@ -561,7 +570,7 @@ async function refreshSnapshot() {
 
     setStatus("");
   } catch (err) {
-    setStatus(`could not reach the server: ${err.message}`);
+    setStatus(t("dashboard.serverUnreachable", { error: err.message }));
   }
 }
 
@@ -587,7 +596,7 @@ function appendLiveSnapshot(data) {
 
   liveReadings = liveReadings.filter((reading) => new Date(reading.timestamp).getTime() >= cutoff);
   lastReadings = liveReadings;
-  historyMeta = { label: "Live · 10 min", bucketSeconds: 0, rangeSeconds: 600 };
+  historyMeta = { label: t("dashboard.live10m"), bucketSeconds: 0, rangeSeconds: 600 };
 }
 
 function renderSummary(summary) {
@@ -645,9 +654,9 @@ function renderSnapshot(data) {
   const totalEl = document.getElementById("total");
   if (data.total) {
     const cls = confidenceClass(data.total.confidence);
-    totalEl.innerHTML = `total: <span class="value ${cls}">${data.total.watts.toFixed(1)} W</span> (${data.total.confidence.toLowerCase()})`;
+    totalEl.innerHTML = `total: <span class="value ${cls}">${data.total.watts.toFixed(1)} W</span> (${PWI18n.confidence(data.total.confidence)})`;
   } else {
-    totalEl.innerHTML = `<span class="error-text">total: no data (all sensors failed)</span>`;
+    totalEl.innerHTML = `<span class="error-text">${t("dashboard.totalNoData")}</span>`;
   }
 
   const body = document.getElementById("sensors-body");
@@ -659,7 +668,7 @@ function renderSnapshot(data) {
       row.innerHTML = `
         <td>${componentLabel(sensor.reading.component)}</td>
         <td class="${cls}">${sensor.reading.watts.toFixed(1)} W</td>
-        <td class="${cls}">${sensor.reading.confidence.toLowerCase()}</td>
+        <td class="${cls}">${PWI18n.confidence(sensor.reading.confidence)}</td>
       `;
     } else {
       row.innerHTML = `
@@ -685,12 +694,12 @@ async function refreshAlertsSummary() {
     const enabled = rules.filter(rule => rule.enabled).length;
     const active = (data.statuses || []).filter(status => status.active).length;
     if (active > 0) {
-      el.innerHTML = `<a href="/alerts" style="color:var(--error);">alerts: ${active} active</a> · ${enabled} enabled`;
+      el.innerHTML = `<a href="/alerts" style="color:var(--error);">${t("dashboard.alertsActive", { active })}</a> · ${t("dashboard.enabledCount", { count: enabled })}`;
     } else {
-      el.innerHTML = `<a href="/alerts" style="color:var(--measured);">alerts: normal</a> · ${enabled} enabled`;
+      el.innerHTML = `<a href="/alerts" style="color:var(--measured);">${t("dashboard.alertsNormal")}</a> · ${t("dashboard.enabledCount", { count: enabled })}`;
     }
   } catch (_) {
-    el.innerHTML = `<a href="/alerts">alerts</a>: unavailable`;
+    el.innerHTML = `<a href="/alerts">${t("dashboard.alertsUnavailable")}</a>`;
   }
 }
 
@@ -723,19 +732,19 @@ function renderSuggestions(proposals) {
     const card = document.createElement("div");
     card.className = `suggestion-card ${s.severity.toLowerCase()}`;
 
-    const severityLabel = s.severity === "Warning" ? "WARNING" : "INFO";
+    const severityLabel = s.severity === "Warning" ? t("severity.warning") : t("severity.info");
 
     let actionHTML = "";
     if (s.action) {
       actionHTML = `
         <div class="suggestion-action">
-          <span class="suggestion-label">Action:</span>
-          <span style="color: var(--text);">${s.action.label}</span>
+          <span class="suggestion-label">${t("common.action")}</span>
+          <span style="color: var(--text);">${PWI18n.suggestion(s.action.label)}</span>
           ${proposal.token ? `
             <button class="apply-btn" onclick="applySuggestion('${proposal.token}', '${s.action.label.replace(/'/g, "\\'")}')">
-              Apply
+              ${t("common.apply")}
             </button>
-            <span class="suggestion-token">token: ${proposal.token.substring(0, 8)}...</span>
+            <span class="suggestion-token">${t("common.token")}: ${proposal.token.substring(0, 8)}...</span>
           ` : ""}
         </div>
       `;
@@ -745,7 +754,7 @@ function renderSuggestions(proposals) {
 
     card.innerHTML = `
       <div class="suggestion-header">
-        <span class="suggestion-message">${s.message}</span>
+        <span class="suggestion-message">${PWI18n.suggestion(s.message)}</span>
         <span class="suggestion-severity ${s.severity.toLowerCase()}">${severityLabel}</span>
       </div>
       ${actionHTML}
@@ -761,7 +770,7 @@ async function applySuggestion(token, actionLabel) {
   pendingApplyToken = token;
   pendingApplyLabel = actionLabel;
   
-  document.getElementById('confirm-message').textContent = `Are you sure you want to apply: "${actionLabel}"?`;
+  document.getElementById('confirm-message').textContent = t("dashboard.confirmApply", { action: PWI18n.suggestion(actionLabel) });
   document.getElementById('confirm-command').textContent = `powerprofilesctl set power-saver`;
   openModal('confirm-modal');
 }
@@ -794,16 +803,16 @@ async function confirmApplyAction() {
 
     if (res.ok) {
       const data = await res.json();
-      document.getElementById('success-message').textContent = data.message || "Action applied successfully!";
+      document.getElementById('success-message').textContent = t("dashboard.actionAppliedDefault");
       openModal('success-modal');
       refreshSuggestions();
     } else {
       const err = await res.text();
-      document.getElementById('error-message').textContent = `Failed to apply: ${err}`;
+      document.getElementById('error-message').textContent = t("dashboard.failedApply", { error: err });
       openModal('error-modal');
     }
   } catch (err) {
-    document.getElementById('error-message').textContent = `Error: ${err.message}`;
+    document.getElementById('error-message').textContent = t("dashboard.error", { error: err.message });
     openModal('error-modal');
   }
   
@@ -826,7 +835,7 @@ function openProcessesModal() {
   fetchTopProcesses();
   processRefreshInterval = setInterval(fetchTopProcesses, 2000);
   const btn = document.getElementById('refresh-processes-btn');
-  if (btn) btn.textContent = '⏹ Stop Refresh';
+  if (btn) btn.textContent = t("dashboard.stopRefresh");
 }
 
 function closeProcessesModal() {
@@ -842,27 +851,27 @@ function toggleProcessRefresh() {
   if (processRefreshInterval) {
     clearInterval(processRefreshInterval);
     processRefreshInterval = null;
-    btn.textContent = '▶ Auto Refresh';
+    btn.textContent = t("dashboard.autoRefresh");
   } else {
     processRefreshInterval = setInterval(fetchTopProcesses, 2000);
-    btn.textContent = '⏹ Stop Refresh';
+    btn.textContent = t("dashboard.stopRefresh");
   }
 }
 
 async function fetchTopProcesses() {
   const outputEl = document.getElementById('process-output');
-  outputEl.textContent = 'Loading...';
+  outputEl.textContent = t("common.loading");
   
   try {
     const res = await fetch('/api/processes/top');
     if (!res.ok) {
-      outputEl.textContent = `Failed to fetch: ${res.status}`;
+      outputEl.textContent = t("dashboard.failedFetch", { status: res.status });
       return;
     }
     const data = await res.json();
-    outputEl.textContent = data.output || 'No output';
+    outputEl.textContent = data.output || t("dashboard.noOutput");
   } catch (err) {
-    outputEl.textContent = `Error: ${err.message}`;
+    outputEl.textContent = t("dashboard.error", { error: err.message });
   }
 }
 
@@ -880,7 +889,7 @@ async function loadHistory(amount, unit, label, showStatus = true) {
   currentRange = { amount, unit, label };
 
   if (showStatus) {
-    setStatus(`loading ${label} history…`);
+    setStatus(t("dashboard.loadingHistory", { label }));
   }
 
   try {
@@ -917,7 +926,7 @@ async function loadHistory(amount, unit, label, showStatus = true) {
     renderChart();
     setStatus("");
   } catch (err) {
-    setStatus(`history error: ${err.message}`);
+    setStatus(t("dashboard.historyError", { error: err.message }));
   }
 }
 
@@ -942,7 +951,7 @@ function enterLiveMode() {
   currentRange = null;
   activateRangeButton(document.getElementById("range-live"));
   lastReadings = liveReadings;
-  historyMeta = { label: "Live · 10 min", bucketSeconds: 0, rangeSeconds: 600 };
+  historyMeta = { label: t("dashboard.live10m"), bucketSeconds: 0, rangeSeconds: 600 };
   renderLiveSummary();
   renderChart();
   setStatus("");
@@ -956,7 +965,7 @@ function setupHistoryControls() {
       activateRangeButton(button);
       const amount = Number(button.dataset.rangeAmount);
       const unit = button.dataset.rangeUnit;
-      const label = button.dataset.rangeLabel;
+      const label = PWI18n.rangeLabel(amount, unit);
       await loadHistory(amount, unit, label);
     });
   });
@@ -968,7 +977,7 @@ function setupHistoryControls() {
     if (!Number.isFinite(amount) || amount < 1) return;
 
     activateRangeButton(null);
-    await loadHistory(amount, unit, `${amount} ${unit}`);
+    await loadHistory(amount, unit, PWI18n.rangeLabel(amount, unit));
   });
 }
 
@@ -1074,7 +1083,7 @@ function renderChart() {
   if (lastReadings.length === 0) {
     ctx.fillStyle = "#8b949e";
     ctx.font = "13px monospace";
-    ctx.fillText("no history yet - waiting for data", 16, height / 2);
+    ctx.fillText(t("dashboard.noHistory"), 16, height / 2);
     caption.textContent = "";
     renderLegend([]);
     return;
@@ -1086,12 +1095,12 @@ function renderChart() {
   const visibleSeries = new Map([...series].filter(([key]) => !hiddenSeries.has(key)));
   const visibleReadings = [...visibleSeries.values()].flat();
 
-  caption.textContent = `${historyMeta.label} · ${lastReadings.length} points · ${formatBucket(historyMeta.bucketSeconds)} resolution · updated ${formatTime(Date.now())}`;
+  caption.textContent = t("dashboard.chartCaption", { label: historyMeta.label, points: lastReadings.length, resolution: formatBucket(historyMeta.bucketSeconds), updated: formatTime(Date.now()) });
 
   if (visibleReadings.length === 0) {
     ctx.fillStyle = "#8b949e";
     ctx.font = "13px monospace";
-    ctx.fillText("every series is hidden - click the legend to show one", 16, height / 2);
+    ctx.fillText(t("dashboard.allHidden"), 16, height / 2);
     return;
   }
 
@@ -1204,6 +1213,19 @@ function setupChartInteractions() {
 
   window.addEventListener("resize", () => renderChart());
 }
+
+window.addEventListener("powerwatch:languagechange", () => {
+  if (liveMode) {
+    historyMeta.label = t("dashboard.live10m");
+  } else if (currentRange) {
+    currentRange.label = PWI18n.rangeLabel(currentRange.amount, currentRange.unit);
+    historyMeta.label = currentRange.label;
+  }
+  refreshSnapshot();
+  refreshAlertsSummary();
+  refreshSuggestions();
+  renderChart();
+});
 
 setupChartInteractions();
 setupHistoryControls();
