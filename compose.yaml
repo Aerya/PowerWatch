@@ -10,15 +10,56 @@ services:
     ports:
       - "${POWERWATCH_BIND_IP:-127.0.0.1}:3000:3000"
 
-    environment:
-      POWERWATCH_POWERCAP_PATH: /host-powercap
-
+    # FR : /sys donne à PowerWatch un accès en lecture seule aux capteurs
+    # matériels de l'hôte (CPU RAPL, GPU AMD/Intel hwmon, disques, etc.).
+    # AMD et Intel fonctionnent automatiquement si le noyau expose leur
+    # télémétrie de puissance : aucune configuration GPU supplémentaire.
+    #
+    # EN: /sys gives PowerWatch read-only access to host hardware sensors
+    # (CPU RAPL, AMD/Intel GPU hwmon, disks, etc.).
+    # AMD and Intel work automatically when the kernel exposes power
+    # telemetry: no additional GPU configuration is required.
     volumes:
       - /sys:/sys:ro
-      - /sys/devices/virtual/powercap/intel-rapl:/host-powercap:ro
       - ./data:/data/.local/share/powerwatch
 
+    # -----------------------------------------------------------------------
+    # NVIDIA GPU(S) - OPTIONAL / OPTIONNEL
+    # -----------------------------------------------------------------------
+    # FR :
+    # Uniquement si cette machine possède un ou plusieurs GPU NVIDIA :
+    # 1. installer le pilote NVIDIA sur l'hôte ;
+    # 2. installer NVIDIA Container Toolkit ;
+    # 3. décommenter EN ENTIER les blocs "environment" et "deploy" ci-dessous.
+    #
+    # AMD + NVIDIA ? Intel + NVIDIA ? Plusieurs GPU ?
+    # Aucun problème : laissez /sys monté ci-dessus et activez simplement
+    # ce bloc NVIDIA. PowerWatch détectera chaque GPU séparément.
+    #
+    # EN:
+    # Only when this host has one or more NVIDIA GPUs:
+    # 1. install the NVIDIA driver on the host;
+    # 2. install NVIDIA Container Toolkit;
+    # 3. uncomment the WHOLE "environment" and "deploy" blocks below.
+    #
+    # AMD + NVIDIA? Intel + NVIDIA? Multiple GPUs?
+    # No problem: keep /sys mounted above and simply enable this NVIDIA
+    # block. PowerWatch will detect every GPU separately.
+    #
+    # environment:
+    #   NVIDIA_VISIBLE_DEVICES: all
+    #   NVIDIA_DRIVER_CAPABILITIES: utility
+    #
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
     read_only: true
+
     tmpfs:
       - /tmp
 
