@@ -18,6 +18,7 @@ Linux is the primary, fully tested platform. Windows and macOS are supported in 
 >
 > Ce fork de **PowerWatch** ajoute principalement :
 > - le support **Docker** avec images multi-architecture **amd64 / arm64** publiées via GitHub Actions ;
+- une gestion des **alertes depuis la WebUI**, avec règles persistantes et notifications **Discord / Apprise** ;
 > - une WebUI accessible sur le **réseau local** grâce à une adresse d’écoute configurable ;
 > - une détection RAPL plus robuste en conteneur, avec montage direct du powercap de l’hôte ;
 > - la détection et le suivi de **tous les disques physiques**, avec exclusion des couches virtuelles, RAID/LVM et des pseudo-périphériques eMMC `boot`/`rpmb` ;
@@ -31,6 +32,7 @@ Linux is the primary, fully tested platform. Windows and macOS are supported in 
 >
 > This fork of **PowerWatch** mainly adds:
 > - **Docker** support with multi-architecture **amd64 / arm64** images published through GitHub Actions;
+- **Web UI alert management**, with persistent rules and **Discord / Apprise** notifications;
 > - LAN access to the Web UI through a configurable bind address;
 > - more robust RAPL discovery in containers, including a direct host powercap mount;
 > - detection and monitoring of **all physical disks**, excluding virtual/RAID/LVM layers and eMMC `boot`/`rpmb` pseudo devices;
@@ -217,6 +219,36 @@ GET  /api/processes/top
 The dashboard is for the local machine or a trusted private LAN only. It has no built-in authentication or HTTPS.
 
 
+## Web Alerts and Notifications
+
+The Web UI includes a dedicated **Alerts** page at `/alerts`.
+
+Alerts are evaluated continuously by the Web server and can monitor `total`, `cpu`, `gpu`, `ram`, or any discovered disk sensor such as `disk:sda` / `disk:nvme0n1`. Each rule can define an enable/disable state, a threshold in watts, a sustained duration before firing, and an optional recovery notification.
+
+Alert settings are persisted in `~/.local/share/powerwatch/alerts.json`. In Docker, `HOME=/data`, so the supplied persistent data volume keeps both history and alert configuration across container updates.
+
+Notification methods:
+
+- **Discord** through a standard incoming webhook;
+- **Apprise API**, through a saved configuration endpoint such as `/notify/KEY`, or through the stateless `/notify/` endpoint with one or more Apprise notification URLs.
+
+The Alerts page includes test buttons for Discord, Apprise, or all configured providers. Notifications fire once per threshold excursion and can fire again after the reading recovers and later crosses the threshold again.
+
+The Docker image includes `curl`, used for outgoing Discord and Apprise HTTP notifications. When running `powerwatch-web` natively, install `curl` on the host if you want Web notifications.
+
+### Docker CLI and TUI
+
+The Docker image also contains the original CLI and TUI alongside the Web UI:
+
+```bash
+docker exec powerwatch powerwatch
+docker exec powerwatch powerwatch --json
+docker exec powerwatch powerwatch history --since 1h
+docker exec -it powerwatch powerwatch-tui
+```
+
+The Web UI remains the container entrypoint, so launching the CLI or TUI with `docker exec` does not interrupt it.
+
 ## Energy-Saving Suggestions
 
 PowerWatch can detect sustained high power draw and propose actions to reduce it. Every action requires explicit confirmation through a modal dialog with a one-time token; nothing is applied automatically.
@@ -300,9 +332,9 @@ Most likely failure points:
 ## License
 
 [MIT](https://github.com/lnpotter/PowerWatch/blob/main/LICENSE)
-## Docker / NAS notes
+## Docker notes
 
-This fork adds Docker/NAS deployment, robust RAPL access, Linux multi-disk discovery, persistent multi-year history, a custom README logo, and explicit LAN-only deployment guidance.
+This fork adds Docker deployment for Linux hosts, robust RAPL access, Linux multi-disk discovery, persistent multi-year history, a custom README logo, and explicit LAN-only deployment guidance.
 
 **Security:** PowerWatch has no authentication. Keep it on a trusted private LAN only. Do not expose it with a public reverse proxy, Cloudflare Tunnel, or router port-forwarding.
 

@@ -1,3 +1,4 @@
+mod alerts;
 mod app;
 mod state;
 mod suggestions;

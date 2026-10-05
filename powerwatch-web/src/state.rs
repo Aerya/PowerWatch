@@ -9,6 +9,7 @@ pub struct AppState {
     pub latest_snapshot: Arc<RwLock<Snapshot>>,
     pub storage: Arc<Mutex<Option<Storage>>>,
     pub suggestions: super::suggestions::SuggestionsState,
+    pub alerts: super::alerts::AlertService,
 }
 
 pub fn start_sampling_loop(
@@ -23,10 +24,13 @@ pub fn start_sampling_loop(
     let latest_snapshot = Arc::new(RwLock::new(initial));
     let storage = Arc::new(Mutex::new(storage));
     let suggestions = super::suggestions::SuggestionsState::new();
+    let alerts = super::alerts::AlertService::load_default();
+    let alerts_loop = alerts.clone();
     let state = AppState {
         latest_snapshot: latest_snapshot.clone(),
         storage: storage.clone(),
         suggestions: suggestions.clone(),
+        alerts,
     };
 
     thread::spawn(move || {
@@ -46,6 +50,7 @@ pub fn start_sampling_loop(
             if suggestions_enabled {
                 suggestions.evaluate(&snapshot);
             }
+            alerts_loop.evaluate(&snapshot);
 
             if log_continuously && last_history_write.elapsed() >= history_interval {
                 let readings: Vec<_> = snapshot.readings().cloned().collect();

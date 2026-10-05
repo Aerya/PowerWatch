@@ -393,8 +393,12 @@
 </style>
 </head>
 <body>
-  <h1>PowerWatch</h1>
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;">
+    <h1 style="margin:0;">PowerWatch</h1>
+    <a href="/alerts" style="color:var(--text);text-decoration:none;border-bottom:1px dotted var(--muted);">Alerts</a>
+  </div>
   <div class="total" id="total">loading…</div>
+  <div id="alerts-summary" style="margin:-6px 0 16px;color:var(--muted);font-size:.82rem;"></div>
   <table id="sensors">
     <thead>
       <tr><th>component</th><th>watts</th><th>confidence</th></tr>
@@ -669,6 +673,25 @@ function renderSnapshot(data) {
 
 function setStatus(message) {
   document.getElementById("status").textContent = message;
+}
+
+async function refreshAlertsSummary() {
+  const el = document.getElementById("alerts-summary");
+  try {
+    const res = await fetch("/api/alerts");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const rules = data.settings?.rules || [];
+    const enabled = rules.filter(rule => rule.enabled).length;
+    const active = (data.statuses || []).filter(status => status.active).length;
+    if (active > 0) {
+      el.innerHTML = `<a href="/alerts" style="color:var(--error);">alerts: ${active} active</a> · ${enabled} enabled`;
+    } else {
+      el.innerHTML = `<a href="/alerts" style="color:var(--measured);">alerts: normal</a> · ${enabled} enabled`;
+    }
+  } catch (_) {
+    el.innerHTML = `<a href="/alerts">alerts</a>: unavailable`;
+  }
 }
 
 
@@ -1186,9 +1209,11 @@ setupChartInteractions();
 setupHistoryControls();
 refreshSnapshot();
 refreshSuggestions();
+refreshAlertsSummary();
 setInterval(refreshSnapshot, 1500);
 setInterval(refreshHistory, 60000);
 setInterval(refreshSuggestions, 5000);
+setInterval(refreshAlertsSummary, 3000);
 </script>
 </body>
 </html>
