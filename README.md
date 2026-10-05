@@ -1,390 +1,326 @@
 # PowerWatch
 
 <p align="center">
-  <img src="docs/images/powerwatch-aerya-logo.png" alt="PowerWatch logo" width="720">
+  <img src="docs/images/powerwatch-aerya-logo.png" alt="PowerWatch" width="720">
 </p>
 
-A lightweight, cross-platform tool for measuring and estimating power consumption of PC components in real-time. Provides three interfaces: a CLI for scripts and one-off checks, a terminal dashboard for live monitoring, and a browser-based dashboard with charts and history.
+<p align="center">
+  <strong>Français</strong> · <a href="README.en.md">English</a>
+</p>
 
-## Overview
+**PowerWatch** surveille la consommation électrique d'une machine Linux depuis Docker et l'affiche dans une WebUI, avec historique, alertes et plusieurs sources matérielles réelles ou estimées.
 
-PowerWatch reports real or estimated power draw (in watts) for each major component: CPU, one or more GPUs (NVIDIA/AMD/Intel), RAM, and disk. Every reading is tagged as either `(measured)` or `(estimated)`, and the total reflects the least-trustworthy input, so you always know what you can rely on.
+Ce fork est pensé en priorité pour les **serveurs, mini-PC, machines desktop Linux et hôtes Docker**. Le déploiement documenté ici est **Docker uniquement**.
 
-Linux is the primary, fully tested platform. Windows and macOS are supported in code but haven't been validated on real hardware yet.
+> **Sécurité :** la WebUI n'a pas d'authentification intégrée. Utilisez-la uniquement sur un **LAN privé de confiance**. Ne l'exposez pas directement sur Internet.
 
+## Fonctionnalités
 
+- WebUI temps réel avec vue historique.
+- Historique SQLite persistant avec agrégation longue durée.
+- Alertes configurables depuis la WebUI.
+- Notifications **Discord** et **Apprise API**.
+- Détection multi-GPU **NVIDIA / AMD / Intel**.
+- Fallback **Intel RAPL `uncore`** pour certains iGPU sans compteur i915/xe hwmon.
+- Suivi de tous les **disques physiques** sans double comptage RAID/LVM.
+- Affichage best-effort des **partitions, montages, systèmes de fichiers, mdraid, LVM et dm-crypt** liés aux disques.
+- CLI et TUI disponibles dans l'image Docker.
+- Images GHCR multi-architecture **amd64 / arm64**.
+- Interface Web **français / anglais**.
 
-> ## 🇫🇷 À propos de ce fork
->
-> Ce fork de **PowerWatch** ajoute principalement :
-> - le support **Docker** avec images multi-architecture **amd64 / arm64** publiées via GitHub Actions ;
-> - une gestion des **alertes depuis la WebUI**, avec règles persistantes et notifications **Discord / Apprise** ;
-> - une WebUI accessible sur le **réseau local** grâce à une adresse d’écoute configurable ;
-> - une **WebUI bilingue français / anglais**, avec détection automatique au premier accès et mémorisation du choix ;
-> - une détection RAPL plus robuste en conteneur, avec montage direct du powercap de l’hôte ;
-> - la détection **multi-GPU NVIDIA / AMD / Intel**, avec fallback **Intel RAPL `uncore`** pour les iGPU sans compteur i915/xe hwmon, et un **seul fichier Compose** pour Docker ;
-> - la détection et le suivi de **tous les disques physiques**, sans double comptage RAID/LVM, avec affichage best-effort des **partitions, points de montage, systèmes de fichiers, RAID, LVM et dm-crypt** associés ;
-> - un **mode NAS/headless** qui désactive les suggestions desktop inutiles ;
-> - un historique SQLite persistant avec vue **Live** et périodes personnalisables en heures, jours, semaines, mois ou années ;
-> - l’agrégation automatique de l’historique avec **moyenne / minimum / maximum / énergie (kWh)** pour garder l’interface légère sur les longues périodes.
->
-> ⚠️ La WebUI ne disposant d’aucune authentification, elle est destinée à un **usage LAN uniquement** et ne doit pas être exposée directement sur Internet.
->
-> ## 🇬🇧 About this fork
->
-> This fork of **PowerWatch** mainly adds:
-> - **Docker** support with multi-architecture **amd64 / arm64** images published through GitHub Actions;
-> - **Web UI alert management**, with persistent rules and **Discord / Apprise** notifications;
-> - LAN access to the Web UI through a configurable bind address;
-> - a **bilingual French / English Web UI**, with automatic first-visit detection and persistent language selection;
-> - more robust RAPL discovery in containers, including a direct host powercap mount;
-> - **multi-GPU NVIDIA / AMD / Intel** discovery, with an **Intel RAPL `uncore` fallback** for iGPUs without i915/xe hwmon power telemetry and a **single Compose file** for Docker deployment;
-> - detection and monitoring of **all physical disks** without double-counting RAID/LVM layers, plus best-effort display of associated **partitions, mount points, filesystems, RAID, LVM and dm-crypt** topology;
-> - a **NAS/headless mode** that disables desktop-only energy suggestions;
-> - persistent SQLite history with a **Live** view and arbitrary ranges in hours, days, weeks, months or years;
-> - automatic history aggregation with **average / minimum / maximum / energy (kWh)** to keep long-range queries lightweight.
->
-> ⚠️ Since the Web UI does not provide authentication, it is intended for **LAN-only use** and should not be exposed directly to the Internet.
+## Mesures
 
+| Composant | Source | Type |
+|---|---|---|
+| CPU | RAPL Linux | Mesurée |
+| GPU NVIDIA | NVML | Mesurée |
+| GPU AMD | `amdgpu` hwmon | Mesurée |
+| GPU Intel | `i915` / `xe` hwmon ou RAPL `uncore` | Mesurée |
+| RAM | Heuristique | Estimée |
+| Disques | Activité + type de disque | Estimée |
+| Total | Somme des capteurs disponibles | Mixte |
 
+Un capteur indisponible est simplement ignoré.
 
-## What It Measures
+Sur certains Intel, PowerWatch peut utiliser le sous-domaine RAPL `uncore` comme mesure de l'iGPU. Dans ce cas, la valeur CPU est calculée à partir du package en retirant `uncore` afin de ne pas compter deux fois l'iGPU.
 
-| Component | Source | Kind |
-|-----------|--------|------|
-| CPU | RAPL (`/sys/class/powercap`) | Measured |
-| GPU (NVIDIA) | NVML | Measured |
-| GPU (AMD) | DRM hwmon (`power1_average` / `power1_input`) | Measured |
-| GPU (Intel) | i915/xe hwmon, or RAPL `uncore` fallback when available | Measured |
-| RAM | Heuristic (GB used × watts/GB) | Estimated |
-| Disk | Idle/active watts by type (NVMe uses drive's own power-state table when `nvme-cli` is available) | Estimated |
-| Total | Sum of the above | Mixed (tagged) |
+## Installation Docker
 
-Sensors that are not available on your machine are silently omitted. Multiple GPUs are kept separate in live data, history, charts and alerts. On Intel Linux systems, PowerWatch first prefers i915/xe hwmon telemetry. If none is exposed but the RAPL package provides an `uncore` child domain, PowerWatch uses that domain as a measured `gpu:intel:0` fallback. To avoid double counting, the CPU reading then becomes package power minus `uncore`, so CPU + iGPU still reconstruct the original package draw.
+### Prérequis
 
-On NVMe drives, if `nvme-cli` is installed and the drive is readable, PowerWatch uses the manufacturer's declared max power per power state (`nvme id-ctrl`) rather than a generic guess. It falls back to the heuristic automatically when `nvme-cli` isn't available or the drive isn't NVMe.
+- Linux ;
+- Docker Engine ;
+- Docker Compose ;
+- accès en lecture à `/sys` depuis le conteneur ;
+- pour NVIDIA : pilote NVIDIA + NVIDIA Container Toolkit sur l'hôte.
 
-On Linux, physical disk sensor identities remain stable (`disk:sda`, `disk:nvme0n1`, etc.), while the CLI/TUI/Web UI enrich their labels from `/sys/class/block` and `/proc/1/mountinfo`. When available, this shows partitions, mount points, filesystem types and intermediary mdraid/LVM/dm-crypt layers without treating those virtual layers as extra power-consuming disks. Example: `disk (sda) — sda1 → md0 [RAID1] → vg-data [LVM] → /mnt/data [ext4]`.
-
-## Install
-
-You need a recent Rust toolchain (stable, 1.75+). No system libraries are required: SQLite is bundled, and the NVML binding loads dynamically only when the NVIDIA driver is present.
+### Démarrage rapide
 
 ```bash
-cargo build --workspace --release
+git clone https://github.com/Aerya/PowerWatch.git
+cd PowerWatch
+
+cp .env.example .env
+docker compose pull
+docker compose up -d
 ```
 
-Binaries are placed under `target/release/`: `powerwatch` (CLI), `powerwatch-tui` (terminal dashboard), and `powerwatch-web` (browser dashboard). Copy them anywhere on your `PATH` if you like:
-
-```bash
-sudo cp target/release/powerwatch target/release/powerwatch-tui target/release/powerwatch-web /usr/local/bin/
-```
-
-### CPU readings need a one-time setup
-
-RAPL is root-only by default. Either run the CLI with `sudo`, or install the included udev rule:
-
-```bash
-sudo ./scripts/setup-udev.sh
-```
-
-See `docs/setup-udev.md` for what the rule does and why the restriction exists.
-
-## Usage
-
-```bash
-# One-off snapshot
-powerwatch
-
-# JSON output (for scripts or pipes)
-powerwatch --json
-
-# Live terminal dashboard, refreshing once a second
-powerwatch-tui
-
-# Browser dashboard (local only, no auth)
-powerwatch-web               # http://127.0.0.1:3000
-powerwatch-web --port 4000   # custom port
-powerwatch-web --log         # also write to the history database
-```
-
-### History logging
-
-The CLI can record readings to a local SQLite database for later analysis:
-
-```bash
-# Log for 60 seconds
-powerwatch --log --duration 60s
-
-# Also accepts "5m", "1h", or a bare number of seconds
-powerwatch --log --duration 5m
-```
-
-History lives at `~/.local/share/powerwatch/history.db`. You can inspect it directly:
-
-```bash
-sqlite3 ~/.local/share/powerwatch/history.db "SELECT * FROM readings ORDER BY ts DESC LIMIT 20;"
-```
-
-Query averaged readings from a logged session:
-
-```bash
-powerwatch history --since 1h
-powerwatch history --since 30m
-```
-
-### Alerts
-
-Get notified when a component stays above a threshold for a configured duration. Works in both the CLI and TUI:
-
-```bash
-# CLI: needs --watch so there's something to sustain
-powerwatch --watch --alert-above 50 --alert-for 30s \
-  --alert-run "notify-send 'PowerWatch' 'total power is high'"
-
-# TUI: always live, no --watch needed
-powerwatch-tui --alert-component cpu --alert-above 20 --alert-for 10s
-```
-
-| Flag | Meaning |
-|------|---------|
-| `--alert-above <watts>` | Enable the alert (required) |
-| `--alert-component <name>` | Which sensor to watch (`cpu`, aggregate `gpu`, a specific `gpu:nvidia:0` / `gpu:amd:0` / `gpu:intel:0`, `ram`, disk sensor, or `total`) |
-| `--alert-for <duration>` | How long the threshold must be sustained (`10s`, `2m`, default: immediate) |
-| `--alert-run <command>` | Shell command to run once when the alert fires |
-
-The alert fires **once per excursion** above the threshold (not once per second) so a hook won't spam you. It can fire again after dropping back below and crossing upward a second time. Without `--alert-run`, the CLI prints `🔔 alert active` each cycle and the TUI shows a red banner.
-
-## Live Dashboard (TUI)
-
-![TUI](docs/images/Image_TUI.png)
-
-```bash
-powerwatch-tui
-```
-
-Opens a full-screen dashboard updating once per second: the total at top, one block per sensor below (current watts, confidence, a sparkline of the last minute, and min/max), and a footer listing available keys.
-
-| Key | Action |
-|-----|--------|
-| `q` | Quit |
-| `p` | Pause/resume sampling (freezes the last frame, shows `PAUSED`) |
-| `l` | Start/stop logging to the history database |
-| `s` | Open/close the suggestions panel |
-
-If every sensor fails mid-session, the total line reports the failure directly instead of going quiet.
-
-### Suggestions Panel (TUI)
-
-The TUI can evaluate power-draw patterns and surface energy-saving suggestions. Press `s` to open the panel:
-
-| Key | Action |
-|-----|--------|
-| `s` | Toggle suggestions panel |
-| `Enter` | Confirm the first actionable suggestion |
-| `y` / `Y` | Apply the selected action |
-| `n` / `N` | Dismiss the suggestion |
-| `s` again | Close the panel |
-
-Each suggestion carries a confirmation token to prevent accidental or remote-triggered changes, you must explicitly confirm before any action runs.
-
-## Web Dashboard
-
-![WEB](docs/images/Image_WEB.png)
-
-```bash
-powerwatch-web                             # http://127.0.0.1:3000
-powerwatch-web --port 4000
-powerwatch-web --log
-powerwatch-web --history-interval 300
-powerwatch-web --nas-mode
-```
-
-The Web UI is available in **English and French**. On the first visit it follows the browser language when French is detected, otherwise it falls back to English. The selected language can be changed at any time with the `🇫🇷 FR` / `🇬🇧 EN` controls and is remembered in the browser.
-
-The dashboard provides live readings plus historical views. Presets include `1 h`, `24 h`, `7 d`, `30 d`, and `1 y`, with custom ranges in hours, days, weeks, months, or years.
-
-For the selected period it displays average, minimum, maximum, and energy in kWh. Long periods are aggregated server-side.
-
-The Docker image already starts with `--log --history-interval 60 --nas-mode`.
-
-### History retention
-
-- raw readings: 30 days;
-- 15-minute rollups: 30 days to 1 year;
-- 1-hour rollups: older than 1 year, retained long-term.
-
-API endpoints:
+Par défaut, le Compose publie la WebUI uniquement sur :
 
 ```text
-GET  /api/snapshot
-GET  /api/history?since=10m
-GET  /api/history/range?amount=7&unit=days
-GET  /api/suggestions
-POST /api/suggestions/apply
-GET  /api/processes/top
+127.0.0.1:3000
 ```
 
-The dashboard is for the local machine or a trusted private LAN only. It has no built-in authentication or HTTPS.
+Pour l'ouvrir sur le réseau local, modifiez `.env` avec **l'adresse IPv4 privée du serveur** :
 
+```env
+POWERWATCH_BIND_IP=192.168.0.50
+```
 
-## Web Alerts and Notifications
-
-The Web UI includes a dedicated **Alerts** page at `/alerts`.
-
-![Web Alerts](docs/images/Image_ALERTS.png)
-
-Alerts are evaluated continuously by the Web server and can monitor `total`, `cpu`, aggregate `gpu`, an individual GPU such as `gpu:nvidia:0`, `gpu:amd:0` or `gpu:intel:0`, `ram`, or any discovered disk sensor such as `disk:sda` / `disk:nvme0n1`. Each rule can define an enable/disable state, a threshold in watts, a sustained duration before firing, and an optional recovery notification.
-
-Alert settings are persisted in `~/.local/share/powerwatch/alerts.json`. In Docker, `HOME=/data`, so the supplied persistent data volume keeps both history and alert configuration across container updates.
-
-Notification methods:
-
-- **Discord** through a standard incoming webhook;
-- **Apprise API**, through a saved configuration endpoint such as `/notify/KEY`, or through the stateless `/notify/` endpoint with one or more Apprise notification URLs.
-
-The Alerts page includes test buttons for Discord, Apprise, or all configured providers. Notifications fire once per threshold excursion and can fire again after the reading recovers and later crosses the threshold again.
-
-The Docker image includes `curl`, used for outgoing Discord and Apprise HTTP notifications. When running `powerwatch-web` natively, install `curl` on the host if you want Web notifications.
-
-
-## Docker: one Compose file / un seul fichier Compose
-
-PowerWatch now uses a **single `compose.yaml`**.
+Puis relancez :
 
 ```bash
 docker compose up -d
 ```
 
-The Compose mounts `/sys/devices/virtual` separately at `/host-sys-virtual` and sets `POWERWATCH_POWERCAP_PATH` so CPU RAPL remains accessible on hosts where a plain `/sys` bind does not expose the `powercap` subtree inside Docker.
+La WebUI sera alors disponible sur :
 
-**AMD and Intel GPUs require no additional Compose configuration**: PowerWatch reads their Linux hwmon telemetry directly through the read-only `/sys` mount. Intel systems without i915/xe hwmon telemetry can also use a RAPL `uncore` domain exposed through the existing `/host-sys-virtual` mount.
+```text
+http://192.168.0.50:3000
+```
 
-For **NVIDIA**, install the NVIDIA driver and NVIDIA Container Toolkit on the Docker host, then uncomment the clearly marked NVIDIA block already included in `compose.yaml`.
+Le fichier [`compose.yaml`](compose.yaml) fourni est le fichier de déploiement de référence.
 
-Mixed-vendor systems are supported without separate Compose files:
+Pour les détails matériels et Docker : [`DOCKER.md`](DOCKER.md).
 
-- AMD + NVIDIA: AMD is detected automatically; enable the NVIDIA block;
-- Intel iGPU + NVIDIA: Intel is detected automatically; enable the NVIDIA block;
-- multiple GPUs from one or several vendors: every readable GPU is monitored separately.
+## GPU
 
-See [`DOCKER.md`](DOCKER.md) for the bilingual 🇫🇷 / 🇬🇧 setup guide.
+### AMD
 
-### Docker CLI and TUI
+Aucune configuration Docker supplémentaire n'est nécessaire. PowerWatch lit les compteurs Linux `amdgpu` exposés dans `/sys`.
 
-The Docker image also contains the original CLI and TUI alongside the Web UI:
+### Intel
+
+PowerWatch utilise en priorité les compteurs `i915` / `xe` disponibles dans `hwmon`.
+
+Lorsqu'ils ne fournissent pas de télémétrie de puissance mais que RAPL expose un sous-domaine `uncore`, celui-ci peut être utilisé comme fallback `gpu:intel:0`.
+
+### NVIDIA
+
+Le pilote NVIDIA et **NVIDIA Container Toolkit** doivent être installés sur l'hôte.
+
+Le bloc NVIDIA est déjà présent dans `compose.yaml`, mais commenté pour que le même fichier fonctionne aussi sur les machines sans NVIDIA. Décommentez les lignes NVIDIA indiquées dans le Compose puis redémarrez :
+
+```bash
+docker compose up -d
+```
+
+Plusieurs GPU et les machines mixtes AMD/Intel/NVIDIA sont supportés lorsque les compteurs correspondants sont lisibles.
+
+## Disques, partitions et stockage
+
+PowerWatch crée un capteur électrique uniquement pour chaque **disque physique**.
+
+Les couches comme mdraid, LVM et dm-crypt ne sont pas ajoutées comme faux disques et ne sont donc pas comptées une seconde fois.
+
+Quand Linux permet de reconstruire la relation, l'affichage peut par exemple devenir :
+
+```text
+disk (sda) — sda1 → md0 [RAID1] → vg-data/lv-media [LVM] → /mnt/data [ext4]
+
+disk (nvme0n1) — nvme0n1p2 → cryptroot [dm-crypt] → / [ext4]
+```
+
+Une partition non montée peut également apparaître avec `[unmounted]`.
+
+Les identifiants internes restent stables (`disk:sda`, `disk:nvme0n1`, etc.) afin de ne pas casser l'historique ni les alertes.
+
+## WebUI
+
+<p align="center">
+  <img src="docs/images/Image_WEB.png" alt="PowerWatch WebUI">
+</p>
+
+La page principale affiche :
+
+- la consommation totale ;
+- chaque capteur détecté ;
+- la distinction **mesurée / estimée** ;
+- les historiques ;
+- moyenne, minimum, maximum et énergie ;
+- des périodes prédéfinies et personnalisables ;
+- les libellés enrichis des disques ;
+- le choix de langue FR / EN.
+
+L'image Docker démarre automatiquement PowerWatch avec l'historique activé et le mode NAS/headless.
+
+## Historique
+
+Les données sont stockées dans SQLite dans le volume persistant `./data`.
+
+Rétention actuelle :
+
+- mesures brutes : **30 jours** ;
+- agrégats 15 minutes : **de 30 jours à 1 an** ;
+- agrégats 1 heure : **au-delà d'un an**.
+
+Les longues périodes sont agrégées côté serveur afin d'éviter d'envoyer inutilement des milliers de points à la WebUI.
+
+## Alertes et notifications
+
+<p align="center">
+  <img src="docs/images/Image_ALERTS.png" alt="PowerWatch Alerts">
+</p>
+
+La page `/alerts` permet de créer des règles persistantes sur :
+
+- le total ;
+- le CPU ;
+- l'ensemble des GPU ;
+- un GPU précis (`gpu:nvidia:0`, `gpu:amd:0`, `gpu:intel:0`, etc.) ;
+- la RAM ;
+- un disque précis.
+
+Chaque règle peut définir :
+
+- un seuil en watts ;
+- une durée minimale de dépassement ;
+- activation / désactivation ;
+- notification de retour à la normale.
+
+Notifications disponibles :
+
+- **Discord** via webhook entrant ;
+- **Apprise API**.
+
+Les paramètres d'alertes sont conservés dans le volume persistant Docker avec l'historique.
+
+## CLI et TUI dans Docker
+
+La WebUI est le service principal, mais l'image contient également la CLI et la TUI.
+
+### Snapshot
 
 ```bash
 docker exec powerwatch powerwatch
+```
+
+### JSON
+
+```bash
 docker exec powerwatch powerwatch --json
+```
+
+### Historique CLI
+
+```bash
 docker exec powerwatch powerwatch history --since 1h
+```
+
+### TUI
+
+<p align="center">
+  <img src="docs/images/Image_TUI.png" alt="PowerWatch TUI">
+</p>
+
+```bash
 docker exec -it powerwatch powerwatch-tui
 ```
 
-The Web UI remains the container entrypoint, so launching the CLI or TUI with `docker exec` does not interrupt it.
+Lancer la CLI ou la TUI avec `docker exec` n'interrompt pas la WebUI.
 
-## Energy-Saving Suggestions
-
-PowerWatch can detect sustained high power draw and propose actions to reduce it. Every action requires explicit confirmation through a modal dialog with a one-time token; nothing is applied automatically.
-
-### Implemented Suggestions
-
-| Suggestion | Condition | Action | Safety |
-|------------|-----------|--------|--------|
-| **Switch to power saver** | Total > 15W for 3s, or CPU > 8W for 3s | Change power profile to `power-saver` | Modifies system profile |
-| **Enable screensaver** | Total > 20W for 30s (idle heuristic) | Suspend screensaver (`xdg-screensaver suspend`) | Safe, reversible |
-| **Show top processes** | CPU > 8W for 10s | Display top 5 CPU processes in a modal | Read-only, no system changes |
-| **Show sleep timer** | System appears idle | Display current sleep configuration | Read-only, no system changes |
-
-### Power Profile Commands
-
-| Profile | Linux | macOS | Windows |
-|---------|-------|-------|---------|
-| Power Saver | `powerprofilesctl set power-saver` | `pmset -a lowpowermode 1` | `powercfg /setactive SCHEME_MAX` |
-| Balanced | `powerprofilesctl set balanced` | `pmset -a lowpowermode 0` | `powercfg /setactive SCHEME_BALANCED` |
-| Performance | `powerprofilesctl set performance` | `pmset -a lowpowermode 0` | `powercfg /setactive SCHEME_MIN` |
-
-### Security Notes
-
-The web dashboard can execute system commands from a browser click. While it binds only to `127.0.0.1` and has no authentication, consider these risks:
-
-- **Confirmation tokens** mitigate CSRF. Each token is single-use and server-generated.
-- **Never expose the port on the public Internet**. LAN-only use is acceptable on a trusted private network, but do not publish it through a public reverse proxy, tunnel, or router port-forwarding.
-- **Double confirmation** is shown in the browser (`confirm()` dialog) in addition to the token.
-
-Use the web dashboard only on trusted local machines.
-
-### Platform-Specific Sensor Sources
-
-**Linux**: direct filesystem reads (`/sys/class/powercap` for RAPL, DRM hwmon for AMD/Intel GPUs, RAPL `uncore` fallback for supported Intel iGPUs, NVML for NVIDIA, `/proc/diskstats`/`nvme-cli` for disk power estimation, and `/sys/class/block` + `/proc/1/mountinfo` for disk topology). Every detected GPU is registered as a distinct sensor.
-
-**Windows**: LibreHardwareMonitor WMI provider when available (real CPU RAPL/MSR), falling back to `GetSystemTimes` × assumed TDP for CPU; NVML unchanged; RAM uses `GlobalMemoryStatusEx`; disk uses the PDH performance counter API.
-
-**macOS**: `powermetrics` for CPU/GPU (requires `sudo`), `vm_stat` + `sysctl hw.memsize` for RAM, `iostat` for disk. CPU and GPU are measured; disk and RAM are estimated.
-
-## Development
+## Vérifier les capteurs détectés
 
 ```bash
-cargo test --workspace   # unit tests - no real hardware required
-cargo clippy --workspace # lints
-cargo fmt                # formatting
-cargo build --release    # optimized binaries
+docker exec powerwatch powerwatch --json
 ```
 
-Hardware-facing sensors (RAPL, NVML, hwmon) take a path or handle as a constructor argument, so tests exercise parsing and calculation logic against fixture data rather than live hardware. Manual validation on real hardware is still recommended before trusting numbers on an unfamiliar machine.
+Exemples d'identifiants GPU :
 
-## Windows Support (Experimental)
-
-Building on Windows:
-
-```powershell
-cargo build --release
-.\target\release\powerwatch.exe
-.\target\release\powerwatch-tui.exe
+```text
+gpu:nvidia:0
+gpu:nvidia:1
+gpu:amd:0
+gpu:intel:0
 ```
 
-Most likely failure points, in rough order of confidence:
-1. LibreHardwareMonitor WMI query (`powerwatch-core/src/sensors/windows/lhm.rs`) — COM/WMI via the `wmi` crate is the least verifiable piece blind.
-2. Disk sensor (`powerwatch-core/src/sensors/windows/disk.rs`) — PDH API behavior can vary.
-3. CPU fallback path — `GetSystemTimes` semantics (kernel time includes idle) are easy to get subtly wrong.
-4. RAM sensor — simplest of the four, most likely to just work.
-
-## macOS Support (Experimental)
-
-CPU and GPU are **measured** via `powermetrics` (Apple reports real wattage). The trade-off: `powermetrics` always requires root, so the whole process must run under `sudo`:
+Pour vérifier RAPL directement dans le conteneur :
 
 ```bash
-sudo ./target/release/powerwatch
-sudo ./target/release/powerwatch-tui
+docker exec powerwatch sh -c \
+  'find /host-sys-virtual/powercap/intel-rapl -name energy_uj -o -name name 2>/dev/null'
 ```
 
-Most likely failure points:
-1. Disk sensor (`powerwatch-core/src/sensors/macos/disk.rs`) — `iostat` column layout depends on disk count.
-2. CPU/GPU sensor — the plist parsing is simple and fixture-tested, but the exact `powermetrics` invocation is unverified.
-3. RAM sensor — `vm_stat` "available" memory is an approximation; numbers should be in the right ballpark but may not match Activity Monitor exactly.
+## Données persistantes
 
-## License
+Le Compose monte :
 
-[MIT](https://github.com/lnpotter/PowerWatch/blob/main/LICENSE)
-## Docker notes
+```text
+./data → /data/.local/share/powerwatch
+```
 
-This fork adds Docker deployment for Linux hosts, robust RAPL access, Linux multi-disk and multi-GPU discovery, persistent multi-year history, a custom README logo, and explicit LAN-only deployment guidance.
+Ce répertoire contient notamment :
 
-GPU access is opt-in so the base stack still starts on machines without a GPU:
+```text
+history.db
+alerts.json
+```
+
+Conservez `./data` lors des mises à jour du conteneur.
+
+## Mise à jour
 
 ```bash
-# AMD and/or Intel
-docker compose -f compose.yaml -f compose.gpu-amd-intel.yaml up -d
-
-# NVIDIA
-docker compose -f compose.yaml -f compose.gpu-nvidia.yaml up -d
-
-# Mixed machine: AMD/Intel + NVIDIA
-docker compose -f compose.yaml -f compose.gpu-amd-intel.yaml -f compose.gpu-nvidia.yaml up -d
+docker compose pull
+docker compose up -d
+docker image prune -f
 ```
 
-The NVIDIA overlay requires the host NVIDIA driver and NVIDIA Container Toolkit. The AMD/Intel overlay passes `/dev/dri`; the base stack already exposes host `/sys` read-only for hwmon telemetry.
+## Sécurité
 
-**Security:** PowerWatch has no authentication. Keep it on a trusted private LAN only. Do not expose it with a public reverse proxy, Cloudflare Tunnel, or router port-forwarding.
+PowerWatch a besoin d'accéder à plusieurs informations matérielles de l'hôte pour mesurer les composants.
 
-See [DOCKER.md](DOCKER.md) for deployment details.
+Le Compose fourni utilise notamment :
+
+- `/sys` en lecture seule ;
+- `/sys/devices/virtual` en lecture seule pour RAPL ;
+- `pid: host` pour certaines informations hôte ;
+- un système de fichiers conteneur en lecture seule ;
+- `no-new-privileges:true`.
+
+La WebUI ne possède actuellement **ni authentification ni HTTPS intégré**. Ne la publiez pas directement derrière un port-forward, un tunnel public ou un reverse proxy exposé à Internet sans protection d'accès supplémentaire.
+
+## Plateforme supportée par ce fork
+
+La documentation et les images publiées par ce fork ciblent **Linux + Docker**.
+
+Le code historique de PowerWatch contient encore des éléments issus du projet original pour d'autres plateformes, mais **Windows et macOS ne font pas partie du périmètre supporté/documenté de ce fork**.
+
+## Image Docker
+
+Image :
+
+```text
+ghcr.io/aerya/powerwatch:latest
+```
+
+Architectures publiées :
+
+```text
+linux/amd64
+linux/arm64
+```
+
+Les builds et images sont produits par **GitHub Actions**.
+
+## Attribution
+
+Ce dépôt est un fork maintenu par **Aerya**.
+
+Projet original : [lnpotter/PowerWatch](https://github.com/lnpotter/PowerWatch)
+
+Merci à son auteur pour la base du projet.
+
+## Licence
+
+Voir [`LICENSE`](LICENSE).
