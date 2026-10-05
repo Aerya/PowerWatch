@@ -3,37 +3,68 @@ use crate::sampler::Sampler;
 #[cfg(target_os = "linux")]
 pub fn build_default_sampler() -> Sampler {
     use crate::discovery;
+    use crate::model::{Component, GpuVendor};
     use crate::sensors::gpu_power::LinuxGpuPowerSensor;
     use crate::sensors::nvidia::NvidiaSensor;
     use crate::sensors::ram::RamSensor;
-    use crate::sensors::rapl::RaplSensor;
+    use crate::sensors::rapl::{RaplPackageMinusDomainSensor, RaplSensor};
     use std::path::Path;
 
     let mut sampler = Sampler::new();
 
     let configured_powercap = std::env::var("POWERWATCH_POWERCAP_PATH").ok();
-    let mut rapl_target = configured_powercap
+    let mut rapl_domains = configured_powercap
         .as_deref()
-        .and_then(|path| discovery::discover_rapl(Path::new(path)));
+        .and_then(|path| discovery::discover_rapl_domains(Path::new(path)));
 
-    if rapl_target.is_none() {
+    if rapl_domains.is_none() {
         for path in [
             "/sys/devices/virtual/powercap/intel-rapl",
             "/sys/devices/virtual/powercap",
             "/sys/class/powercap",
         ] {
-            if let Some(target) = discovery::discover_rapl(Path::new(path)) {
-                rapl_target = Some(target);
+            if let Some(target) = discovery::discover_rapl_domains(Path::new(path)) {
+                rapl_domains = Some(target);
                 break;
             }
         }
     }
 
-    if let Some(target) = rapl_target {
-        sampler.add_sensor(
-            "cpu",
-            Box::new(RaplSensor::new(target.energy_path, target.max_energy_uj)),
-        );
+    let linux_gpu_targets = discovery::discover_linux_gpu_hwmon(Path::new("/sys/class/hwmon"));
+    let has_intel_hwmon = linux_gpu_targets
+        .iter()
+        .any(|target| target.vendor == GpuVendor::Intel);
+    let intel_drm_driver_loaded =
+        Path::new("/sys/module/i915").exists() || Path::new("/sys/module/xe").exists();
+    let use_uncore_gpu_accounting = rapl_domains
+        .as_ref()
+        .is_some_and(|domains| domains.uncore.is_some())
+        && (has_intel_hwmon || intel_drm_driver_loaded);
+
+    if let Some(domains) = &rapl_domains {
+        if use_uncore_gpu_accounting {
+            let uncore = domains.uncore.as_ref().expect("uncore checked above");
+            // package includes the integrated GPU domain. Subtract uncore from
+            // the CPU reading whenever an Intel GPU reading will also be shown,
+            // so the iGPU is not counted once in CPU and again as a GPU.
+            sampler.add_sensor(
+                "cpu",
+                Box::new(RaplPackageMinusDomainSensor::new(
+                    domains.package.energy_path.clone(),
+                    domains.package.max_energy_uj,
+                    uncore.energy_path.clone(),
+                    uncore.max_energy_uj,
+                )),
+            );
+        } else {
+            sampler.add_sensor(
+                "cpu",
+                Box::new(RaplSensor::new(
+                    domains.package.energy_path.clone(),
+                    domains.package.max_energy_uj,
+                )),
+            );
+        }
     }
 
     // NVIDIA: enumerate every NVML device exposed by the host/runtime.
@@ -48,9 +79,29 @@ pub fn build_default_sampler() -> Sampler {
     // AMD and Intel: enumerate every DRM hwmon device that exposes real power
     // or energy telemetry. The readings themselves come directly from hwmon
     // under /sys; no /dev/dri access is required for power telemetry.
-    for target in discovery::discover_linux_gpu_hwmon(Path::new("/sys/class/hwmon")) {
+    for target in linux_gpu_targets {
         let sensor_name = format!("gpu:{}:{}", target.vendor.as_str(), target.index);
         sampler.add_sensor(sensor_name, Box::new(LinuxGpuPowerSensor::new(target)));
+    }
+
+    // Some Intel platforms (including Jasper Lake) expose no i915/xe hwmon
+    // power counter but do expose a RAPL "uncore" child domain. Use it as a
+    // measured iGPU fallback only when no Intel hwmon GPU was discovered.
+    if !has_intel_hwmon && intel_drm_driver_loaded {
+        if let Some(uncore) = rapl_domains.as_ref().and_then(|domains| domains.uncore.as_ref()) {
+            sampler.add_sensor(
+                "gpu:intel:0",
+                Box::new(RaplSensor::new_for_component(
+                    uncore.energy_path.clone(),
+                    uncore.max_energy_uj,
+                    Component::GpuDevice {
+                        vendor: GpuVendor::Intel,
+                        index: 0,
+                        name: "Intel integrated GPU (RAPL uncore)".to_string(),
+                    },
+                )),
+            );
+        }
     }
 
     sampler.add_sensor(

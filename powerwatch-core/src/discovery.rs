@@ -7,7 +7,27 @@ pub struct RaplTarget {
     pub max_energy_uj: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RaplDomains {
+    pub package: RaplTarget,
+    pub uncore: Option<RaplTarget>,
+}
+
+fn rapl_target_at(path: &Path) -> Option<RaplTarget> {
+    let max_energy_text = std::fs::read_to_string(path.join("max_energy_range_uj")).ok()?;
+    let max_energy_uj = max_energy_text.trim().parse().ok()?;
+    let energy_path = path.join("energy_uj");
+    energy_path.exists().then_some(RaplTarget {
+        energy_path,
+        max_energy_uj,
+    })
+}
+
 pub fn discover_rapl(powercap_dir: &Path) -> Option<RaplTarget> {
+    discover_rapl_domains(powercap_dir).map(|domains| domains.package)
+}
+
+pub fn discover_rapl_domains(powercap_dir: &Path) -> Option<RaplDomains> {
     let entries = std::fs::read_dir(powercap_dir).ok()?;
 
     for entry in entries.flatten() {
@@ -30,22 +50,21 @@ pub fn discover_rapl(powercap_dir: &Path) -> Option<RaplTarget> {
             continue;
         }
 
-        let Ok(max_energy_text) = std::fs::read_to_string(path.join("max_energy_range_uj")) else {
-            continue;
-        };
-        let Ok(max_energy_uj) = max_energy_text.trim().parse() else {
+        let Some(package) = rapl_target_at(&path) else {
             continue;
         };
 
-        let energy_path = path.join("energy_uj");
-        if !energy_path.exists() {
-            continue;
-        }
-
-        return Some(RaplTarget {
-            energy_path,
-            max_energy_uj,
+        let uncore = std::fs::read_dir(&path).ok().and_then(|children| {
+            children.flatten().find_map(|child| {
+                let child_path = child.path();
+                let domain_name = std::fs::read_to_string(child_path.join("name")).ok()?;
+                (domain_name.trim() == "uncore")
+                    .then(|| rapl_target_at(&child_path))
+                    .flatten()
+            })
         });
+
+        return Some(RaplDomains { package, uncore });
     }
 
     None
@@ -238,6 +257,35 @@ mod tests {
 
         assert_eq!(target.energy_path, base.join("intel-rapl:0/energy_uj"));
         assert_eq!(target.max_energy_uj, 262_143_328_850);
+    }
+
+    #[test]
+    fn discovers_uncore_as_an_optional_package_subdomain() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+
+        write(base.join("intel-rapl:0/name"), "package-0\n");
+        write(base.join("intel-rapl:0/max_energy_range_uj"), "1000000\n");
+        write(base.join("intel-rapl:0/energy_uj"), "100\n");
+        write(base.join("intel-rapl:0/intel-rapl:0:0/name"), "core\n");
+        write(
+            base.join("intel-rapl:0/intel-rapl:0:0/max_energy_range_uj"),
+            "1000000\n",
+        );
+        write(base.join("intel-rapl:0/intel-rapl:0:0/energy_uj"), "80\n");
+        write(base.join("intel-rapl:0/intel-rapl:0:1/name"), "uncore\n");
+        write(
+            base.join("intel-rapl:0/intel-rapl:0:1/max_energy_range_uj"),
+            "1000000\n",
+        );
+        write(base.join("intel-rapl:0/intel-rapl:0:1/energy_uj"), "20\n");
+
+        let domains = discover_rapl_domains(base).unwrap();
+        assert_eq!(domains.package.energy_path, base.join("intel-rapl:0/energy_uj"));
+        assert_eq!(
+            domains.uncore.unwrap().energy_path,
+            base.join("intel-rapl:0/intel-rapl:0:1/energy_uj")
+        );
     }
 
     #[test]
