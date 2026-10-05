@@ -1,8 +1,9 @@
+use powerwatch_core::disk_topology::component_display_label;
 use powerwatch_core::model::{Component, Confidence, SensorError, SensorReading};
 use powerwatch_core::sampler::Snapshot;
 
 fn component_label(component: &Component) -> String {
-    component.label()
+    component_display_label(component)
 }
 
 fn confidence_label(confidence: Confidence) -> &'static str {

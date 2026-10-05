@@ -25,27 +25,40 @@ pub fn compute_power_watts(
     elapsed: Duration,
     max_energy_uj: u64,
 ) -> f64 {
-    let delta_uj = if after_uj >= before_uj {
+    let delta_uj = energy_delta_uj(before_uj, after_uj, max_energy_uj);
+    let delta_joules = delta_uj as f64 / 1_000_000.0;
+    delta_joules / elapsed.as_secs_f64()
+}
+
+fn energy_delta_uj(before_uj: u64, after_uj: u64, max_energy_uj: u64) -> u64 {
+    if after_uj >= before_uj {
         after_uj - before_uj
     } else {
         (max_energy_uj - before_uj) + after_uj
-    };
-
-    let delta_joules = delta_uj as f64 / 1_000_000.0;
-    delta_joules / elapsed.as_secs_f64()
+    }
 }
 
 pub struct RaplSensor {
     energy_path: PathBuf,
     max_energy_uj: u64,
+    component: Component,
     last: Option<(Instant, u64)>,
 }
 
 impl RaplSensor {
     pub fn new(energy_path: PathBuf, max_energy_uj: u64) -> Self {
+        Self::new_for_component(energy_path, max_energy_uj, Component::Cpu)
+    }
+
+    pub fn new_for_component(
+        energy_path: PathBuf,
+        max_energy_uj: u64,
+        component: Component,
+    ) -> Self {
         Self {
             energy_path,
             max_energy_uj,
+            component,
             last: None,
         }
     }
@@ -69,7 +82,7 @@ impl RaplSensor {
         self.last = Some((now, energy_uj));
 
         Ok(SensorReading {
-            component: Component::Cpu,
+            component: self.component.clone(),
             watts,
             confidence: Confidence::Measured,
             timestamp: chrono::Utc::now(),
@@ -78,6 +91,77 @@ impl RaplSensor {
 }
 
 impl PowerSensor for RaplSensor {
+    fn sample(&mut self) -> Result<SensorReading, SensorError> {
+        self.sample_at(Instant::now())
+    }
+}
+
+pub struct RaplPackageMinusDomainSensor {
+    package_energy_path: PathBuf,
+    package_max_energy_uj: u64,
+    excluded_energy_path: PathBuf,
+    excluded_max_energy_uj: u64,
+    last: Option<(Instant, u64, u64)>,
+}
+
+impl RaplPackageMinusDomainSensor {
+    pub fn new(
+        package_energy_path: PathBuf,
+        package_max_energy_uj: u64,
+        excluded_energy_path: PathBuf,
+        excluded_max_energy_uj: u64,
+    ) -> Self {
+        Self {
+            package_energy_path,
+            package_max_energy_uj,
+            excluded_energy_path,
+            excluded_max_energy_uj,
+            last: None,
+        }
+    }
+
+    fn sample_at(&mut self, now: Instant) -> Result<SensorReading, SensorError> {
+        let package_energy_uj = read_energy_uj(&self.package_energy_path)?;
+        let excluded_energy_uj = read_energy_uj(&self.excluded_energy_path)?;
+
+        let Some((last_time, last_package_uj, last_excluded_uj)) = self.last else {
+            self.last = Some((now, package_energy_uj, excluded_energy_uj));
+            return Err(SensorError::NotReady(
+                "need a second sample to compute power".to_string(),
+            ));
+        };
+
+        let elapsed = now - last_time;
+        if elapsed.is_zero() {
+            return Err(SensorError::NotReady(
+                "RAPL energy samples are too close together".to_string(),
+            ));
+        }
+        let package_delta = energy_delta_uj(
+            last_package_uj,
+            package_energy_uj,
+            self.package_max_energy_uj,
+        );
+        let excluded_delta = energy_delta_uj(
+            last_excluded_uj,
+            excluded_energy_uj,
+            self.excluded_max_energy_uj,
+        );
+        self.last = Some((now, package_energy_uj, excluded_energy_uj));
+
+        let cpu_delta = package_delta.saturating_sub(excluded_delta);
+        let watts = (cpu_delta as f64 / 1_000_000.0) / elapsed.as_secs_f64();
+
+        Ok(SensorReading {
+            component: Component::Cpu,
+            watts,
+            confidence: Confidence::Measured,
+            timestamp: chrono::Utc::now(),
+        })
+    }
+}
+
+impl PowerSensor for RaplPackageMinusDomainSensor {
     fn sample(&mut self) -> Result<SensorReading, SensorError> {
         self.sample_at(Instant::now())
     }
@@ -158,6 +242,27 @@ mod tests {
 
         assert_eq!(reading.component, Component::Cpu);
         assert_eq!(reading.confidence, Confidence::Measured);
+        assert_eq!(reading.watts, 2.0);
+    }
+
+    #[test]
+    fn package_minus_uncore_avoids_double_counting_the_igpu() {
+        let package = write_energy_file("1000000\n");
+        let uncore = write_energy_file("200000\n");
+        let mut sensor = RaplPackageMinusDomainSensor::new(
+            package.path().to_path_buf(),
+            u64::MAX,
+            uncore.path().to_path_buf(),
+            u64::MAX,
+        );
+        let t0 = Instant::now();
+        sensor.sample_at(t0).unwrap_err();
+
+        std::fs::write(package.path(), "4000000\n").unwrap();
+        std::fs::write(uncore.path(), "1200000\n").unwrap();
+        let reading = sensor.sample_at(t0 + Duration::from_secs(1)).unwrap();
+
+        assert_eq!(reading.component, Component::Cpu);
         assert_eq!(reading.watts, 2.0);
     }
 }

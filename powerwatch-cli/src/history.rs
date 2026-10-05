@@ -1,3 +1,4 @@
+use powerwatch_core::disk_topology::component_display_label;
 use powerwatch_core::model::{Component, SensorReading};
 
 #[derive(Debug, PartialEq)]
@@ -34,7 +35,7 @@ pub fn aggregate_by_component(readings: &[SensorReading]) -> Vec<ComponentSummar
 }
 
 fn component_label(component: &Component) -> String {
-    component.label()
+    component_display_label(component)
 }
 
 pub fn format_history_table(summaries: &[ComponentSummary]) -> String {
