@@ -46,8 +46,8 @@ pub fn build_default_sampler() -> Sampler {
     }
 
     // AMD and Intel: enumerate every DRM hwmon device that exposes real power
-    // or energy telemetry. /sys is enough for the readings themselves; Docker
-    // deployments also expose /dev/dri through the optional GPU overlay.
+    // or energy telemetry. The readings themselves come directly from hwmon
+    // under /sys; no /dev/dri access is required for power telemetry.
     for target in discovery::discover_linux_gpu_hwmon(Path::new("/sys/class/hwmon")) {
         let sensor_name = format!("gpu:{}:{}", target.vendor.as_str(), target.index);
         sampler.add_sensor(sensor_name, Box::new(LinuxGpuPowerSensor::new(target)));

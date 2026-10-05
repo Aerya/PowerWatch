@@ -20,7 +20,43 @@ The image defaults already enable:
 --nas-mode
 ```
 
-The container mounts host `/sys` read-only for hardware discovery, uses the host PID namespace, and persists SQLite history and alert configuration in `./data`.
+The container mounts host `/sys` read-only for general hardware discovery and also mounts `/sys/devices/virtual` at `/host-sys-virtual` so CPU RAPL remains visible inside Docker. It uses the host PID namespace and persists SQLite history and alert configuration in `./data`.
+
+### 🇫🇷 CPU / RAPL dans Docker
+
+Le simple montage `/sys:/sys:ro` ne suffit pas sur toutes les distributions : certains hôtes exposent bien RAPL sur la machine mais le sous-arbre `powercap` n'apparaît pas au même endroit dans le conteneur.
+
+Le Compose fourni monte donc aussi :
+
+```text
+/sys/devices/virtual:/host-sys-virtual:ro
+```
+
+et définit :
+
+```text
+POWERWATCH_POWERCAP_PATH=/host-sys-virtual/powercap/intel-rapl
+```
+
+Ce montage utilise un chemin parent générique présent sur Linux. Si RAPL est disponible, PowerWatch récupère la mesure CPU. S'il ne l'est pas, PowerWatch continue normalement sans capteur CPU mesuré.
+
+### 🇬🇧 CPU / RAPL in Docker
+
+The plain `/sys:/sys:ro` mount is not sufficient on every distribution: some hosts expose RAPL correctly on the host while the `powercap` subtree is not visible at the same location inside the container.
+
+The supplied Compose therefore also mounts:
+
+```text
+/sys/devices/virtual:/host-sys-virtual:ro
+```
+
+and sets:
+
+```text
+POWERWATCH_POWERCAP_PATH=/host-sys-virtual/powercap/intel-rapl
+```
+
+This uses a generic Linux parent path. When RAPL is available, PowerWatch restores measured CPU power. When it is not available, PowerWatch continues normally without a measured CPU sensor.
 
 ### 🇫🇷 GPU AMD et Intel
 

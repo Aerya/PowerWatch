@@ -10,45 +10,59 @@ services:
     ports:
       - "${POWERWATCH_BIND_IP:-127.0.0.1}:3000:3000"
 
-    # FR : /sys donne à PowerWatch un accès en lecture seule aux capteurs
-    # matériels de l'hôte (CPU RAPL, GPU AMD/Intel hwmon, disques, etc.).
-    # AMD et Intel fonctionnent automatiquement si le noyau expose leur
-    # télémétrie de puissance : aucune configuration GPU supplémentaire.
+    # FR : /sys expose les capteurs matériels généraux de l'hôte
+    # (GPU AMD/Intel hwmon, disques, etc.).
+    # Le second montage expose directement /sys/devices/virtual sous un
+    # chemin dédié afin que RAPL reste visible dans Docker même lorsque
+    # le simple bind /sys ne rend pas powercap accessible au conteneur.
     #
-    # EN: /sys gives PowerWatch read-only access to host hardware sensors
-    # (CPU RAPL, AMD/Intel GPU hwmon, disks, etc.).
-    # AMD and Intel work automatically when the kernel exposes power
-    # telemetry: no additional GPU configuration is required.
+    # EN: /sys exposes general host hardware sensors
+    # (AMD/Intel GPU hwmon, disks, etc.).
+    # The second mount exposes /sys/devices/virtual at a dedicated path so
+    # RAPL remains visible in Docker even when the plain /sys bind does not
+    # expose the powercap subtree inside the container.
     volumes:
       - /sys:/sys:ro
+      - /sys/devices/virtual:/host-sys-virtual:ro
       - ./data:/data/.local/share/powerwatch
 
-    # -----------------------------------------------------------------------
-    # NVIDIA GPU(S) - OPTIONAL / OPTIONNEL
-    # -----------------------------------------------------------------------
-    # FR :
-    # Uniquement si cette machine possède un ou plusieurs GPU NVIDIA :
-    # 1. installer le pilote NVIDIA sur l'hôte ;
-    # 2. installer NVIDIA Container Toolkit ;
-    # 3. décommenter EN ENTIER les blocs "environment" et "deploy" ci-dessous.
-    #
-    # AMD + NVIDIA ? Intel + NVIDIA ? Plusieurs GPU ?
-    # Aucun problème : laissez /sys monté ci-dessus et activez simplement
-    # ce bloc NVIDIA. PowerWatch détectera chaque GPU séparément.
-    #
-    # EN:
-    # Only when this host has one or more NVIDIA GPUs:
-    # 1. install the NVIDIA driver on the host;
-    # 2. install NVIDIA Container Toolkit;
-    # 3. uncomment the WHOLE "environment" and "deploy" blocks below.
-    #
-    # AMD + NVIDIA? Intel + NVIDIA? Multiple GPUs?
-    # No problem: keep /sys mounted above and simply enable this NVIDIA
-    # block. PowerWatch will detect every GPU separately.
-    #
-    # environment:
-    #   NVIDIA_VISIBLE_DEVICES: all
-    #   NVIDIA_DRIVER_CAPABILITIES: utility
+    environment:
+      # FR : chemin RAPL dédié. Si le noyau n'expose pas RAPL, PowerWatch
+      # continue simplement sans capteur CPU mesuré.
+      # EN: dedicated RAPL path. If the kernel exposes no RAPL interface,
+      # PowerWatch simply continues without a measured CPU sensor.
+      POWERWATCH_POWERCAP_PATH: /host-sys-virtual/powercap/intel-rapl
+
+      # ---------------------------------------------------------------------
+      # NVIDIA GPU(S) - OPTIONAL / OPTIONNEL
+      # ---------------------------------------------------------------------
+      # FR :
+      # Si l'hôte possède un ou plusieurs GPU NVIDIA :
+      # 1. installer le pilote NVIDIA ;
+      # 2. installer NVIDIA Container Toolkit ;
+      # 3. décommenter les DEUX lignes ci-dessous ;
+      # 4. décommenter également le bloc "deploy" plus bas.
+      #
+      # AMD + NVIDIA ? Intel + NVIDIA ? Plusieurs GPU ?
+      # Aucun problème : AMD/Intel restent détectés via /sys et tous les GPU
+      # NVIDIA exposés par le runtime sont ajoutés séparément.
+      #
+      # EN:
+      # If the host has one or more NVIDIA GPUs:
+      # 1. install the NVIDIA driver;
+      # 2. install NVIDIA Container Toolkit;
+      # 3. uncomment BOTH lines below;
+      # 4. also uncomment the "deploy" block below.
+      #
+      # AMD + NVIDIA? Intel + NVIDIA? Multiple GPUs?
+      # No problem: AMD/Intel remain detected through /sys and every NVIDIA
+      # GPU exposed by the runtime is added separately.
+      #
+      # NVIDIA_VISIBLE_DEVICES: all
+      # NVIDIA_DRIVER_CAPABILITIES: utility
+
+    # FR : pour NVIDIA, décommentez CE BLOC COMPLET.
+    # EN: for NVIDIA, uncomment THIS WHOLE BLOCK.
     #
     # deploy:
     #   resources:

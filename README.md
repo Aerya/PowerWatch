@@ -254,6 +254,8 @@ PowerWatch now uses a **single `compose.yaml`**.
 docker compose up -d
 ```
 
+The Compose mounts `/sys/devices/virtual` separately at `/host-sys-virtual` and sets `POWERWATCH_POWERCAP_PATH` so CPU RAPL remains accessible on hosts where a plain `/sys` bind does not expose the `powercap` subtree inside Docker.
+
 **AMD and Intel GPUs require no additional Compose configuration**: PowerWatch reads their Linux hwmon telemetry directly through the read-only `/sys` mount.
 
 For **NVIDIA**, install the NVIDIA driver and NVIDIA Container Toolkit on the Docker host, then uncomment the clearly marked NVIDIA block already included in `compose.yaml`.
