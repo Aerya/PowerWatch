@@ -2,6 +2,7 @@ use crate::model::GpuVendor;
 use crate::sensors::disk::DiskType;
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RaplTarget {
     pub energy_path: PathBuf,
     pub max_energy_uj: u64,
