@@ -1,6 +1,0 @@
-services:
-  powerwatch:
-    # AMD and Intel DRM devices. The base compose already mounts /sys read-only,
-    # where PowerWatch reads hwmon power/energy telemetry.
-    devices:
-      - /dev/dri:/dev/dri

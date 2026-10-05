@@ -2,6 +2,14 @@
 
 PowerWatch has no authentication. Keep it on a trusted private LAN only; do not expose it through a public reverse proxy, tunnel, or router port-forwarding.
 
+## Quick start / Démarrage rapide
+
+PowerWatch uses a **single `compose.yaml`**.
+
+```bash
+docker compose up -d
+```
+
 The image defaults already enable:
 
 ```text
@@ -12,59 +20,91 @@ The image defaults already enable:
 --nas-mode
 ```
 
-Therefore the provided `compose.yaml` does not need a `command:` block unless you want to override those defaults.
+The container mounts host `/sys` read-only for hardware discovery, uses the host PID namespace, and persists SQLite history and alert configuration in `./data`.
 
-The container mounts the Intel RAPL tree directly at `/host-powercap`, mounts `/sys` read-only for hardware discovery, uses the host PID namespace, and persists SQLite history in `./data`.
+### 🇫🇷 GPU AMD et Intel
 
-> The supplied RAPL mount targets Intel/Linux hosts. Remove or adapt it on systems without `/sys/devices/virtual/powercap/intel-rapl`.
+Rien à modifier dans le Compose.
 
-## GPU access
+PowerWatch lit directement la télémétrie de puissance exposée par Linux dans `/sys/class/hwmon` :
 
-GPU passthrough is intentionally optional so the base `compose.yaml` remains portable on headless machines without `/dev/dri` or an NVIDIA runtime. PowerWatch enumerates every GPU that exposes supported telemetry and keeps each card separate in the WebUI, history and alerts.
+- AMD : `amdgpu` (`power1_average` / `power1_input`) ;
+- Intel : `i915` / `xe` (`power1_*` ou `energy1_input`).
 
-Sensor names are stable per vendor/index, for example `gpu:nvidia:0`, `gpu:nvidia:1`, `gpu:amd:0` and `gpu:intel:0`. The generic alert target `gpu` remains available and represents the sum of all currently readable GPU sensors.
+Si plusieurs GPU AMD/Intel sont présents, ils sont détectés et suivis séparément.
 
-### AMD and Intel
+### 🇬🇧 AMD and Intel GPUs
 
-The base compose already mounts host `/sys` read-only. Add the DRM device overlay so the container also has the host render/card devices:
+Nothing needs to be changed in the Compose file.
+
+PowerWatch reads the power telemetry exposed by Linux directly through `/sys/class/hwmon`:
+
+- AMD: `amdgpu` (`power1_average` / `power1_input`);
+- Intel: `i915` / `xe` (`power1_*` or `energy1_input`).
+
+If multiple AMD/Intel GPUs are present, they are detected and monitored separately.
+
+## NVIDIA
+
+NVIDIA requires two host-side prerequisites that Docker cannot provide automatically:
+
+1. the NVIDIA driver;
+2. NVIDIA Container Toolkit.
+
+The NVIDIA block is already present in the **same `compose.yaml`**, but commented by default so PowerWatch can start normally on machines without NVIDIA.
+
+### 🇫🇷 Activation NVIDIA
+
+Dans `compose.yaml`, décommentez entièrement les blocs `environment:` et `deploy:` de la section **NVIDIA GPU(S)**, puis :
 
 ```bash
-docker compose -f compose.yaml -f compose.gpu-amd-intel.yaml up -d
+docker compose up -d
 ```
 
-AMD power comes from the `amdgpu` hwmon interface (`power1_average` or `power1_input`). Intel uses device-level `i915`/`xe` hwmon telemetry and accepts either direct power (`power1_*`) or cumulative energy (`energy1_input`). If the kernel/driver does not expose one of those counters, that GPU is omitted rather than guessed.
+`NVIDIA_VISIBLE_DEVICES: all` expose tous les GPU NVIDIA et la capability `utility` fournit NVML, utilisée par PowerWatch pour lire leur consommation réelle.
 
-### NVIDIA
+Une machine mixte fonctionne de la même façon :
 
-Install the NVIDIA driver and NVIDIA Container Toolkit on the Docker host, then use:
+- AMD + NVIDIA : AMD est détecté via `/sys`, activez simplement le bloc NVIDIA ;
+- Intel iGPU + NVIDIA : Intel est détecté via `/sys`, activez simplement le bloc NVIDIA ;
+- plusieurs AMD, Intel ou NVIDIA : chaque GPU est enregistré séparément.
+
+### 🇬🇧 Enabling NVIDIA
+
+In `compose.yaml`, fully uncomment the `environment:` and `deploy:` blocks under **NVIDIA GPU(S)**, then run:
 
 ```bash
-docker compose -f compose.yaml -f compose.gpu-nvidia.yaml up -d
+docker compose up -d
 ```
 
-The overlay exposes all NVIDIA GPUs and the `utility` driver capability required by NVML. PowerWatch enumerates every NVML device and reads each card's measured `power_usage`.
+`NVIDIA_VISIBLE_DEVICES: all` exposes every NVIDIA GPU and the `utility` capability provides NVML, which PowerWatch uses for measured GPU power.
 
-### Mixed-vendor hosts
+Mixed-vendor systems work the same way:
 
-The overlays are composable:
+- AMD + NVIDIA: AMD is detected through `/sys`; simply enable the NVIDIA block;
+- Intel iGPU + NVIDIA: Intel is detected through `/sys`; simply enable the NVIDIA block;
+- multiple AMD, Intel or NVIDIA GPUs: every GPU is stored separately.
 
-```bash
-docker compose \
-  -f compose.yaml \
-  -f compose.gpu-amd-intel.yaml \
-  -f compose.gpu-nvidia.yaml \
-  up -d
-```
-
-You can verify what the container sees with:
+## Verify detected hardware / Vérifier le matériel détecté
 
 ```bash
 docker exec powerwatch powerwatch --json
 ```
 
+GPU sensor names are stable per vendor/index, for example:
+
+```text
+gpu:nvidia:0
+gpu:nvidia:1
+gpu:amd:0
+gpu:intel:0
+```
+
+The generic alert target `gpu` remains available and represents the sum of all currently readable GPU sensors.
+
 ## Web UI language
 
-The Web UI is available in **English and French**. Language selection is handled entirely in the browser: French is selected automatically on the first visit when the browser language is French, English is the fallback, and the selected language is stored in browser `localStorage`. No Docker environment variable or server-side configuration is required.
+The Web UI is available in **English and French**. Language selection is handled entirely in the browser: French is selected automatically on the first visit when the browser language is French, English is the fallback, and the selected language is stored in browser `localStorage`.
 
 ## Web alerts and notifications
 

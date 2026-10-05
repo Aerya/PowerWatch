@@ -22,7 +22,7 @@ Linux is the primary, fully tested platform. Windows and macOS are supported in 
 > - une WebUI accessible sur le **réseau local** grâce à une adresse d’écoute configurable ;
 > - une **WebUI bilingue français / anglais**, avec détection automatique au premier accès et mémorisation du choix ;
 > - une détection RAPL plus robuste en conteneur, avec montage direct du powercap de l’hôte ;
-> - la détection **multi-GPU NVIDIA / AMD / Intel**, y compris en Docker avec overlays dédiés ;
+> - la détection **multi-GPU NVIDIA / AMD / Intel**, avec un **seul fichier Compose** pour le déploiement Docker ;
 > - la détection et le suivi de **tous les disques physiques**, avec exclusion des couches virtuelles, RAID/LVM et des pseudo-périphériques eMMC `boot`/`rpmb` ;
 > - un **mode NAS/headless** qui désactive les suggestions desktop inutiles ;
 > - un historique SQLite persistant avec vue **Live** et périodes personnalisables en heures, jours, semaines, mois ou années ;
@@ -38,7 +38,7 @@ Linux is the primary, fully tested platform. Windows and macOS are supported in 
 > - LAN access to the Web UI through a configurable bind address;
 > - a **bilingual French / English Web UI**, with automatic first-visit detection and persistent language selection;
 > - more robust RAPL discovery in containers, including a direct host powercap mount;
-> - **multi-GPU NVIDIA / AMD / Intel** discovery, including Docker GPU overlays;
+> - **multi-GPU NVIDIA / AMD / Intel** discovery, with a **single Compose file** for Docker deployment;
 > - detection and monitoring of **all physical disks**, excluding virtual/RAID/LVM layers and eMMC `boot`/`rpmb` pseudo devices;
 > - a **NAS/headless mode** that disables desktop-only energy suggestions;
 > - persistent SQLite history with a **Live** view and arbitrary ranges in hours, days, weeks, months or years;
@@ -244,6 +244,27 @@ Notification methods:
 The Alerts page includes test buttons for Discord, Apprise, or all configured providers. Notifications fire once per threshold excursion and can fire again after the reading recovers and later crosses the threshold again.
 
 The Docker image includes `curl`, used for outgoing Discord and Apprise HTTP notifications. When running `powerwatch-web` natively, install `curl` on the host if you want Web notifications.
+
+
+## Docker: one Compose file / un seul fichier Compose
+
+PowerWatch now uses a **single `compose.yaml`**.
+
+```bash
+docker compose up -d
+```
+
+**AMD and Intel GPUs require no additional Compose configuration**: PowerWatch reads their Linux hwmon telemetry directly through the read-only `/sys` mount.
+
+For **NVIDIA**, install the NVIDIA driver and NVIDIA Container Toolkit on the Docker host, then uncomment the clearly marked NVIDIA block already included in `compose.yaml`.
+
+Mixed-vendor systems are supported without separate Compose files:
+
+- AMD + NVIDIA: AMD is detected automatically; enable the NVIDIA block;
+- Intel iGPU + NVIDIA: Intel is detected automatically; enable the NVIDIA block;
+- multiple GPUs from one or several vendors: every readable GPU is monitored separately.
+
+See [`DOCKER.md`](DOCKER.md) for the bilingual 🇫🇷 / 🇬🇧 setup guide.
 
 ### Docker CLI and TUI
 
