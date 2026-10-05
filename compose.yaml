@@ -1,0 +1,26 @@
+services:
+  powerwatch:
+    image: ghcr.io/aerya/powerwatch:latest
+    container_name: powerwatch
+    hostname: powerwatch
+    restart: unless-stopped
+
+    pid: host
+
+    ports:
+      - "${POWERWATCH_BIND_IP:-127.0.0.1}:3000:3000"
+
+    environment:
+      POWERWATCH_POWERCAP_PATH: /host-powercap
+
+    volumes:
+      - /sys:/sys:ro
+      - /sys/devices/virtual/powercap/intel-rapl:/host-powercap:ro
+      - ./data:/data/.local/share/powerwatch
+
+    read_only: true
+    tmpfs:
+      - /tmp
+
+    security_opt:
+      - no-new-privileges:true

@@ -2,7 +2,7 @@ use powerwatch_core::sampler::{Sampler, Snapshot};
 use powerwatch_core::storage::Storage;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -13,9 +13,11 @@ pub struct AppState {
 
 pub fn start_sampling_loop(
     mut sampler: Sampler,
-    interval: Duration,
+    sample_interval: Duration,
     storage: Option<Storage>,
     log_continuously: bool,
+    history_interval: Duration,
+    suggestions_enabled: bool,
 ) -> AppState {
     let initial = sampler.sample_all();
     let latest_snapshot = Arc::new(RwLock::new(initial));
@@ -27,32 +29,49 @@ pub fn start_sampling_loop(
         suggestions: suggestions.clone(),
     };
 
-    thread::spawn(move || loop {
-        thread::sleep(interval);
-        let snapshot = sampler.sample_all();
+    thread::spawn(move || {
+        let history_interval = history_interval.max(Duration::from_secs(1));
+        let mut last_history_write = Instant::now()
+            .checked_sub(history_interval)
+            .unwrap_or_else(Instant::now);
+        let maintenance_interval = Duration::from_secs(60 * 60);
+        let mut last_history_maintenance = Instant::now()
+            .checked_sub(maintenance_interval)
+            .unwrap_or_else(Instant::now);
 
-        suggestions.evaluate(&snapshot);
+        loop {
+            thread::sleep(sample_interval);
+            let snapshot = sampler.sample_all();
 
-        if log_continuously {
-            let readings: Vec<_> = snapshot.readings().cloned().collect();
-            let total = snapshot.total();
-            drop(snapshot);
+            if suggestions_enabled {
+                suggestions.evaluate(&snapshot);
+            }
 
-            if let Ok(guard) = storage.lock() {
-                if let Some(db) = guard.as_ref() {
-                    for reading in &readings {
-                        let _ = db.insert_reading(reading);
-                    }
-                    if let Some(total) = total {
-                        let _ = db.insert_reading(&total);
+            if log_continuously && last_history_write.elapsed() >= history_interval {
+                let readings: Vec<_> = snapshot.readings().cloned().collect();
+                let total = snapshot.total();
+
+                if let Ok(mut guard) = storage.lock() {
+                    if let Some(db) = guard.as_mut() {
+                        for reading in &readings {
+                            let _ = db.insert_reading(reading);
+                        }
+                        if let Some(total) = total {
+                            let _ = db.insert_reading(&total);
+                        }
+                        if last_history_maintenance.elapsed() >= maintenance_interval {
+                            let _ = db.compact_history(chrono::Utc::now());
+                            last_history_maintenance = Instant::now();
+                        }
                     }
                 }
-            }
-        }
 
-        let snapshot = sampler.sample_all();
-        if let Ok(mut guard) = latest_snapshot.write() {
-            *guard = snapshot;
+                last_history_write = Instant::now();
+            }
+
+            if let Ok(mut guard) = latest_snapshot.write() {
+                *guard = snapshot;
+            }
         }
     });
 
@@ -106,7 +125,14 @@ mod tests {
             }),
         );
 
-        let state = start_sampling_loop(sampler, Duration::from_secs(60), None, false);
+        let state = start_sampling_loop(
+            sampler,
+            Duration::from_secs(60),
+            None,
+            false,
+            Duration::from_secs(60),
+            true,
+        );
 
         let snapshot = state.latest_snapshot.read().unwrap();
         assert_eq!(snapshot.results.len(), 1);
@@ -124,7 +150,14 @@ mod tests {
             }),
         );
 
-        let state = start_sampling_loop(sampler, Duration::from_millis(20), None, false);
+        let state = start_sampling_loop(
+            sampler,
+            Duration::from_millis(20),
+            None,
+            false,
+            Duration::from_secs(60),
+            true,
+        );
         let deadline = Instant::now() + Duration::from_secs(2);
         let mut saw_second_sample = false;
         while Instant::now() < deadline {
@@ -147,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn writes_to_storage_when_log_continuously_is_enabled() {
+    fn writes_to_storage_when_logging_is_enabled() {
         let storage = Storage::open_in_memory().unwrap();
         let mut sampler = Sampler::new();
         sampler.add_sensor(
@@ -157,7 +190,14 @@ mod tests {
             }),
         );
 
-        let state = start_sampling_loop(sampler, Duration::from_millis(20), Some(storage), true);
+        let state = start_sampling_loop(
+            sampler,
+            Duration::from_millis(20),
+            Some(storage),
+            true,
+            Duration::from_millis(20),
+            true,
+        );
 
         let deadline = Instant::now() + Duration::from_secs(2);
         let mut found_a_reading = false;
@@ -182,7 +222,7 @@ mod tests {
     }
 
     #[test]
-    fn does_not_write_to_storage_when_log_continuously_is_disabled() {
+    fn does_not_write_to_storage_when_logging_is_disabled() {
         let storage = Storage::open_in_memory().unwrap();
         let mut sampler = Sampler::new();
         sampler.add_sensor(
@@ -192,7 +232,14 @@ mod tests {
             }),
         );
 
-        let state = start_sampling_loop(sampler, Duration::from_millis(20), Some(storage), false);
+        let state = start_sampling_loop(
+            sampler,
+            Duration::from_millis(20),
+            Some(storage),
+            false,
+            Duration::from_millis(20),
+            true,
+        );
         thread::sleep(Duration::from_millis(200));
 
         let guard = state.storage.lock().unwrap();
@@ -202,5 +249,34 @@ mod tests {
             .unwrap();
 
         assert!(readings.is_empty());
+    }
+
+    #[test]
+    fn each_loop_updates_the_live_snapshot_without_double_sampling() {
+        let calls = Arc::new(AtomicU32::new(0));
+        let mut sampler = Sampler::new();
+        sampler.add_sensor(
+            "cpu",
+            Box::new(CountingSensor {
+                calls: calls.clone(),
+            }),
+        );
+
+        let _state = start_sampling_loop(
+            sampler,
+            Duration::from_millis(50),
+            None,
+            false,
+            Duration::from_secs(60),
+            false,
+        );
+
+        thread::sleep(Duration::from_millis(180));
+        let observed = calls.load(Ordering::SeqCst);
+
+        assert!(
+            (3..=6).contains(&observed),
+            "expected roughly one sample per loop, got {observed}"
+        );
     }
 }

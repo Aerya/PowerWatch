@@ -14,24 +14,35 @@ pub fn discover_rapl(powercap_dir: &Path) -> Option<RaplTarget> {
         let file_name = entry.file_name();
         let name = file_name.to_string_lossy();
 
-        // a sub-domain name has a second ':', e.g. "intel-rapl:0:0"
+        // A sub-domain has a second ':', e.g. "intel-rapl:0:0".
         if name.matches(':').count() != 1 {
             continue;
         }
 
-        let domain_name = std::fs::read_to_string(path.join("name")).ok()?;
+        // Some container/sysfs layouts expose entries that are present but
+        // unreadable or broken symlinks. Skip those entries instead of
+        // aborting discovery for the whole RAPL tree.
+        let Ok(domain_name) = std::fs::read_to_string(path.join("name")) else {
+            continue;
+        };
         if !domain_name.trim().starts_with("package") {
             continue;
         }
 
-        let max_energy_uj = std::fs::read_to_string(path.join("max_energy_range_uj"))
-            .ok()?
-            .trim()
-            .parse()
-            .ok()?;
+        let Ok(max_energy_text) = std::fs::read_to_string(path.join("max_energy_range_uj")) else {
+            continue;
+        };
+        let Ok(max_energy_uj) = max_energy_text.trim().parse() else {
+            continue;
+        };
+
+        let energy_path = path.join("energy_uj");
+        if !energy_path.exists() {
+            continue;
+        }
 
         return Some(RaplTarget {
-            energy_path: path.join("energy_uj"),
+            energy_path,
             max_energy_uj,
         });
     }
@@ -57,23 +68,46 @@ pub fn discover_amd_gpu(hwmon_dir: &Path) -> Option<PathBuf> {
     None
 }
 
-pub fn discover_primary_disk(block_dir: &Path) -> Option<(String, DiskType)> {
-    let entries = std::fs::read_dir(block_dir).ok()?;
+fn is_virtual_or_aggregate_device(name: &str) -> bool {
+    name.starts_with("loop")
+        || name.starts_with("ram")
+        || name.starts_with("sr")
+        || name.starts_with("dm-")
+        || name.starts_with("md")
+        || name.starts_with("zram")
+        || name.starts_with("zd")
+        || (name.starts_with("mmcblk")
+            && (name.contains("boot") || name.ends_with("rpmb")))
+}
+
+pub fn discover_disks(block_dir: &Path) -> Vec<(String, DiskType)> {
+    let Ok(entries) = std::fs::read_dir(block_dir) else {
+        return Vec::new();
+    };
 
     let mut candidates: Vec<_> = entries.flatten().collect();
     candidates.sort_by_key(|e| e.file_name());
 
+    let mut disks = Vec::new();
+
     for entry in candidates {
         let name = entry.file_name().to_string_lossy().to_string();
 
-        if name.starts_with("loop") || name.starts_with("ram") || name.starts_with("sr") {
+        // Avoid loop/optical devices, aggregate/virtual layers and eMMC
+        // boot/RPMB pseudo devices so storage is not double-counted.
+        if is_virtual_or_aggregate_device(&name) {
             continue;
         }
 
         let disk_type = if name.starts_with("nvme") {
             DiskType::Nvme
         } else {
-            let rotational = std::fs::read_to_string(entry.path().join("queue/rotational")).ok()?;
+            let Ok(rotational) =
+                std::fs::read_to_string(entry.path().join("queue/rotational"))
+            else {
+                continue;
+            };
+
             if rotational.trim() == "1" {
                 DiskType::Hdd7200Rpm
             } else {
@@ -81,26 +115,25 @@ pub fn discover_primary_disk(block_dir: &Path) -> Option<(String, DiskType)> {
             }
         };
 
-        return Some((name, disk_type));
+        disks.push((name, disk_type));
     }
 
-    None
+    disks
 }
 
-pub fn discover_nvme_controller(nvme_class_dir: &Path) -> Option<String> {
-    let entries = std::fs::read_dir(nvme_class_dir).ok()?;
-
-    let mut candidates: Vec<_> = entries.flatten().collect();
-    candidates.sort_by_key(|e| e.file_name());
-
-    for entry in candidates {
-        let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with("nvme") && name[4..].chars().all(|c| c.is_ascii_digit()) {
-            return Some(name);
-        }
+pub fn nvme_controller_for_device(device_name: &str) -> Option<String> {
+    let rest = device_name.strip_prefix("nvme")?;
+    let digit_count = rest.chars().take_while(|c| c.is_ascii_digit()).count();
+    if digit_count == 0 {
+        return None;
     }
 
-    None
+    let (controller_index, suffix) = rest.split_at(digit_count);
+    if !suffix.starts_with('n') {
+        return None;
+    }
+
+    Some(format!("nvme{controller_index}"))
 }
 
 #[cfg(test)]
@@ -124,11 +157,27 @@ mod tests {
             base.join("intel-rapl:0/max_energy_range_uj"),
             "262143328850\n",
         );
+        write(base.join("intel-rapl:0/energy_uj"), "12345\n");
 
         let target = discover_rapl(base).unwrap();
 
         assert_eq!(target.energy_path, base.join("intel-rapl:0/energy_uj"));
         assert_eq!(target.max_energy_uj, 262_143_328_850);
+    }
+
+    #[test]
+    fn skips_broken_rapl_entries_and_keeps_searching() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+
+        write(base.join("intel-rapl:0/name"), "package-broken\n");
+        write(base.join("intel-rapl:1/name"), "package-1\n");
+        write(base.join("intel-rapl:1/max_energy_range_uj"), "1000000\n");
+        write(base.join("intel-rapl:1/energy_uj"), "42\n");
+
+        let target = discover_rapl(base).unwrap();
+
+        assert_eq!(target.energy_path, base.join("intel-rapl:1/energy_uj"));
     }
 
     #[test]
@@ -162,57 +211,53 @@ mod tests {
     }
 
     #[test]
-    fn picks_the_first_real_disk_and_skips_virtual_devices() {
+    fn discovers_all_physical_disks_and_skips_virtual_layers() {
         let dir = tempfile::tempdir().unwrap();
         let base = dir.path();
 
         write(base.join("loop0/queue/rotational"), "0\n");
+        write(base.join("dm-0/queue/rotational"), "0\n");
+        write(base.join("md0/queue/rotational"), "0\n");
+        write(base.join("mmcblk0boot0/queue/rotational"), "0\n");
+        write(base.join("mmcblk0boot1/queue/rotational"), "0\n");
+        write(base.join("mmcblk0rpmb/queue/rotational"), "0\n");
+        write(base.join("mmcblk0/queue/rotational"), "0\n");
         write(base.join("sda/queue/rotational"), "1\n");
-
-        let (name, disk_type) = discover_primary_disk(base).unwrap();
-
-        assert_eq!(name, "sda");
-        assert_eq!(disk_type, DiskType::Hdd7200Rpm);
-    }
-
-    #[test]
-    fn treats_nvme_named_devices_as_nvme_without_checking_rotational() {
-        let dir = tempfile::tempdir().unwrap();
-        let base = dir.path();
-
+        write(base.join("sdb/queue/rotational"), "0\n");
         write(base.join("nvme0n1/queue/rotational"), "0\n");
+        write(base.join("nvme1n1/queue/rotational"), "0\n");
 
-        let (name, disk_type) = discover_primary_disk(base).unwrap();
+        let disks = discover_disks(base);
 
-        assert_eq!(name, "nvme0n1");
-        assert_eq!(disk_type, DiskType::Nvme);
+        assert_eq!(
+            disks,
+            vec![
+                ("mmcblk0".to_string(), DiskType::SsdSata),
+                ("nvme0n1".to_string(), DiskType::Nvme),
+                ("nvme1n1".to_string(), DiskType::Nvme),
+                ("sda".to_string(), DiskType::Hdd7200Rpm),
+                ("sdb".to_string(), DiskType::SsdSata),
+            ]
+        );
     }
 
     #[test]
-    fn returns_none_when_only_virtual_devices_are_present() {
+    fn returns_an_empty_list_when_no_disk_directory_exists() {
         let dir = tempfile::tempdir().unwrap();
-        let base = dir.path();
-        write(base.join("loop0/queue/rotational"), "0\n");
 
-        assert!(discover_primary_disk(base).is_none());
+        assert!(discover_disks(&dir.path().join("does-not-exist")).is_empty());
     }
 
     #[test]
-    fn finds_the_nvme_controller_and_skips_namespaces() {
-        let dir = tempfile::tempdir().unwrap();
-        let base = dir.path();
-        fs::create_dir_all(base.join("nvme0n1")).unwrap();
-        fs::create_dir_all(base.join("nvme0")).unwrap();
-
-        let controller = discover_nvme_controller(base).unwrap();
-
-        assert_eq!(controller, "nvme0");
-    }
-
-    #[test]
-    fn returns_none_when_theres_no_nvme_class_directory() {
-        let dir = tempfile::tempdir().unwrap();
-
-        assert!(discover_nvme_controller(&dir.path().join("does-not-exist")).is_none());
+    fn derives_nvme_controller_from_namespace_device() {
+        assert_eq!(
+            nvme_controller_for_device("nvme0n1"),
+            Some("nvme0".to_string())
+        );
+        assert_eq!(
+            nvme_controller_for_device("nvme12n3"),
+            Some("nvme12".to_string())
+        );
+        assert_eq!(nvme_controller_for_device("sda"), None);
     }
 }

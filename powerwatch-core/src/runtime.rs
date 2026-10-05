@@ -11,7 +11,25 @@ pub fn build_default_sampler() -> Sampler {
 
     let mut sampler = Sampler::new();
 
-    if let Some(target) = discovery::discover_rapl(Path::new("/sys/class/powercap")) {
+    let configured_powercap = std::env::var("POWERWATCH_POWERCAP_PATH").ok();
+    let mut rapl_target = configured_powercap
+        .as_deref()
+        .and_then(|path| discovery::discover_rapl(Path::new(path)));
+
+    if rapl_target.is_none() {
+        for path in [
+            "/sys/devices/virtual/powercap/intel-rapl",
+            "/sys/devices/virtual/powercap",
+            "/sys/class/powercap",
+        ] {
+            if let Some(target) = discovery::discover_rapl(Path::new(path)) {
+                rapl_target = Some(target);
+                break;
+            }
+        }
+    }
+
+    if let Some(target) = rapl_target {
         sampler.add_sensor(
             "cpu",
             Box::new(RaplSensor::new(target.energy_path, target.max_energy_uj)),
@@ -29,8 +47,9 @@ pub fn build_default_sampler() -> Sampler {
         Box::new(RamSensor::new(Path::new("/proc/meminfo").to_path_buf())),
     );
 
-    if let Some((device, disk_type)) = discovery::discover_primary_disk(Path::new("/sys/block")) {
-        sampler.add_sensor("disk", disk_sensor_for(device, disk_type));
+    for (device, disk_type) in discovery::discover_disks(Path::new("/sys/block")) {
+        let sensor_name = format!("disk:{device}");
+        sampler.add_sensor(sensor_name, disk_sensor_for(device, disk_type));
     }
 
     sampler
@@ -41,7 +60,7 @@ fn disk_sensor_for(
     device: String,
     disk_type: crate::sensors::disk::DiskType,
 ) -> Box<dyn crate::model::PowerSensor> {
-    use crate::discovery::discover_nvme_controller;
+    use crate::discovery::nvme_controller_for_device;
     use crate::sensors::disk::DiskSensor;
     use crate::sensors::nvme_power_states::{
         fetch_power_state_table, NvmePowerStateDiskSensor, RealCurrentPowerStateSource,
@@ -49,7 +68,7 @@ fn disk_sensor_for(
     use std::path::Path;
 
     if disk_type == crate::sensors::disk::DiskType::Nvme {
-        if let Some(controller) = discover_nvme_controller(Path::new("/sys/class/nvme")) {
+        if let Some(controller) = nvme_controller_for_device(&device) {
             let device_path = format!("/dev/{controller}");
             if let Ok(power_states) = fetch_power_state_table(&device_path) {
                 let power_state_path = Path::new("/sys/class/nvme")
@@ -58,7 +77,7 @@ fn disk_sensor_for(
                 return Box::new(NvmePowerStateDiskSensor::new(
                     power_states,
                     RealCurrentPowerStateSource::new(power_state_path),
-                    controller,
+                    device,
                 ));
             }
         }

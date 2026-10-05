@@ -6,8 +6,9 @@ use axum::response::{Html, IntoResponse};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use powerwatch_core::json_snapshot::{build_json_snapshot, JsonSnapshot};
-use powerwatch_core::model::SensorReading;
-use serde::Deserialize;
+use powerwatch_core::model::{Component, SensorReading};
+use powerwatch_core::storage::AggregatedReading;
+use serde::{Deserialize, Serialize};
 
 fn convert_rss_to_mb(output: &str) -> String {
     let mut result = String::new();
@@ -43,6 +44,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/health", get(health))
         .route("/api/snapshot", get(snapshot))
         .route("/api/history", get(history))
+        .route("/api/history/range", get(history_range))
         .route("/api/suggestions", get(suggestions_list))
         .route("/api/suggestions/apply", post(suggestions_apply))
         .route("/api/processes/top", get(top_processes))
@@ -96,6 +98,176 @@ async fn history(
     };
 
     Ok(Json(readings))
+}
+
+
+#[derive(Deserialize)]
+struct RangeHistoryParams {
+    amount: Option<u32>,
+    unit: Option<String>,
+    max_points: Option<u32>,
+}
+
+#[derive(Serialize)]
+struct HistorySummary {
+    avg_watts: f64,
+    min_watts: f64,
+    max_watts: f64,
+    energy_kwh: f64,
+    samples: u64,
+}
+
+#[derive(Serialize)]
+struct RangeHistoryResponse {
+    from: chrono::DateTime<chrono::Utc>,
+    to: chrono::DateTime<chrono::Utc>,
+    bucket_seconds: u64,
+    summary: Option<HistorySummary>,
+    points: Vec<AggregatedReading>,
+}
+
+fn range_start(
+    now: chrono::DateTime<chrono::Utc>,
+    amount: u32,
+    unit: &str,
+) -> Result<chrono::DateTime<chrono::Utc>, String> {
+    if amount == 0 || amount > 10_000 {
+        return Err("amount must be between 1 and 10000".to_string());
+    }
+
+    match unit.trim().to_ascii_lowercase().as_str() {
+        "minute" | "minutes" | "min" => Ok(now - chrono::Duration::minutes(amount as i64)),
+        "hour" | "hours" | "h" => Ok(now - chrono::Duration::hours(amount as i64)),
+        "day" | "days" | "d" => Ok(now - chrono::Duration::days(amount as i64)),
+        "week" | "weeks" | "w" => Ok(now - chrono::Duration::weeks(amount as i64)),
+        "month" | "months" => now
+            .checked_sub_months(chrono::Months::new(amount))
+            .ok_or_else(|| "requested month range is out of bounds".to_string()),
+        "year" | "years" | "y" => {
+            let months = amount
+                .checked_mul(12)
+                .ok_or_else(|| "requested year range is too large".to_string())?;
+            now.checked_sub_months(chrono::Months::new(months))
+                .ok_or_else(|| "requested year range is out of bounds".to_string())
+        }
+        other => Err(format!(
+            "unsupported unit '{other}' (use minutes, hours, days, weeks, months or years)"
+        )),
+    }
+}
+
+fn choose_bucket_seconds(range_seconds: u64, max_points: u32) -> u64 {
+    let max_points = max_points.clamp(100, 5_000) as u64;
+    let target = range_seconds.div_ceil(max_points).max(60);
+    const BUCKETS: &[u64] = &[
+        60,
+        120,
+        300,
+        600,
+        900,
+        1_800,
+        3_600,
+        7_200,
+        10_800,
+        21_600,
+        43_200,
+        86_400,
+        172_800,
+        604_800,
+        2_592_000,
+    ];
+
+    BUCKETS
+        .iter()
+        .copied()
+        .find(|bucket| *bucket >= target)
+        .unwrap_or(target)
+}
+
+fn summarize_history(
+    points: &[AggregatedReading],
+    bucket_seconds: u64,
+) -> Option<HistorySummary> {
+    let totals: Vec<_> = points
+        .iter()
+        .filter(|point| point.component == Component::Total)
+        .collect();
+
+    if totals.is_empty() {
+        return None;
+    }
+
+    let samples: u64 = totals.iter().map(|point| point.samples).sum();
+    let weighted_sum: f64 = totals
+        .iter()
+        .map(|point| point.avg_watts * point.samples as f64)
+        .sum();
+    let avg_watts = if samples > 0 {
+        weighted_sum / samples as f64
+    } else {
+        0.0
+    };
+    let min_watts = totals
+        .iter()
+        .map(|point| point.min_watts)
+        .fold(f64::INFINITY, f64::min);
+    let max_watts = totals
+        .iter()
+        .map(|point| point.max_watts)
+        .fold(f64::NEG_INFINITY, f64::max);
+
+    let mut sorted_totals = totals;
+    sorted_totals.sort_by_key(|point| point.timestamp);
+    let mut energy_kwh = 0.0;
+    for pair in sorted_totals.windows(2) {
+        let previous = pair[0];
+        let next = pair[1];
+        let delta_seconds = (next.timestamp - previous.timestamp).num_seconds();
+        if delta_seconds <= 0 { continue; }
+        let covered_seconds = (delta_seconds as u64).min(bucket_seconds);
+        let average_watts = (previous.avg_watts + next.avg_watts) / 2.0;
+        energy_kwh += average_watts * covered_seconds as f64 / 3_600_000.0;
+    }
+
+    Some(HistorySummary {
+        avg_watts,
+        min_watts,
+        max_watts,
+        energy_kwh,
+        samples,
+    })
+}
+
+async fn history_range(
+    State(state): State<AppState>,
+    Query(params): Query<RangeHistoryParams>,
+) -> Result<Json<RangeHistoryResponse>, (StatusCode, String)> {
+    let amount = params.amount.unwrap_or(24);
+    let unit = params.unit.as_deref().unwrap_or("hours");
+    let max_points = params.max_points.unwrap_or(1_200).clamp(100, 5_000);
+
+    let to = chrono::Utc::now();
+    let from = range_start(to, amount, unit).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let range_seconds = (to - from).num_seconds().max(1) as u64;
+    let bucket_seconds = choose_bucket_seconds(range_seconds, max_points);
+
+    let storage_guard = state.storage.lock().unwrap();
+    let points = match storage_guard.as_ref() {
+        Some(storage) => storage
+            .aggregated_since(from, bucket_seconds)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:?}")))?,
+        None => Vec::new(),
+    };
+
+    let summary = summarize_history(&points, bucket_seconds);
+
+    Ok(Json(RangeHistoryResponse {
+        from,
+        to,
+        bucket_seconds,
+        summary,
+        points,
+    }))
 }
 
 async fn suggestions_list(State(state): State<AppState>) -> Json<Vec<Proposal>> {

@@ -1,5 +1,9 @@
 # PowerWatch
 
+<p align="center">
+  <img src="docs/images/powerwatch-aerya-logo.png" alt="PowerWatch logo" width="720">
+</p>
+
 A lightweight, cross-platform tool for measuring and estimating power consumption of PC components in real-time. Provides three interfaces: a CLI for scripts and one-off checks, a terminal dashboard for live monitoring, and a browser-based dashboard with charts and history.
 
 ## Overview
@@ -7,6 +11,36 @@ A lightweight, cross-platform tool for measuring and estimating power consumptio
 PowerWatch reports real or estimated power draw (in watts) for each major component: CPU, GPU (NVIDIA/AMD), RAM, and disk. Every reading is tagged as either `(measured)` or `(estimated)`, and the total reflects the least-trustworthy input, so you always know what you can rely on.
 
 Linux is the primary, fully tested platform. Windows and macOS are supported in code but haven't been validated on real hardware yet.
+
+
+
+> ## 🇫🇷 À propos de ce fork
+>
+> Ce fork de **PowerWatch** ajoute principalement :
+> - le support **Docker** avec images multi-architecture **amd64 / arm64** publiées via GitHub Actions ;
+> - une WebUI accessible sur le **réseau local** grâce à une adresse d’écoute configurable ;
+> - une détection RAPL plus robuste en conteneur, avec montage direct du powercap de l’hôte ;
+> - la détection et le suivi de **tous les disques physiques**, avec exclusion des couches virtuelles, RAID/LVM et des pseudo-périphériques eMMC `boot`/`rpmb` ;
+> - un **mode NAS/headless** qui désactive les suggestions desktop inutiles ;
+> - un historique SQLite persistant avec vue **Live** et périodes personnalisables en heures, jours, semaines, mois ou années ;
+> - l’agrégation automatique de l’historique avec **moyenne / minimum / maximum / énergie (kWh)** pour garder l’interface légère sur les longues périodes.
+>
+> ⚠️ La WebUI ne disposant d’aucune authentification, elle est destinée à un **usage LAN uniquement** et ne doit pas être exposée directement sur Internet.
+>
+> ## 🇬🇧 About this fork
+>
+> This fork of **PowerWatch** mainly adds:
+> - **Docker** support with multi-architecture **amd64 / arm64** images published through GitHub Actions;
+> - LAN access to the Web UI through a configurable bind address;
+> - more robust RAPL discovery in containers, including a direct host powercap mount;
+> - detection and monitoring of **all physical disks**, excluding virtual/RAID/LVM layers and eMMC `boot`/`rpmb` pseudo devices;
+> - a **NAS/headless mode** that disables desktop-only energy suggestions;
+> - persistent SQLite history with a **Live** view and arbitrary ranges in hours, days, weeks, months or years;
+> - automatic history aggregation with **average / minimum / maximum / energy (kWh)** to keep long-range queries lightweight.
+>
+> ⚠️ Since the Web UI does not provide authentication, it is intended for **LAN-only use** and should not be exposed directly to the Internet.
+
+
 
 ## What It Measures
 
@@ -80,7 +114,7 @@ powerwatch --log --duration 5m
 History lives at `~/.local/share/powerwatch/history.db`. You can inspect it directly:
 
 ```bash
-sqlite3 ~/.local/share/powerwatch/history.db "SELECT * FROM readings ORDER BY timestamp DESC LIMIT 20;"
+sqlite3 ~/.local/share/powerwatch/history.db "SELECT * FROM readings ORDER BY ts DESC LIMIT 20;"
 ```
 
 Query averaged readings from a logged session:
@@ -150,31 +184,38 @@ Each suggestion carries a confirmation token to prevent accidental or remote-tri
 ![WEB](docs/images/Image_WEB.png)
 
 ```bash
-powerwatch-web               # http://127.0.0.1:3000
-powerwatch-web --port 4000   # custom port
-powerwatch-web --log         # also log continuously to the history database
+powerwatch-web                             # http://127.0.0.1:3000
+powerwatch-web --port 4000
+powerwatch-web --log
+powerwatch-web --history-interval 300
+powerwatch-web --nas-mode
 ```
 
-A local HTTP server with a single self-contained HTML page: no separate assets, no CDN, no external JS. Everything is embedded at compile time. The dashboard polls the same live data the CLI and TUI show, plus a chart of the last 10 minutes pulled from the history database:
+The dashboard provides live readings plus historical views. Presets include `1 h`, `24 h`, `7 d`, `30 d`, and `1 y`, with custom ranges in hours, days, weeks, months, or years.
 
-- **Live table**: current watts and confidence per sensor, refreshed automatically.
-- **Chart**: click a legend entry to toggle that series; the y-axis rescales so smaller signals stay visible. Hover over the chart for exact values at a given point.
-- **Suggestions**: energy-saving proposals appear in a dedicated section, each with a confirmation modal.
-- **Process monitor**: when CPU draw stays high, a "Show top processes" suggestion opens a modal displaying the five most CPU-intensive processes, refreshing every 2 seconds.
-- **Screensaver**: when the system appears idle with the display active, a suggestion to enable the screensaver appears.
-- **--log** makes the server write to `~/.local/share/powerwatch/history.db` continuously, the same database the CLI's `--log`/`history` and the TUI's `l` key use. Without `--log`, the chart only shows what something else logged.
+For the selected period it displays average, minimum, maximum, and energy in kWh. Long periods are aggregated server-side.
+
+The Docker image already starts with `--log --history-interval 60 --nas-mode`.
+
+### History retention
+
+- raw readings: 30 days;
+- 15-minute rollups: 30 days to 1 year;
+- 1-hour rollups: older than 1 year, retained long-term.
 
 API endpoints:
 
-```
-GET  /api/snapshot           # latest power readings as JSON
-GET  /api/history?since=10m  # readings since a given timestamp
-GET  /api/suggestions        # active energy-saving suggestions
-POST /api/suggestions/apply  # apply an action (requires token)
-GET  /api/processes/top      # top 5 CPU-consuming processes
+```text
+GET  /api/snapshot
+GET  /api/history?since=10m
+GET  /api/history/range?amount=7&unit=days
+GET  /api/suggestions
+POST /api/suggestions/apply
+GET  /api/processes/top
 ```
 
-This is intended for your own machine only, there is no authentication or HTTPS. It's not recommended to expose it on a network.
+The dashboard is for the local machine or a trusted private LAN only. It has no built-in authentication or HTTPS.
+
 
 ## Energy-Saving Suggestions
 
@@ -202,7 +243,7 @@ PowerWatch can detect sustained high power draw and propose actions to reduce it
 The web dashboard can execute system commands from a browser click. While it binds only to `127.0.0.1` and has no authentication, consider these risks:
 
 - **Confirmation tokens** mitigate CSRF. Each token is single-use and server-generated.
-- **Never expose the port on a network**. If someone reaches the dashboard remotely, a crafted page could trigger actions via CSRF.
+- **Never expose the port on the public Internet**. LAN-only use is acceptable on a trusted private network, but do not publish it through a public reverse proxy, tunnel, or router port-forwarding.
 - **Double confirmation** is shown in the browser (`confirm()` dialog) in addition to the token.
 
 Use the web dashboard only on trusted local machines.
@@ -259,3 +300,10 @@ Most likely failure points:
 ## License
 
 [MIT](https://github.com/lnpotter/PowerWatch/blob/main/LICENSE)
+## Docker / NAS notes
+
+This fork adds Docker/NAS deployment, robust RAPL access, Linux multi-disk discovery, persistent multi-year history, a custom README logo, and explicit LAN-only deployment guidance.
+
+**Security:** PowerWatch has no authentication. Keep it on a trusted private LAN only. Do not expose it with a public reverse proxy, Cloudflare Tunnel, or router port-forwarding.
+
+See [DOCKER.md](DOCKER.md) for deployment details.

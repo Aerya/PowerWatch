@@ -99,6 +99,87 @@
   }
   #status { color: var(--muted); font-size: 0.85rem; margin-top: 24px; }
 
+  #app-footer {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.82rem;
+    line-height: 1.5;
+  }
+  #app-footer a { color: var(--text); text-decoration: none; border-bottom: 1px dotted var(--muted); }
+  #app-footer a:hover { color: var(--measured); border-bottom-color: var(--measured); }
+
+
+  .history-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin: 0 0 12px;
+    padding: 12px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .range-buttons,
+  .custom-range {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .range-btn,
+  .range-submit,
+  .custom-range input,
+  .custom-range select {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 4px;
+    font: inherit;
+    font-size: 0.82rem;
+    padding: 6px 9px;
+  }
+  .range-btn,
+  .range-submit { cursor: pointer; }
+  .range-btn:hover,
+  .range-submit:hover,
+  .range-btn.active {
+    border-color: var(--measured);
+  }
+  .range-btn.active {
+    color: var(--measured);
+  }
+  .custom-range input { width: 74px; }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(130px, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .stat-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+  .stat-label {
+    display: block;
+    color: var(--muted);
+    font-size: 0.72rem;
+    margin-bottom: 4px;
+  }
+  .stat-value {
+    font-size: 1.05rem;
+    font-weight: 600;
+  }
+  @media (max-width: 760px) {
+    body { padding: 12px; }
+    .stats-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+  }
+
   /* Suggestions styling */
   #suggestions-section {
     margin-top: 24px;
@@ -321,6 +402,37 @@
     <tbody id="sensors-body"></tbody>
   </table>
 
+  <div class="history-toolbar">
+    <div class="range-buttons">
+      <button class="range-btn active" id="range-live" type="button">Live</button>
+      <button class="range-btn" type="button" data-range-amount="1" data-range-unit="hours" data-range-label="1 hour">1 h</button>
+      <button class="range-btn" type="button" data-range-amount="24" data-range-unit="hours" data-range-label="24 hours">24 h</button>
+      <button class="range-btn" type="button" data-range-amount="7" data-range-unit="days" data-range-label="7 days">7 d</button>
+      <button class="range-btn" type="button" data-range-amount="30" data-range-unit="days" data-range-label="30 days">30 d</button>
+      <button class="range-btn" type="button" data-range-amount="1" data-range-unit="years" data-range-label="1 year">1 y</button>
+    </div>
+
+    <form class="custom-range" id="history-form">
+      <span style="color:var(--muted);font-size:.8rem;">Custom:</span>
+      <input id="history-amount" type="number" min="1" max="10000" value="7" required>
+      <select id="history-unit">
+        <option value="hours">hours</option>
+        <option value="days" selected>days</option>
+        <option value="weeks">weeks</option>
+        <option value="months">months</option>
+        <option value="years">years</option>
+      </select>
+      <button class="range-submit" type="submit">Show</button>
+    </form>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card"><span class="stat-label">Average</span><span class="stat-value" id="stat-avg">—</span></div>
+    <div class="stat-card"><span class="stat-label">Minimum</span><span class="stat-value" id="stat-min">—</span></div>
+    <div class="stat-card"><span class="stat-label">Maximum</span><span class="stat-value" id="stat-max">—</span></div>
+    <div class="stat-card"><span class="stat-label">Energy</span><span class="stat-value" id="stat-energy">—</span></div>
+  </div>
+
   <div class="chart-panel">
     <canvas id="chart"></canvas>
     <div class="legend" id="legend"></div>
@@ -328,6 +440,12 @@
   </div>
 
   <div id="status"></div>
+  <footer id="app-footer">
+    <span>© 2026 <strong>Aerya</strong></span>
+    <span> · <a href="https://github.com/Aerya/PowerWatch" target="_blank" rel="noopener noreferrer">GitHub</a></span>
+    <span> · <a href="https://upandclear.org" target="_blank" rel="noopener noreferrer">UpAndClear</a></span>
+    <span> · Based on <a href="https://github.com/lnpotter/PowerWatch" target="_blank" rel="noopener noreferrer">lnpotter/PowerWatch</a> — thank you for the original project.</span>
+  </footer>
 
   <!-- Suggestions Section -->
   <div id="suggestions-section" style="display: none;">
@@ -397,12 +515,18 @@
   </div>
 
 <script>
-const PALETTE = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#bc8cff", "#39c5cf"];
-
+const PALETTE = [
+  "#58a6ff", "#3fb950", "#d29922", "#f85149", "#bc8cff", "#39c5cf",
+  "#ff7b72", "#a5d6ff", "#7ee787", "#e3b341", "#d2a8ff", "#79c0ff"
+];
 
 let lastReadings = [];
+let liveReadings = [];
 let hiddenSeries = new Set();
 let hoverClientX = null;
+let liveMode = true;
+let currentRange = null;
+let historyMeta = { label: "Live · 10 min", bucketSeconds: 0, rangeSeconds: 600 };
 
 function componentLabel(component) {
   if (typeof component === "string") {
@@ -424,10 +548,93 @@ async function refreshSnapshot() {
     if (!res.ok) throw new Error(`snapshot request failed: ${res.status}`);
     const data = await res.json();
     renderSnapshot(data);
+
+    if (liveMode) {
+      appendLiveSnapshot(data);
+      renderLiveSummary();
+      renderChart();
+    }
+
     setStatus("");
   } catch (err) {
     setStatus(`could not reach the server: ${err.message}`);
   }
+}
+
+function appendLiveSnapshot(data) {
+  const now = Date.now();
+  const cutoff = now - 10 * 60 * 1000;
+
+  for (const sensor of data.sensors || []) {
+    if (sensor.reading) {
+      liveReadings.push({
+        ...sensor.reading,
+        timestamp: sensor.reading.timestamp || data.timestamp || new Date(now).toISOString(),
+      });
+    }
+  }
+
+  if (data.total) {
+    liveReadings.push({
+      ...data.total,
+      timestamp: data.total.timestamp || data.timestamp || new Date(now).toISOString(),
+    });
+  }
+
+  liveReadings = liveReadings.filter((reading) => new Date(reading.timestamp).getTime() >= cutoff);
+  lastReadings = liveReadings;
+  historyMeta = { label: "Live · 10 min", bucketSeconds: 0, rangeSeconds: 600 };
+}
+
+function renderSummary(summary) {
+  const avg = document.getElementById("stat-avg");
+  const min = document.getElementById("stat-min");
+  const max = document.getElementById("stat-max");
+  const energy = document.getElementById("stat-energy");
+
+  if (!summary) {
+    avg.textContent = "—";
+    min.textContent = "—";
+    max.textContent = "—";
+    energy.textContent = "—";
+    return;
+  }
+
+  avg.textContent = `${summary.avg_watts.toFixed(1)} W`;
+  min.textContent = `${summary.min_watts.toFixed(1)} W`;
+  max.textContent = `${summary.max_watts.toFixed(1)} W`;
+  energy.textContent = `${summary.energy_kwh.toFixed(summary.energy_kwh < 1 ? 3 : 2)} kWh`;
+}
+
+function renderLiveSummary() {
+  const totals = liveReadings
+    .filter((reading) => componentLabel(reading.component) === "total")
+    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+  if (totals.length === 0) {
+    renderSummary(null);
+    return;
+  }
+
+  const watts = totals.map((reading) => reading.watts);
+  const avgWatts = watts.reduce((sum, value) => sum + value, 0) / watts.length;
+  const minWatts = Math.min(...watts);
+  const maxWatts = Math.max(...watts);
+
+  let energyKwh = 0;
+  for (let i = 1; i < totals.length; i++) {
+    const prev = totals[i - 1];
+    const cur = totals[i];
+    const dtHours = Math.max(0, new Date(cur.timestamp) - new Date(prev.timestamp)) / 3_600_000;
+    energyKwh += ((prev.watts + cur.watts) / 2) * dtHours / 1000;
+  }
+
+  renderSummary({
+    avg_watts: avgWatts,
+    min_watts: minWatts,
+    max_watts: maxWatts,
+    energy_kwh: energyKwh,
+  });
 }
 
 function renderSnapshot(data) {
@@ -645,15 +852,109 @@ applySuggestion = function(token, actionLabel) {
   return originalApplySuggestion(token, actionLabel);
 };
 
-async function refreshHistory() {
-  try {
-    const res = await fetch("/api/history?since=10m");
-    if (!res.ok) return;
-    lastReadings = await res.json();
-    renderChart();
-  } catch (err) {
+async function loadHistory(amount, unit, label, showStatus = true) {
+  liveMode = false;
+  currentRange = { amount, unit, label };
 
+  if (showStatus) {
+    setStatus(`loading ${label} history…`);
   }
+
+  try {
+    const params = new URLSearchParams({
+      amount: String(amount),
+      unit,
+      max_points: "1200",
+    });
+    const res = await fetch(`/api/history/range?${params}`);
+    if (!res.ok) {
+      throw new Error(await res.text());
+    }
+
+    const payload = await res.json();
+    lastReadings = (payload.points || []).map((point) => ({
+      component: point.component,
+      confidence: point.confidence,
+      timestamp: point.timestamp,
+      watts: point.avg_watts,
+      min_watts: point.min_watts,
+      max_watts: point.max_watts,
+      samples: point.samples,
+    }));
+
+    const from = new Date(payload.from).getTime();
+    const to = new Date(payload.to).getTime();
+    historyMeta = {
+      label,
+      bucketSeconds: payload.bucket_seconds || 60,
+      rangeSeconds: Math.max(1, (to - from) / 1000),
+    };
+
+    renderSummary(payload.summary);
+    renderChart();
+    setStatus("");
+  } catch (err) {
+    setStatus(`history error: ${err.message}`);
+  }
+}
+
+async function refreshHistory() {
+  if (!liveMode && currentRange) {
+    await loadHistory(
+      currentRange.amount,
+      currentRange.unit,
+      currentRange.label,
+      false,
+    );
+  }
+}
+
+function activateRangeButton(button) {
+  document.querySelectorAll(".range-btn").forEach((btn) => btn.classList.remove("active"));
+  if (button) button.classList.add("active");
+}
+
+function enterLiveMode() {
+  liveMode = true;
+  currentRange = null;
+  activateRangeButton(document.getElementById("range-live"));
+  lastReadings = liveReadings;
+  historyMeta = { label: "Live · 10 min", bucketSeconds: 0, rangeSeconds: 600 };
+  renderLiveSummary();
+  renderChart();
+  setStatus("");
+}
+
+function setupHistoryControls() {
+  document.getElementById("range-live").addEventListener("click", enterLiveMode);
+
+  document.querySelectorAll("[data-range-amount]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      activateRangeButton(button);
+      const amount = Number(button.dataset.rangeAmount);
+      const unit = button.dataset.rangeUnit;
+      const label = button.dataset.rangeLabel;
+      await loadHistory(amount, unit, label);
+    });
+  });
+
+  document.getElementById("history-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const amount = Number(document.getElementById("history-amount").value);
+    const unit = document.getElementById("history-unit").value;
+    if (!Number.isFinite(amount) || amount < 1) return;
+
+    activateRangeButton(null);
+    await loadHistory(amount, unit, `${amount} ${unit}`);
+  });
+}
+
+function formatBucket(seconds) {
+  if (!seconds) return "live";
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)}h`;
+  return `${Math.round(seconds / 86400)}d`;
 }
 
 function syncCanvasResolution(canvas) {
@@ -687,6 +988,27 @@ function groupByComponent(readings) {
 
 function formatTime(ms) {
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function formatAxisTime(ms) {
+  const date = new Date(ms);
+  const seconds = historyMeta.rangeSeconds || 600;
+
+  if (seconds >= 180 * 86400) {
+    return date.toLocaleDateString([], { year: "2-digit", month: "short" });
+  }
+  if (seconds >= 7 * 86400) {
+    return date.toLocaleDateString([], { day: "2-digit", month: "short" });
+  }
+  if (seconds >= 86400) {
+    return date.toLocaleString([], {
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function nearestPoints(series, targetTime) {
@@ -741,7 +1063,7 @@ function renderChart() {
   const visibleSeries = new Map([...series].filter(([key]) => !hiddenSeries.has(key)));
   const visibleReadings = [...visibleSeries.values()].flat();
 
-  caption.textContent = `${lastReadings.length} points - last updated ${formatTime(Date.now())}`;
+  caption.textContent = `${historyMeta.label} · ${lastReadings.length} points · ${formatBucket(historyMeta.bucketSeconds)} resolution · updated ${formatTime(Date.now())}`;
 
   if (visibleReadings.length === 0) {
     ctx.fillStyle = "#8b949e";
@@ -777,9 +1099,9 @@ function renderChart() {
   }
 
   ctx.textAlign = "left";
-  ctx.fillText(formatTime(minTime), padding.left, height - 4);
+  ctx.fillText(formatAxisTime(minTime), padding.left, height - 4);
   ctx.textAlign = "right";
-  ctx.fillText(formatTime(maxTime), padding.left + w, height - 4);
+  ctx.fillText(formatAxisTime(maxTime), padding.left + w, height - 4);
   ctx.textAlign = "left";
 
   const colorFor = (key) => {
@@ -814,7 +1136,12 @@ function renderChart() {
       ctx.lineTo(cursorX, padding.top + h);
       ctx.stroke();
 
-      const lines = [...nearest.entries()].map(([key, p]) => `${key}: ${p.watts.toFixed(1)} W`);
+      const lines = [...nearest.entries()].map(([key, p]) => {
+        const range = !liveMode && Number.isFinite(p.min_watts) && Number.isFinite(p.max_watts)
+          ? ` [${p.min_watts.toFixed(1)}–${p.max_watts.toFixed(1)}]`
+          : "";
+        return `${key}: ${p.watts.toFixed(1)} W${range}`;
+      });
       const boxWidth = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 16;
       const boxHeight = lines.length * 16 + 10;
       const boxX = Math.min(cursorX + 8, width - boxWidth - 4);
@@ -856,11 +1183,11 @@ function setupChartInteractions() {
 }
 
 setupChartInteractions();
+setupHistoryControls();
 refreshSnapshot();
-refreshHistory();
 refreshSuggestions();
 setInterval(refreshSnapshot, 1500);
-setInterval(refreshHistory, 5000);
+setInterval(refreshHistory, 60000);
 setInterval(refreshSuggestions, 5000);
 </script>
 </body>

@@ -1,0 +1,138 @@
+name: CI and Docker
+
+on:
+  push:
+    branches:
+      - main
+      - "feat/**"
+      - "fix/**"
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY_IMAGE: ghcr.io/aerya/powerwatch
+
+jobs:
+  meta:
+    name: Build metadata
+    runs-on: ubuntu-latest
+    outputs:
+      ref_slug: ${{ steps.vars.outputs.ref_slug }}
+      short_sha: ${{ steps.vars.outputs.short_sha }}
+    steps:
+      - name: Prepare tags
+        id: vars
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref_slug="$(echo "${GITHUB_REF_NAME}" | tr "[:upper:]/_" "[:lower:]--" | sed -E "s/[^a-z0-9.-]+/-/g; s/^-+|-+$//g")"
+          short_sha="${GITHUB_SHA:0:12}"
+          echo "ref_slug=${ref_slug}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Rust tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Test workspace
+        run: cargo test --workspace
+
+  docker:
+    name: Docker ${{ matrix.arch }} native
+    if: github.event_name != 'pull_request'
+    needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.arch }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: ${{ env.REGISTRY_IMAGE }}:${{ needs.meta.outputs.ref_slug }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=powerwatch-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=powerwatch-${{ matrix.arch }}
+
+  manifest:
+    name: Publish multi-arch manifest
+    if: github.event_name != 'pull_request'
+    needs:
+      - meta
+      - test
+      - docker
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push multi-arch manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          amd64="${REGISTRY_IMAGE}:${{ needs.meta.outputs.ref_slug }}-amd64"
+          arm64="${REGISTRY_IMAGE}:${{ needs.meta.outputs.ref_slug }}-arm64"
+
+          tags=(
+            -t "${REGISTRY_IMAGE}:${{ needs.meta.outputs.ref_slug }}"
+            -t "${REGISTRY_IMAGE}:sha-${{ needs.meta.outputs.short_sha }}"
+          )
+
+          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+            tags+=( -t "${REGISTRY_IMAGE}:latest" )
+          fi
+
+          docker buildx imagetools create "${tags[@]}" "$amd64" "$arm64"
+
+      - name: Inspect published manifest
+        run: docker buildx imagetools inspect "${REGISTRY_IMAGE}:${{ needs.meta.outputs.ref_slug }}"
