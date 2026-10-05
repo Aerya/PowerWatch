@@ -22,8 +22,8 @@ Linux is the primary, fully tested platform. Windows and macOS are supported in 
 > - une WebUI accessible sur le **réseau local** grâce à une adresse d’écoute configurable ;
 > - une **WebUI bilingue français / anglais**, avec détection automatique au premier accès et mémorisation du choix ;
 > - une détection RAPL plus robuste en conteneur, avec montage direct du powercap de l’hôte ;
-> - la détection **multi-GPU NVIDIA / AMD / Intel**, avec un **seul fichier Compose** pour le déploiement Docker ;
-> - la détection et le suivi de **tous les disques physiques**, avec exclusion des couches virtuelles, RAID/LVM et des pseudo-périphériques eMMC `boot`/`rpmb` ;
+> - la détection **multi-GPU NVIDIA / AMD / Intel**, avec fallback **Intel RAPL `uncore`** pour les iGPU sans compteur i915/xe hwmon, et un **seul fichier Compose** pour Docker ;
+> - la détection et le suivi de **tous les disques physiques**, sans double comptage RAID/LVM, avec affichage best-effort des **partitions, points de montage, systèmes de fichiers, RAID, LVM et dm-crypt** associés ;
 > - un **mode NAS/headless** qui désactive les suggestions desktop inutiles ;
 > - un historique SQLite persistant avec vue **Live** et périodes personnalisables en heures, jours, semaines, mois ou années ;
 > - l’agrégation automatique de l’historique avec **moyenne / minimum / maximum / énergie (kWh)** pour garder l’interface légère sur les longues périodes.
@@ -38,8 +38,8 @@ Linux is the primary, fully tested platform. Windows and macOS are supported in 
 > - LAN access to the Web UI through a configurable bind address;
 > - a **bilingual French / English Web UI**, with automatic first-visit detection and persistent language selection;
 > - more robust RAPL discovery in containers, including a direct host powercap mount;
-> - **multi-GPU NVIDIA / AMD / Intel** discovery, with a **single Compose file** for Docker deployment;
-> - detection and monitoring of **all physical disks**, excluding virtual/RAID/LVM layers and eMMC `boot`/`rpmb` pseudo devices;
+> - **multi-GPU NVIDIA / AMD / Intel** discovery, with an **Intel RAPL `uncore` fallback** for iGPUs without i915/xe hwmon power telemetry and a **single Compose file** for Docker deployment;
+> - detection and monitoring of **all physical disks** without double-counting RAID/LVM layers, plus best-effort display of associated **partitions, mount points, filesystems, RAID, LVM and dm-crypt** topology;
 > - a **NAS/headless mode** that disables desktop-only energy suggestions;
 > - persistent SQLite history with a **Live** view and arbitrary ranges in hours, days, weeks, months or years;
 > - automatic history aggregation with **average / minimum / maximum / energy (kWh)** to keep long-range queries lightweight.
@@ -55,14 +55,16 @@ Linux is the primary, fully tested platform. Windows and macOS are supported in 
 | CPU | RAPL (`/sys/class/powercap`) | Measured |
 | GPU (NVIDIA) | NVML | Measured |
 | GPU (AMD) | DRM hwmon (`power1_average` / `power1_input`) | Measured |
-| GPU (Intel) | i915/xe hwmon (`power1_*` or `energy1_input`, when exposed by the kernel/driver) | Measured |
+| GPU (Intel) | i915/xe hwmon, or RAPL `uncore` fallback when available | Measured |
 | RAM | Heuristic (GB used × watts/GB) | Estimated |
 | Disk | Idle/active watts by type (NVMe uses drive's own power-state table when `nvme-cli` is available) | Estimated |
 | Total | Sum of the above | Mixed (tagged) |
 
-Sensors that are not available on your machine are silently omitted. Multiple GPUs are kept separate in live data, history, charts and alerts. Intel GPU measurement requires an i915/xe hwmon power or energy counter exposed by the host kernel/driver.
+Sensors that are not available on your machine are silently omitted. Multiple GPUs are kept separate in live data, history, charts and alerts. On Intel Linux systems, PowerWatch first prefers i915/xe hwmon telemetry. If none is exposed but the RAPL package provides an `uncore` child domain, PowerWatch uses that domain as a measured `gpu:intel:0` fallback. To avoid double counting, the CPU reading then becomes package power minus `uncore`, so CPU + iGPU still reconstruct the original package draw.
 
 On NVMe drives, if `nvme-cli` is installed and the drive is readable, PowerWatch uses the manufacturer's declared max power per power state (`nvme id-ctrl`) rather than a generic guess. It falls back to the heuristic automatically when `nvme-cli` isn't available or the drive isn't NVMe.
+
+On Linux, physical disk sensor identities remain stable (`disk:sda`, `disk:nvme0n1`, etc.), while the CLI/TUI/Web UI enrich their labels from `/sys/class/block` and `/proc/1/mountinfo`. When available, this shows partitions, mount points, filesystem types and intermediary mdraid/LVM/dm-crypt layers without treating those virtual layers as extra power-consuming disks. Example: `disk (sda) — sda1 → md0 [RAID1] → vg-data [LVM] → /mnt/data [ext4]`.
 
 ## Install
 
@@ -256,7 +258,7 @@ docker compose up -d
 
 The Compose mounts `/sys/devices/virtual` separately at `/host-sys-virtual` and sets `POWERWATCH_POWERCAP_PATH` so CPU RAPL remains accessible on hosts where a plain `/sys` bind does not expose the `powercap` subtree inside Docker.
 
-**AMD and Intel GPUs require no additional Compose configuration**: PowerWatch reads their Linux hwmon telemetry directly through the read-only `/sys` mount.
+**AMD and Intel GPUs require no additional Compose configuration**: PowerWatch reads their Linux hwmon telemetry directly through the read-only `/sys` mount. Intel systems without i915/xe hwmon telemetry can also use a RAPL `uncore` domain exposed through the existing `/host-sys-virtual` mount.
 
 For **NVIDIA**, install the NVIDIA driver and NVIDIA Container Toolkit on the Docker host, then uncomment the clearly marked NVIDIA block already included in `compose.yaml`.
 
@@ -314,7 +316,7 @@ Use the web dashboard only on trusted local machines.
 
 ### Platform-Specific Sensor Sources
 
-**Linux**: direct filesystem reads (`/sys/class/powercap` for RAPL, DRM hwmon for AMD/Intel GPUs, NVML for NVIDIA, `iostat`/`nvme-cli` for disk). Every detected GPU is registered as a distinct sensor.
+**Linux**: direct filesystem reads (`/sys/class/powercap` for RAPL, DRM hwmon for AMD/Intel GPUs, RAPL `uncore` fallback for supported Intel iGPUs, NVML for NVIDIA, `/proc/diskstats`/`nvme-cli` for disk power estimation, and `/sys/class/block` + `/proc/1/mountinfo` for disk topology). Every detected GPU is registered as a distinct sensor.
 
 **Windows**: LibreHardwareMonitor WMI provider when available (real CPU RAPL/MSR), falling back to `GetSystemTimes` × assumed TDP for CPU; NVML unchanged; RAM uses `GlobalMemoryStatusEx`; disk uses the PDH performance counter API.
 

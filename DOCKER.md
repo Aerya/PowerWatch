@@ -38,7 +38,7 @@ et définit :
 POWERWATCH_POWERCAP_PATH=/host-sys-virtual/powercap/intel-rapl
 ```
 
-Ce montage utilise un chemin parent générique présent sur Linux. Si RAPL est disponible, PowerWatch récupère la mesure CPU. S'il ne l'est pas, PowerWatch continue normalement sans capteur CPU mesuré.
+Ce montage utilise un chemin parent générique présent sur Linux. Si RAPL est disponible, PowerWatch récupère la mesure CPU. Sur certains Intel, si aucun compteur i915/xe hwmon n'est exposé mais qu'un sous-domaine RAPL `uncore` existe, PowerWatch l'utilise comme mesure de l'iGPU. Dans ce cas, la valeur CPU est calculée comme `package - uncore` afin de ne pas compter deux fois l'iGPU dans le total. S'il n'y a pas de RAPL exploitable, PowerWatch continue normalement sans capteur CPU mesuré.
 
 ### 🇬🇧 CPU / RAPL in Docker
 
@@ -56,7 +56,7 @@ and sets:
 POWERWATCH_POWERCAP_PATH=/host-sys-virtual/powercap/intel-rapl
 ```
 
-This uses a generic Linux parent path. When RAPL is available, PowerWatch restores measured CPU power. When it is not available, PowerWatch continues normally without a measured CPU sensor.
+This uses a generic Linux parent path. When RAPL is available, PowerWatch restores measured CPU power. On some Intel systems, if no i915/xe hwmon counter is exposed but a RAPL `uncore` subdomain exists, PowerWatch uses it as measured iGPU power. In that case CPU is calculated as `package - uncore` so the iGPU is not counted twice in the total. If usable RAPL telemetry is absent, PowerWatch continues normally without a measured CPU sensor.
 
 ### 🇫🇷 GPU AMD et Intel
 
@@ -67,7 +67,7 @@ PowerWatch lit directement la télémétrie de puissance exposée par Linux dans
 - AMD : `amdgpu` (`power1_average` / `power1_input`) ;
 - Intel : `i915` / `xe` (`power1_*` ou `energy1_input`).
 
-Si plusieurs GPU AMD/Intel sont présents, ils sont détectés et suivis séparément.
+Si Intel n'expose aucun compteur hwmon mais fournit un sous-domaine RAPL `uncore`, PowerWatch utilise automatiquement ce compteur comme fallback `gpu:intel:0`. Si plusieurs GPU AMD/Intel sont présents, les compteurs hwmon restent prioritaires et chaque GPU lisible est suivi séparément.
 
 ### 🇬🇧 AMD and Intel GPUs
 
@@ -78,7 +78,7 @@ PowerWatch reads the power telemetry exposed by Linux directly through `/sys/cla
 - AMD: `amdgpu` (`power1_average` / `power1_input`);
 - Intel: `i915` / `xe` (`power1_*` or `energy1_input`).
 
-If multiple AMD/Intel GPUs are present, they are detected and monitored separately.
+If Intel exposes no hwmon power counter but provides a RAPL `uncore` subdomain, PowerWatch automatically uses it as the `gpu:intel:0` fallback. When multiple AMD/Intel GPUs are present, hwmon telemetry remains preferred and each readable GPU is monitored separately.
 
 ## NVIDIA
 
@@ -137,6 +137,19 @@ gpu:intel:0
 ```
 
 The generic alert target `gpu` remains available and represents the sum of all currently readable GPU sensors.
+
+## Disk topology / Topologie des disques
+
+PowerWatch continues to create power sensors only for physical disks, so mdraid, LVM and dm-crypt layers are **not** counted as additional disks. On Linux, the displayed disk label is enriched best-effort from `/sys/class/block` and the host mount table visible through `/proc/1/mountinfo`. No additional Compose mount is required because the supplied Compose already uses `pid: host` and mounts `/sys` read-only.
+
+Example / Exemple:
+
+```text
+disk (sda) — sda1 → md0 [RAID1] → vg-data [LVM] → /mnt/data [ext4]
+disk (nvme0n1) — nvme0n1p2 → cryptroot [dm-crypt] → / [ext4]
+```
+
+Unmounted partitions can also be shown as `[unmounted]`. Unsupported or ambiguous storage stacks simply fall back to the stable physical disk label instead of inventing a relationship.
 
 ## Web UI language
 
