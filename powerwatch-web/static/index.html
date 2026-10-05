@@ -536,6 +536,7 @@ const PALETTE = [
 let lastReadings = [];
 let liveReadings = [];
 let hiddenSeries = new Set();
+let componentDisplayLabels = new Map();
 let hoverClientX = null;
 let liveMode = true;
 let currentRange = null;
@@ -671,8 +672,11 @@ function renderSnapshot(data) {
     const row = document.createElement("tr");
     if (sensor.reading) {
       const cls = confidenceClass(sensor.reading.confidence);
+      const stableLabel = componentLabel(sensor.reading.component);
+      const displayLabel = sensor.display_name || stableLabel;
+      componentDisplayLabels.set(stableLabel, displayLabel);
       row.innerHTML = `
-        <td>${componentLabel(sensor.reading.component)}</td>
+        <td>${displayLabel}</td>
         <td class="${cls}">${sensor.reading.watts.toFixed(1)} W</td>
         <td class="${cls}">${PWI18n.confidence(sensor.reading.confidence)}</td>
       `;
@@ -1074,7 +1078,8 @@ function renderLegend(seriesKeys) {
     const btn = document.createElement("button");
     btn.dataset.key = key;
     if (hiddenSeries.has(key)) btn.classList.add("hidden-series");
-    btn.innerHTML = `<span class="swatch" style="background:${color}"></span>${key}`;
+    const label = componentDisplayLabels.get(key) || key;
+    btn.innerHTML = `<span class="swatch" style="background:${color}"></span>${label}`;
     legend.appendChild(btn);
   });
 }
@@ -1178,7 +1183,8 @@ function renderChart() {
         const range = !liveMode && Number.isFinite(p.min_watts) && Number.isFinite(p.max_watts)
           ? ` [${p.min_watts.toFixed(1)}–${p.max_watts.toFixed(1)}]`
           : "";
-        return `${key}: ${p.watts.toFixed(1)} W${range}`;
+        const label = componentDisplayLabels.get(key) || key;
+        return `${label}: ${p.watts.toFixed(1)} W${range}`;
       });
       const boxWidth = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 16;
       const boxHeight = lines.length * 16 + 10;

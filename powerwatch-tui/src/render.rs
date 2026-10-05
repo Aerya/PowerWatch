@@ -1,4 +1,5 @@
 use crate::history::History;
+use powerwatch_core::disk_topology::component_display_label;
 use powerwatch_core::model::Confidence;
 use powerwatch_core::sampler::Snapshot;
 use powerwatch_core::suggestions::Suggestion;
@@ -23,7 +24,7 @@ fn confidence_label(confidence: Confidence) -> &'static str {
 }
 
 fn component_label(component: &powerwatch_core::model::Component) -> String {
-    component.label()
+    component_display_label(component)
 }
 
 pub fn render(

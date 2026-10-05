@@ -1,6 +1,7 @@
 pub mod actions;
 pub mod alerts;
 pub mod discovery;
+pub mod disk_topology;
 pub mod duration;
 pub mod hook;
 pub mod json_snapshot;

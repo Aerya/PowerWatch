@@ -1,3 +1,4 @@
+use crate::disk_topology::component_display_label;
 use crate::model::{SensorError, SensorReading};
 use crate::sampler::Snapshot;
 use serde::Serialize;
@@ -5,6 +6,8 @@ use serde::Serialize;
 #[derive(Serialize)]
 pub struct JsonSensorResult {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reading: Option<SensorReading>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -34,11 +37,15 @@ pub fn build_json_snapshot(snapshot: &Snapshot) -> JsonSnapshot {
         .map(|(name, result)| match result {
             Ok(reading) => JsonSensorResult {
                 name: name.clone(),
+                display_name: Some(component_display_label(&reading.component)),
                 reading: Some(reading.clone()),
                 error: None,
             },
             Err(error) => JsonSensorResult {
                 name: name.clone(),
+                display_name: name.strip_prefix("disk:").map(|device| {
+                    component_display_label(&crate::model::Component::Disk(device.to_string()))
+                }),
                 reading: None,
                 error: Some(error_message(error)),
             },
@@ -102,6 +109,7 @@ mod tests {
         let parsed: Value = serde_json::from_str(&json).unwrap();
 
         assert_eq!(parsed["sensors"][0]["name"], "cpu");
+        assert_eq!(parsed["sensors"][0]["display_name"], "cpu");
         assert_eq!(parsed["sensors"][0]["reading"]["watts"], 12.0);
         assert_eq!(parsed["sensors"][0]["reading"]["confidence"], "Measured");
     }
