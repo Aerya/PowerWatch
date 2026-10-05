@@ -251,30 +251,6 @@ docker exec powerwatch sh -c \
   'find /host-sys-virtual/powercap/intel-rapl -name energy_uj -o -name name 2>/dev/null'
 ```
 
-## Données persistantes
-
-Le Compose monte :
-
-```text
-./data → /data/.local/share/powerwatch
-```
-
-Ce répertoire contient notamment :
-
-```text
-history.db
-alerts.json
-```
-
-Conservez `./data` lors des mises à jour du conteneur.
-
-## Mise à jour
-
-```bash
-docker compose pull
-docker compose up -d
-docker image prune -f
-```
 
 ## Sécurité
 
@@ -290,32 +266,8 @@ Le Compose fourni utilise notamment :
 
 La WebUI ne possède actuellement **ni authentification ni HTTPS intégré**. Ne la publiez pas directement derrière un port-forward, un tunnel public ou un reverse proxy exposé à Internet sans protection d'accès supplémentaire.
 
-## Plateforme supportée par ce fork
-
-La documentation et les images publiées par ce fork ciblent **Linux + Docker**.
-
-Le code historique de PowerWatch contient encore des éléments issus du projet original pour d'autres plateformes, mais **Windows et macOS ne font pas partie du périmètre supporté/documenté de ce fork**.
-
-## Image Docker
-
-Image :
-
-```text
-ghcr.io/aerya/powerwatch:latest
-```
-
-Architectures publiées :
-
-```text
-linux/amd64
-linux/arm64
-```
-
-Les builds et images sont produits par **GitHub Actions**.
 
 ## Attribution
-
-Ce dépôt est un fork maintenu par **Aerya**.
 
 Projet original : [lnpotter/PowerWatch](https://github.com/lnpotter/PowerWatch)
 
