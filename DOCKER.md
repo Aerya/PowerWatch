@@ -18,6 +18,10 @@ The container mounts the Intel RAPL tree directly at `/host-powercap`, mounts `/
 
 > The supplied RAPL mount targets Intel/Linux hosts. Remove or adapt it on systems without `/sys/devices/virtual/powercap/intel-rapl`.
 
+## Web UI language
+
+The Web UI is available in **English and French**. Language selection is handled entirely in the browser: French is selected automatically on the first visit when the browser language is French, English is the fallback, and the selected language is stored in browser `localStorage`. No Docker environment variable or server-side configuration is required.
+
 ## Web alerts and notifications
 
 Open `/alerts` from the PowerWatch Web UI to create persistent alert rules.

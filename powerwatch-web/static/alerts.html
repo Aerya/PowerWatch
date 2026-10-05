@@ -29,56 +29,58 @@ button.primary { color:var(--good); border-color:var(--good); } button.danger { 
 table { width:100%; border-collapse:collapse; font-size:.8rem; } th,td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--border); } th { color:var(--muted); font-weight:normal; }
 .badge { border:1px solid var(--border); border-radius:12px; padding:2px 7px; font-size:.72rem; } .badge.triggered { color:var(--bad); border-color:var(--bad); } .badge.recovered { color:var(--good); border-color:var(--good); }
 .secret-row { display:flex; gap:8px; align-items:center; margin-top:10px; } .secret-row input { width:auto; }
+.language-switcher{display:flex;gap:6px;align-items:center;margin-left:auto}.language-switcher button{background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--muted);font:inherit;font-size:.78rem;padding:4px 7px;cursor:pointer}.language-switcher button:hover,.language-switcher button.active{color:var(--text);border-color:var(--good)}
 @media(max-width:1100px){ body{padding:12px}.grid{grid-template-columns:1fr}.rule-card{grid-template-columns:1fr 1fr} }
 </style>
 </head>
-<body>
-<div class="header"><h1>PowerWatch · Alerts</h1><a href="/">Back to dashboard</a></div>
+<body data-page="alerts">
+<div class="header"><h1 data-i18n="page.alerts">PowerWatch · Alerts</h1><div class="language-switcher" aria-label="Language"><button type="button" data-lang="fr" onclick="setPowerWatchLanguage('fr')">🇫🇷 FR</button><button type="button" data-lang="en" onclick="setPowerWatchLanguage('en')">🇬🇧 EN</button></div><a href="/" data-i18n="nav.backDashboard">Back to dashboard</a></div>
 
 <div class="panel">
-  <h2>Notifications</h2>
+  <h2 data-i18n="alerts.notifications">Notifications</h2>
   <div class="grid">
     <div>
-      <label for="discord-webhook">Discord webhook</label>
+      <label for="discord-webhook" data-i18n="alerts.discordWebhook">Discord webhook</label>
       <input id="discord-webhook" type="password" autocomplete="off" placeholder="https://discord.com/api/webhooks/...">
-      <div class="help">Direct Discord webhook notification.</div>
+      <div class="help" data-i18n="alerts.discordHelp">Direct Discord webhook notification.</div>
     </div>
     <div>
-      <label for="apprise-endpoint">Apprise API endpoint</label>
+      <label for="apprise-endpoint" data-i18n="alerts.appriseEndpoint">Apprise API endpoint</label>
       <input id="apprise-endpoint" type="password" autocomplete="off" placeholder="http://apprise:8000/notify/ or /notify/KEY">
-      <div class="help">Use /notify/KEY for a saved Apprise config, or /notify/ for stateless mode.</div>
+      <div class="help" data-i18n="alerts.appriseHelp">Use /notify/KEY for a saved Apprise config, or /notify/ for stateless mode.</div>
     </div>
   </div>
   <div style="margin-top:12px;">
-    <label for="apprise-urls">Apprise notification URLs (optional, one per line)</label>
+    <label for="apprise-urls" data-i18n="alerts.appriseUrls">Apprise notification URLs (optional, one per line)</label>
     <textarea id="apprise-urls" placeholder="discord://...&#10;mailto://..."></textarea>
-    <div class="help">Needed for stateless Apprise unless APPRISE_STATELESS_URLS is already configured.</div>
+    <div class="help" data-i18n="alerts.appriseUrlsHelp">Needed for stateless Apprise unless APPRISE_STATELESS_URLS is already configured.</div>
   </div>
-  <div class="secret-row"><input id="show-secrets" type="checkbox"><label for="show-secrets" style="margin:0;">Show webhook/API values</label></div>
+  <div class="secret-row"><input id="show-secrets" type="checkbox"><label for="show-secrets" style="margin:0;" data-i18n="alerts.showSecrets">Show webhook/API values</label></div>
   <div class="actions">
-    <button type="button" onclick="testNotification('discord')">Test Discord</button>
-    <button type="button" onclick="testNotification('apprise')">Test Apprise</button>
-    <button type="button" onclick="testNotification('all')">Test all configured</button>
+    <button type="button" onclick="testNotification('discord')" data-i18n="alerts.testDiscord">Test Discord</button>
+    <button type="button" onclick="testNotification('apprise')" data-i18n="alerts.testApprise">Test Apprise</button>
+    <button type="button" onclick="testNotification('all')" data-i18n="alerts.testAll">Test all configured</button>
   </div>
   <div id="test-status" class="status"></div>
 </div>
 
 <div class="panel">
   <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:14px;">
-    <h2 style="margin:0;">Alert rules</h2><button type="button" onclick="addRule()">Add alert</button>
+    <h2 style="margin:0;" data-i18n="alerts.rules">Alert rules</h2><button type="button" onclick="addRule()" data-i18n="alerts.add">Add alert</button>
   </div>
   <div id="rules"></div>
-  <div class="actions"><button class="primary" type="button" onclick="saveSettings()">Save settings</button><button type="button" onclick="loadAll()">Reload</button></div>
+  <div class="actions"><button class="primary" type="button" onclick="saveSettings()" data-i18n="alerts.save">Save settings</button><button type="button" onclick="loadAll()" data-i18n="common.reload">Reload</button></div>
   <div id="save-status" class="status"></div>
 </div>
 
 <div class="panel">
-  <h2>Recent events</h2>
+  <h2 data-i18n="alerts.recentEvents">Recent events</h2>
   <div style="overflow:auto;">
-    <table><thead><tr><th>Time</th><th>State</th><th>Rule</th><th>Component</th><th>Watts</th><th>Message</th></tr></thead><tbody id="events-body"></tbody></table>
+    <table><thead><tr><th data-i18n="common.time">Time</th><th data-i18n="common.state">State</th><th data-i18n="alerts.rules">Rule</th><th data-i18n="common.component">Component</th><th data-i18n="common.watts">Watts</th><th data-i18n="common.message">Message</th></tr></thead><tbody id="events-body"></tbody></table>
   </div>
 </div>
 
+<script src="/static/i18n.js"></script>
 <script>
 let componentOptions=["total","cpu","gpu","ram"]; let latestOverview=null;
 const unique=v=>[...new Set(v.filter(Boolean))];
@@ -93,22 +95,22 @@ function notificationFormValue(){return{
   apprise_urls:document.getElementById("apprise-urls").value.split("\n").map(v=>v.trim()).filter(Boolean)
 };}
 function setNotificationForm(c){document.getElementById("discord-webhook").value=c.discord_webhook||"";document.getElementById("apprise-endpoint").value=c.apprise_endpoint||"";document.getElementById("apprise-urls").value=(c.apprise_urls||[]).join("\n");}
-function field(label,el){const b=document.createElement("div"),l=document.createElement("label");l.textContent=label;b.append(l,el);return b;}
+function field(label,el,key=null){const b=document.createElement("div"),l=document.createElement("label");l.textContent=label;if(key)l.dataset.i18n=key;b.append(l,el);return b;}
 function addRule(rule=null){
-  const v=rule||{id:"",name:"Power alert",enabled:true,component:"total",threshold_watts:50,sustained_seconds:30,notify_recovery:true};
+  const v=rule||{id:"",name:t("alerts.defaultRuleName"),enabled:true,component:"total",threshold_watts:50,sustained_seconds:30,notify_recovery:true};
   const c=document.createElement("div");c.className="rule-card";c.dataset.id=v.id||"";
   const en=document.createElement("input");en.type="checkbox";en.className="rule-enabled";en.checked=v.enabled!==false;
-  const enw=document.createElement("div");enw.className="check-wrap";enw.append(en,document.createTextNode("Enabled"));
-  const n=document.createElement("input");n.className="rule-name";n.value=v.name||"Power alert";
+  const enw=document.createElement("div");enw.className="check-wrap";const ent=document.createElement("span");ent.dataset.i18n="common.enabled";ent.textContent=t("common.enabled");enw.append(en,ent);
+  const n=document.createElement("input");n.className="rule-name";n.value=v.name||t("alerts.defaultRuleName");
   const comp=document.createElement("select");comp.className="rule-component";
   for(const ov of unique([...componentOptions,v.component||"total"])){const o=document.createElement("option");o.value=ov;o.textContent=ov;comp.appendChild(o);}comp.value=v.component||"total";
   const th=document.createElement("input");th.className="rule-threshold";th.type="number";th.min="0";th.step="0.1";th.value=Number(v.threshold_watts??50);
   const dur=document.createElement("input");dur.className="rule-duration";dur.type="number";dur.min="0";dur.step="1";dur.value=Number(v.sustained_seconds??30);
   const rec=document.createElement("input");rec.type="checkbox";rec.className="rule-recovery";rec.checked=v.notify_recovery!==false;
-  const recw=document.createElement("div");recw.className="check-wrap";recw.append(rec,document.createTextNode("Recovery"));
-  const rt=document.createElement("div");rt.className="runtime ok";rt.textContent="idle";
-  const del=document.createElement("button");del.type="button";del.className="danger";del.textContent="Delete";del.onclick=()=>c.remove();
-  c.append(field("State",enw),field("Name",n),field("Component",comp),field("Threshold (W)",th),field("For (seconds)",dur),field("Notify",recw),field("Runtime",rt),del);
+  const recw=document.createElement("div");recw.className="check-wrap";const rect=document.createElement("span");rect.dataset.i18n="common.recovery";rect.textContent=t("common.recovery");recw.append(rec,rect);
+  const rt=document.createElement("div");rt.className="runtime ok";rt.textContent=t("alerts.notSaved");
+  const del=document.createElement("button");del.type="button";del.className="danger";del.textContent=t("common.delete");del.dataset.i18n="common.delete";del.onclick=()=>c.remove();
+  c.append(field(t("common.state"),enw,"common.state"),field(t("common.name"),n,"common.name"),field(t("common.component"),comp,"common.component"),field(t("alerts.threshold"),th,"alerts.threshold"),field(t("alerts.forSeconds"),dur,"alerts.forSeconds"),field(t("common.notify"),recw,"common.notify"),field(t("common.runtime"),rt,"common.runtime"),del);
   document.getElementById("rules").appendChild(c);updateRuleRuntime(c);
 }
 function collectRules(){return[...document.querySelectorAll(".rule-card")].map(c=>({
@@ -118,22 +120,28 @@ function collectRules(){return[...document.querySelectorAll(".rule-card")].map(c
 }));}
 function setStatus(id,msg,cls=""){const e=document.getElementById(id);e.textContent=msg;e.className=`status ${cls}`.trim();}
 function updateRuleRuntime(c){const s=latestOverview?.statuses?.find(x=>x.id===c.dataset.id),e=c.querySelector(".runtime");
-  if(!s){e.textContent="not saved";e.className="runtime";return;}
-  if(s.active){e.textContent=`ALERT · ${s.last_watts?.toFixed(1)??"?"} W`;e.className="runtime active";}
-  else if(s.above_for_seconds>0){e.textContent=`waiting · ${s.above_for_seconds}s`;e.className="runtime";}
-  else{e.textContent=s.last_watts==null?"no data":`ok · ${s.last_watts.toFixed(1)} W`;e.className="runtime ok";}
+  if(!s){e.textContent=t("alerts.notSaved");e.className="runtime";return;}
+  if(s.active){e.textContent=t("alerts.active",{watts:s.last_watts?.toFixed(1)??"?"});e.className="runtime active";}
+  else if(s.above_for_seconds>0){e.textContent=t("alerts.waiting",{seconds:s.above_for_seconds});e.className="runtime";}
+  else{e.textContent=s.last_watts==null?t("alerts.noData"):t("alerts.ok",{watts:s.last_watts.toFixed(1)});e.className="runtime ok";}
 }
 function renderRuntime(o){latestOverview=o;document.querySelectorAll(".rule-card").forEach(updateRuleRuntime);renderEvents(o.events||[]);}
+function localizedEventMessage(ev){
+  if(ev.kind==="recovered") return t("alerts.eventRecovered",{rule:ev.rule_name,component:ev.component,watts:Number(ev.watts).toFixed(1),threshold:Number(ev.threshold_watts).toFixed(1)});
+  if(ev.kind==="triggered") return t("alerts.eventTriggered",{rule:ev.rule_name,component:ev.component,watts:Number(ev.watts).toFixed(1),threshold:Number(ev.threshold_watts).toFixed(1),seconds:ev.sustained_seconds??0});
+  return ev.message;
+}
 function renderEvents(events){const b=document.getElementById("events-body");b.innerHTML="";
-  if(!events.length){const r=document.createElement("tr"),c=document.createElement("td");c.colSpan=6;c.style.color="var(--muted)";c.textContent="No alert events yet.";r.appendChild(c);b.appendChild(r);return;}
-  for(const ev of events){const r=document.createElement("tr"),vals=[new Date(ev.timestamp).toLocaleString(),ev.kind,ev.rule_name,ev.component,`${Number(ev.watts).toFixed(1)} W`,ev.message];
+  if(!events.length){const r=document.createElement("tr"),c=document.createElement("td");c.colSpan=6;c.style.color="var(--muted)";c.textContent=t("alerts.noEvents");r.appendChild(c);b.appendChild(r);return;}
+  for(const ev of events){const r=document.createElement("tr"),vals=[new Date(ev.timestamp).toLocaleString(),ev.kind==="recovered"?t("alerts.recovered"):t("alerts.triggered"),ev.rule_name,ev.component,`${Number(ev.watts).toFixed(1)} W`,localizedEventMessage(ev)];
     vals.forEach((v,i)=>{const c=document.createElement("td");if(i===1){const s=document.createElement("span");s.className=`badge ${ev.kind}`;s.textContent=v;c.appendChild(s);}else c.textContent=v;r.appendChild(c);});b.appendChild(r);}
 }
-async function loadAll(){setStatus("save-status","Loading...");await discoverComponents();try{const r=await fetch("/api/alerts");if(!r.ok)throw new Error(await r.text());const o=await r.json();latestOverview=o;setNotificationForm(o.settings.notifications||{});document.getElementById("rules").innerHTML="";for(const rule of o.settings.rules||[])addRule(rule);if(!(o.settings.rules||[]).length)addRule();renderRuntime(o);setStatus("save-status","");}catch(e){setStatus("save-status",`Failed to load alerts: ${e.message}`,"error");}}
+async function loadAll(){setStatus("save-status",t("alerts.loading"));await discoverComponents();try{const r=await fetch("/api/alerts");if(!r.ok)throw new Error(await r.text());const o=await r.json();latestOverview=o;setNotificationForm(o.settings.notifications||{});document.getElementById("rules").innerHTML="";for(const rule of o.settings.rules||[])addRule(rule);if(!(o.settings.rules||[]).length)addRule();renderRuntime(o);setStatus("save-status","");}catch(e){setStatus("save-status",t("alerts.loadFailed",{error:e.message}),"error");}}
 async function refreshRuntime(){try{const r=await fetch("/api/alerts");if(r.ok)renderRuntime(await r.json());}catch(_){}}
-async function saveSettings(){const payload={notifications:notificationFormValue(),rules:collectRules()};setStatus("save-status","Saving...");try{const r=await fetch("/api/alerts",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});if(!r.ok)throw new Error(await r.text());const o=await r.json();latestOverview=o;const cards=[...document.querySelectorAll(".rule-card")];(o.settings.rules||[]).forEach((rule,i)=>{if(cards[i])cards[i].dataset.id=rule.id;});renderRuntime(o);setStatus("save-status","Settings saved.","good");}catch(e){setStatus("save-status",`Save failed: ${e.message}`,"error");}}
-async function testNotification(channel){setStatus("test-status",`Testing ${channel}...`);try{const r=await fetch("/api/alerts/test",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({channel,notifications:notificationFormValue()})});if(!r.ok)throw new Error(await r.text());const d=await r.json();const lines=(d.results||[]).map(x=>`${x.channel}: ${x.ok?"OK":`FAILED — ${x.error||"unknown error"}`}`);setStatus("test-status",lines.join("\n"),d.success?"good":"error");}catch(e){setStatus("test-status",`Test failed: ${e.message}`,"error");}}
+async function saveSettings(){const payload={notifications:notificationFormValue(),rules:collectRules()};setStatus("save-status",t("alerts.saving"));try{const r=await fetch("/api/alerts",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});if(!r.ok)throw new Error(await r.text());const o=await r.json();latestOverview=o;const cards=[...document.querySelectorAll(".rule-card")];(o.settings.rules||[]).forEach((rule,i)=>{if(cards[i])cards[i].dataset.id=rule.id;});renderRuntime(o);setStatus("save-status",t("alerts.saved"),"good");}catch(e){setStatus("save-status",t("alerts.saveFailed",{error:e.message}),"error");}}
+async function testNotification(channel){setStatus("test-status",t("alerts.testing",{channel}));try{const r=await fetch("/api/alerts/test",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({channel,notifications:notificationFormValue()})});if(!r.ok)throw new Error(await r.text());const d=await r.json();const lines=(d.results||[]).map(x=>`${x.channel}: ${x.ok?"OK":t("alerts.failed",{error:x.error||t("alerts.unknownError")})}`);setStatus("test-status",lines.join("\n"),d.success?"good":"error");}catch(e){setStatus("test-status",t("alerts.testFailed",{error:e.message}),"error");}}
 document.getElementById("show-secrets").addEventListener("change",e=>{const t=e.target.checked?"text":"password";document.getElementById("discord-webhook").type=t;document.getElementById("apprise-endpoint").type=t;});
+window.addEventListener("powerwatch:languagechange",()=>{if(latestOverview)renderRuntime(latestOverview);});
 loadAll();setInterval(refreshRuntime,3000);
 </script>
 </body>

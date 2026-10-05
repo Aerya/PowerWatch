@@ -37,10 +37,12 @@ fn convert_rss_to_mb(output: &str) -> String {
 }
 
 const INDEX_HTML: &str = include_str!("../static/index.html");
+const I18N_JS: &str = include_str!("../static/i18n.js");
 
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/", get(index))
+        .route("/static/i18n.js", get(i18n_js))
         .route("/alerts", get(crate::alerts::page))
         .route("/api/alerts", get(crate::alerts::overview).put(crate::alerts::update))
         .route("/api/alerts/test", post(crate::alerts::test_notification))
@@ -59,6 +61,13 @@ async fn index() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
         Html(INDEX_HTML),
+    )
+}
+
+async fn i18n_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "application/javascript; charset=utf-8")],
+        I18N_JS,
     )
 }
 
