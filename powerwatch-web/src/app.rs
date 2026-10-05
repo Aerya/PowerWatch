@@ -41,6 +41,9 @@ const INDEX_HTML: &str = include_str!("../static/index.html");
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/", get(index))
+        .route("/alerts", get(crate::alerts::page))
+        .route("/api/alerts", get(crate::alerts::overview).put(crate::alerts::update))
+        .route("/api/alerts/test", post(crate::alerts::test_notification))
         .route("/api/health", get(health))
         .route("/api/snapshot", get(snapshot))
         .route("/api/history", get(history))
@@ -49,7 +52,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/suggestions/apply", post(suggestions_apply))
         .route("/api/processes/top", get(top_processes))
         .with_state(state)
-        .layer(axum::extract::DefaultBodyLimit::max(4 * 1024)) // small payloads only
+        .layer(axum::extract::DefaultBodyLimit::max(64 * 1024))
 }
 
 async fn index() -> impl IntoResponse {
@@ -392,6 +395,7 @@ mod tests {
             latest_snapshot: Arc::new(RwLock::new(snapshot)),
             storage: Arc::new(Mutex::new(None)),
             suggestions: crate::suggestions::SuggestionsState::new(),
+            alerts: crate::alerts::AlertService::memory(),
         }
     }
 
@@ -400,6 +404,7 @@ mod tests {
             latest_snapshot: Arc::new(RwLock::new(snapshot)),
             storage: Arc::new(Mutex::new(Some(storage))),
             suggestions: crate::suggestions::SuggestionsState::new(),
+            alerts: crate::alerts::AlertService::memory(),
         }
     }
 
