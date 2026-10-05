@@ -8,7 +8,7 @@ A lightweight, cross-platform tool for measuring and estimating power consumptio
 
 ## Overview
 
-PowerWatch reports real or estimated power draw (in watts) for each major component: CPU, GPU (NVIDIA/AMD), RAM, and disk. Every reading is tagged as either `(measured)` or `(estimated)`, and the total reflects the least-trustworthy input, so you always know what you can rely on.
+PowerWatch reports real or estimated power draw (in watts) for each major component: CPU, one or more GPUs (NVIDIA/AMD/Intel), RAM, and disk. Every reading is tagged as either `(measured)` or `(estimated)`, and the total reflects the least-trustworthy input, so you always know what you can rely on.
 
 Linux is the primary, fully tested platform. Windows and macOS are supported in code but haven't been validated on real hardware yet.
 
@@ -22,6 +22,7 @@ Linux is the primary, fully tested platform. Windows and macOS are supported in 
 > - une WebUI accessible sur le **réseau local** grâce à une adresse d’écoute configurable ;
 > - une **WebUI bilingue français / anglais**, avec détection automatique au premier accès et mémorisation du choix ;
 > - une détection RAPL plus robuste en conteneur, avec montage direct du powercap de l’hôte ;
+> - la détection **multi-GPU NVIDIA / AMD / Intel**, y compris en Docker avec overlays dédiés ;
 > - la détection et le suivi de **tous les disques physiques**, avec exclusion des couches virtuelles, RAID/LVM et des pseudo-périphériques eMMC `boot`/`rpmb` ;
 > - un **mode NAS/headless** qui désactive les suggestions desktop inutiles ;
 > - un historique SQLite persistant avec vue **Live** et périodes personnalisables en heures, jours, semaines, mois ou années ;
@@ -37,6 +38,7 @@ Linux is the primary, fully tested platform. Windows and macOS are supported in 
 > - LAN access to the Web UI through a configurable bind address;
 > - a **bilingual French / English Web UI**, with automatic first-visit detection and persistent language selection;
 > - more robust RAPL discovery in containers, including a direct host powercap mount;
+> - **multi-GPU NVIDIA / AMD / Intel** discovery, including Docker GPU overlays;
 > - detection and monitoring of **all physical disks**, excluding virtual/RAID/LVM layers and eMMC `boot`/`rpmb` pseudo devices;
 > - a **NAS/headless mode** that disables desktop-only energy suggestions;
 > - persistent SQLite history with a **Live** view and arbitrary ranges in hours, days, weeks, months or years;
@@ -52,12 +54,13 @@ Linux is the primary, fully tested platform. Windows and macOS are supported in 
 |-----------|--------|------|
 | CPU | RAPL (`/sys/class/powercap`) | Measured |
 | GPU (NVIDIA) | NVML | Measured |
-| GPU (AMD) | hwmon (`power1_average`) | Measured |
+| GPU (AMD) | DRM hwmon (`power1_average` / `power1_input`) | Measured |
+| GPU (Intel) | i915/xe hwmon (`power1_*` or `energy1_input`, when exposed by the kernel/driver) | Measured |
 | RAM | Heuristic (GB used × watts/GB) | Estimated |
 | Disk | Idle/active watts by type (NVMe uses drive's own power-state table when `nvme-cli` is available) | Estimated |
 | Total | Sum of the above | Mixed (tagged) |
 
-Sensors that aren't available on your machine are silently omitted. Intel iGPUs aren't supported yet.
+Sensors that are not available on your machine are silently omitted. Multiple GPUs are kept separate in live data, history, charts and alerts. Intel GPU measurement requires an i915/xe hwmon power or energy counter exposed by the host kernel/driver.
 
 On NVMe drives, if `nvme-cli` is installed and the drive is readable, PowerWatch uses the manufacturer's declared max power per power state (`nvme id-ctrl`) rather than a generic guess. It falls back to the heuristic automatically when `nvme-cli` isn't available or the drive isn't NVMe.
 
@@ -144,7 +147,7 @@ powerwatch-tui --alert-component cpu --alert-above 20 --alert-for 10s
 | Flag | Meaning |
 |------|---------|
 | `--alert-above <watts>` | Enable the alert (required) |
-| `--alert-component <name>` | Which sensor to watch (`cpu`, `gpu`, `ram`, `disk`, or `total`) |
+| `--alert-component <name>` | Which sensor to watch (`cpu`, aggregate `gpu`, a specific `gpu:nvidia:0` / `gpu:amd:0` / `gpu:intel:0`, `ram`, disk sensor, or `total`) |
 | `--alert-for <duration>` | How long the threshold must be sustained (`10s`, `2m`, default: immediate) |
 | `--alert-run <command>` | Shell command to run once when the alert fires |
 
@@ -229,7 +232,7 @@ The Web UI includes a dedicated **Alerts** page at `/alerts`.
 
 ![Web Alerts](docs/images/Image_ALERTS.png)
 
-Alerts are evaluated continuously by the Web server and can monitor `total`, `cpu`, `gpu`, `ram`, or any discovered disk sensor such as `disk:sda` / `disk:nvme0n1`. Each rule can define an enable/disable state, a threshold in watts, a sustained duration before firing, and an optional recovery notification.
+Alerts are evaluated continuously by the Web server and can monitor `total`, `cpu`, aggregate `gpu`, an individual GPU such as `gpu:nvidia:0`, `gpu:amd:0` or `gpu:intel:0`, `ram`, or any discovered disk sensor such as `disk:sda` / `disk:nvme0n1`. Each rule can define an enable/disable state, a threshold in watts, a sustained duration before firing, and an optional recovery notification.
 
 Alert settings are persisted in `~/.local/share/powerwatch/alerts.json`. In Docker, `HOME=/data`, so the supplied persistent data volume keeps both history and alert configuration across container updates.
 
@@ -288,7 +291,7 @@ Use the web dashboard only on trusted local machines.
 
 ### Platform-Specific Sensor Sources
 
-**Linux**: direct filesystem reads (`/sys/class/powercap` for RAPL, `hwmon` for AMD GPU, NVML for NVIDIA, `iostat`/`nvme-cli` for disk).
+**Linux**: direct filesystem reads (`/sys/class/powercap` for RAPL, DRM hwmon for AMD/Intel GPUs, NVML for NVIDIA, `iostat`/`nvme-cli` for disk). Every detected GPU is registered as a distinct sensor.
 
 **Windows**: LibreHardwareMonitor WMI provider when available (real CPU RAPL/MSR), falling back to `GetSystemTimes` × assumed TDP for CPU; NVML unchanged; RAM uses `GlobalMemoryStatusEx`; disk uses the PDH performance counter API.
 
@@ -340,7 +343,22 @@ Most likely failure points:
 [MIT](https://github.com/lnpotter/PowerWatch/blob/main/LICENSE)
 ## Docker notes
 
-This fork adds Docker deployment for Linux hosts, robust RAPL access, Linux multi-disk discovery, persistent multi-year history, a custom README logo, and explicit LAN-only deployment guidance.
+This fork adds Docker deployment for Linux hosts, robust RAPL access, Linux multi-disk and multi-GPU discovery, persistent multi-year history, a custom README logo, and explicit LAN-only deployment guidance.
+
+GPU access is opt-in so the base stack still starts on machines without a GPU:
+
+```bash
+# AMD and/or Intel
+docker compose -f compose.yaml -f compose.gpu-amd-intel.yaml up -d
+
+# NVIDIA
+docker compose -f compose.yaml -f compose.gpu-nvidia.yaml up -d
+
+# Mixed machine: AMD/Intel + NVIDIA
+docker compose -f compose.yaml -f compose.gpu-amd-intel.yaml -f compose.gpu-nvidia.yaml up -d
+```
+
+The NVIDIA overlay requires the host NVIDIA driver and NVIDIA Container Toolkit. The AMD/Intel overlay passes `/dev/dri`; the base stack already exposes host `/sys` read-only for hwmon telemetry.
 
 **Security:** PowerWatch has no authentication. Keep it on a trusted private LAN only. Do not expose it with a public reverse proxy, Cloudflare Tunnel, or router port-forwarding.
 

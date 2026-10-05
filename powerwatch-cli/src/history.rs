@@ -34,13 +34,7 @@ pub fn aggregate_by_component(readings: &[SensorReading]) -> Vec<ComponentSummar
 }
 
 fn component_label(component: &Component) -> String {
-    match component {
-        Component::Cpu => "cpu".to_string(),
-        Component::Gpu(vendor) => format!("gpu ({vendor:?})").to_lowercase(),
-        Component::Ram => "ram".to_string(),
-        Component::Disk(name) => format!("disk ({name})"),
-        Component::Total => "total".to_string(),
-    }
+    component.label()
 }
 
 pub fn format_history_table(summaries: &[ComponentSummary]) -> String {

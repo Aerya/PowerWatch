@@ -413,8 +413,23 @@ impl AlertService {
 }
 
 fn watts_for(snapshot: &Snapshot, component: &str) -> Option<f64> {
-    if component == "total" {
+    if component.eq_ignore_ascii_case("total") {
         return snapshot.total().map(|reading| reading.watts);
+    }
+
+    if component.eq_ignore_ascii_case("gpu") {
+        let mut found = false;
+        let watts = snapshot
+            .results
+            .iter()
+            .filter(|(name, _)| name.eq_ignore_ascii_case("gpu") || name.starts_with("gpu:"))
+            .filter_map(|(_, result)| result.as_ref().ok())
+            .map(|reading| {
+                found = true;
+                reading.watts
+            })
+            .sum();
+        return found.then_some(watts);
     }
 
     snapshot.results.iter()
@@ -601,6 +616,45 @@ mod tests {
                 }),
             )],
         }
+    }
+
+    #[test]
+    fn generic_gpu_watts_sum_all_gpu_sensors() {
+        let now = chrono::Utc::now();
+        let snapshot = Snapshot {
+            timestamp: now,
+            results: vec![
+                (
+                    "gpu:nvidia:0".to_string(),
+                    Ok(SensorReading {
+                        component: Component::GpuDevice {
+                            vendor: powerwatch_core::model::GpuVendor::Nvidia,
+                            index: 0,
+                            name: "GPU 0".to_string(),
+                        },
+                        watts: 80.0,
+                        confidence: Confidence::Measured,
+                        timestamp: now,
+                    }),
+                ),
+                (
+                    "gpu:intel:0".to_string(),
+                    Ok(SensorReading {
+                        component: Component::GpuDevice {
+                            vendor: powerwatch_core::model::GpuVendor::Intel,
+                            index: 0,
+                            name: "GPU 1".to_string(),
+                        },
+                        watts: 20.0,
+                        confidence: Confidence::Measured,
+                        timestamp: now,
+                    }),
+                ),
+            ],
+        };
+
+        assert_eq!(watts_for(&snapshot, "gpu"), Some(100.0));
+        assert_eq!(watts_for(&snapshot, "gpu:nvidia:0"), Some(80.0));
     }
 
     #[test]

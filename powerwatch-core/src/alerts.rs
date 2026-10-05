@@ -64,6 +64,21 @@ impl AlertEvaluator {
             return snapshot.total().map(|r| r.watts);
         }
 
+        if self.rule.component_name.eq_ignore_ascii_case("gpu") {
+            let mut found = false;
+            let watts = snapshot
+                .results
+                .iter()
+                .filter(|(name, _)| name.eq_ignore_ascii_case("gpu") || name.starts_with("gpu:"))
+                .filter_map(|(_, result)| result.as_ref().ok())
+                .map(|reading| {
+                    found = true;
+                    reading.watts
+                })
+                .sum();
+            return found.then_some(watts);
+        }
+
         snapshot
             .results
             .iter()
@@ -212,6 +227,48 @@ mod tests {
         );
 
         assert!(fired_again);
+    }
+
+    #[test]
+    fn generic_gpu_rule_sums_multiple_gpu_sensors() {
+        let mut evaluator = AlertEvaluator::new(AlertRule {
+            component_name: "gpu".to_string(),
+            threshold_watts: 100.0,
+            sustained_for: Duration::from_secs(0),
+        });
+        let snapshot = Snapshot {
+            timestamp: Utc::now(),
+            results: vec![
+                (
+                    "gpu:nvidia:0".to_string(),
+                    Ok(SensorReading {
+                        component: Component::GpuDevice {
+                            vendor: crate::model::GpuVendor::Nvidia,
+                            index: 0,
+                            name: "GPU 0".to_string(),
+                        },
+                        watts: 70.0,
+                        confidence: Confidence::Measured,
+                        timestamp: Utc::now(),
+                    }),
+                ),
+                (
+                    "gpu:amd:0".to_string(),
+                    Ok(SensorReading {
+                        component: Component::GpuDevice {
+                            vendor: crate::model::GpuVendor::Amd,
+                            index: 0,
+                            name: "GPU 1".to_string(),
+                        },
+                        watts: 40.0,
+                        confidence: Confidence::Measured,
+                        timestamp: Utc::now(),
+                    }),
+                ),
+            ],
+        };
+
+        assert!(evaluator.evaluate_at(&snapshot, Instant::now()));
     }
 
     #[test]

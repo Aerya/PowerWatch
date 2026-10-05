@@ -1,17 +1,8 @@
-use powerwatch_core::model::{Component, Confidence, GpuVendor, SensorError, SensorReading};
+use powerwatch_core::model::{Component, Confidence, SensorError, SensorReading};
 use powerwatch_core::sampler::Snapshot;
 
 fn component_label(component: &Component) -> String {
-    match component {
-        Component::Cpu => "cpu".to_string(),
-        Component::Gpu(GpuVendor::Nvidia) => "gpu (nvidia)".to_string(),
-        Component::Gpu(GpuVendor::Amd) => "gpu (amd)".to_string(),
-        Component::Gpu(GpuVendor::Intel) => "gpu (intel)".to_string(),
-        Component::Gpu(GpuVendor::Apple) => "gpu (apple)".to_string(),
-        Component::Ram => "ram".to_string(),
-        Component::Disk(name) => format!("disk ({name})"),
-        Component::Total => "total".to_string(),
-    }
+    component.label()
 }
 
 fn confidence_label(confidence: Confidence) -> &'static str {
