@@ -18,7 +18,7 @@ Linux is the primary, fully tested platform. Windows and macOS are supported in 
 >
 > Ce fork de **PowerWatch** ajoute principalement :
 > - le support **Docker** avec images multi-architecture **amd64 / arm64** publiées via GitHub Actions ;
-- une gestion des **alertes depuis la WebUI**, avec règles persistantes et notifications **Discord / Apprise** ;
+> - une gestion des **alertes depuis la WebUI**, avec règles persistantes et notifications **Discord / Apprise** ;
 > - une WebUI accessible sur le **réseau local** grâce à une adresse d’écoute configurable ;
 > - une détection RAPL plus robuste en conteneur, avec montage direct du powercap de l’hôte ;
 > - la détection et le suivi de **tous les disques physiques**, avec exclusion des couches virtuelles, RAID/LVM et des pseudo-périphériques eMMC `boot`/`rpmb` ;
@@ -32,7 +32,7 @@ Linux is the primary, fully tested platform. Windows and macOS are supported in 
 >
 > This fork of **PowerWatch** mainly adds:
 > - **Docker** support with multi-architecture **amd64 / arm64** images published through GitHub Actions;
-- **Web UI alert management**, with persistent rules and **Discord / Apprise** notifications;
+> - **Web UI alert management**, with persistent rules and **Discord / Apprise** notifications;
 > - LAN access to the Web UI through a configurable bind address;
 > - more robust RAPL discovery in containers, including a direct host powercap mount;
 > - detection and monitoring of **all physical disks**, excluding virtual/RAID/LVM layers and eMMC `boot`/`rpmb` pseudo devices;
