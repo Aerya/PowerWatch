@@ -3,7 +3,7 @@ use crate::sampler::Sampler;
 #[cfg(target_os = "linux")]
 pub fn build_default_sampler() -> Sampler {
     use crate::discovery;
-    use crate::sensors::amd::AmdGpuSensor;
+    use crate::sensors::gpu_power::LinuxGpuPowerSensor;
     use crate::sensors::nvidia::NvidiaSensor;
     use crate::sensors::ram::RamSensor;
     use crate::sensors::rapl::RaplSensor;
@@ -36,10 +36,21 @@ pub fn build_default_sampler() -> Sampler {
         );
     }
 
-    if let Ok(nvidia) = NvidiaSensor::init(0) {
-        sampler.add_sensor("gpu", Box::new(nvidia));
-    } else if let Some(power_path) = discovery::discover_amd_gpu(Path::new("/sys/class/hwmon")) {
-        sampler.add_sensor("gpu", Box::new(AmdGpuSensor::new(power_path)));
+    // NVIDIA: enumerate every NVML device exposed by the host/runtime.
+    if let Ok(devices) = NvidiaSensor::discover() {
+        for (index, _) in devices {
+            if let Ok(sensor) = NvidiaSensor::init(index) {
+                sampler.add_sensor(format!("gpu:nvidia:{index}"), Box::new(sensor));
+            }
+        }
+    }
+
+    // AMD and Intel: enumerate every DRM hwmon device that exposes real power
+    // or energy telemetry. /sys is enough for the readings themselves; Docker
+    // deployments also expose /dev/dri through the optional GPU overlay.
+    for target in discovery::discover_linux_gpu_hwmon(Path::new("/sys/class/hwmon")) {
+        let sensor_name = format!("gpu:{}:{}", target.vendor.as_str(), target.index);
+        sampler.add_sensor(sensor_name, Box::new(LinuxGpuPowerSensor::new(target)));
     }
 
     sampler.add_sensor(
@@ -111,8 +122,12 @@ pub fn build_default_sampler() -> Sampler {
     };
     sampler.add_sensor("cpu", cpu_sensor);
 
-    if let Ok(nvidia) = NvidiaSensor::init(0) {
-        sampler.add_sensor("gpu", Box::new(nvidia));
+    if let Ok(devices) = NvidiaSensor::discover() {
+        for (index, _) in devices {
+            if let Ok(sensor) = NvidiaSensor::init(index) {
+                sampler.add_sensor(format!("gpu:nvidia:{index}"), Box::new(sensor));
+            }
+        }
     }
 
     sampler.add_sensor(

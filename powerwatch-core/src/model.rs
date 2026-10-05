@@ -4,7 +4,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Component {
     Cpu,
+    // Kept for backward compatibility with history written by older PowerWatch versions.
     Gpu(GpuVendor),
+    GpuDevice {
+        vendor: GpuVendor,
+        index: u32,
+        name: String,
+    },
     Ram,
     Disk(String),
     Total,
@@ -16,6 +22,34 @@ pub enum GpuVendor {
     Amd,
     Intel,
     Apple,
+}
+
+impl GpuVendor {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Nvidia => "nvidia",
+            Self::Amd => "amd",
+            Self::Intel => "intel",
+            Self::Apple => "apple",
+        }
+    }
+}
+
+impl Component {
+    pub fn label(&self) -> String {
+        match self {
+            Self::Cpu => "cpu".to_string(),
+            Self::Gpu(vendor) => format!("gpu ({})", vendor.as_str()),
+            Self::GpuDevice {
+                vendor,
+                index,
+                name,
+            } => format!("gpu ({} #{index}: {name})", vendor.as_str()),
+            Self::Ram => "ram".to_string(),
+            Self::Disk(name) => format!("disk ({name})"),
+            Self::Total => "total".to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,6 +99,34 @@ mod tests {
     }
 
     #[test]
+    fn multi_gpu_component_round_trips_through_json() {
+        let reading = SensorReading {
+            component: Component::GpuDevice {
+                vendor: GpuVendor::Nvidia,
+                index: 1,
+                name: "Example GPU".to_string(),
+            },
+            watts: 80.0,
+            confidence: Confidence::Measured,
+            timestamp: Utc::now(),
+        };
+
+        let json = serde_json::to_string(&reading).unwrap();
+        let parsed: SensorReading = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed, reading);
+        assert!(reading.component.label().contains("nvidia #1"));
+    }
+
+    #[test]
+    fn legacy_gpu_component_still_round_trips() {
+        let legacy = Component::Gpu(GpuVendor::Nvidia);
+        let json = serde_json::to_string(&legacy).unwrap();
+        let parsed: Component = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, legacy);
+    }
+
+    #[test]
     fn estimated_readings_are_marked_as_such() {
         let reading = SensorReading {
             component: Component::Ram,
@@ -89,7 +151,11 @@ mod tests {
     #[test]
     fn a_sensor_can_be_used_through_the_trait() {
         let reading = SensorReading {
-            component: Component::Gpu(GpuVendor::Nvidia),
+            component: Component::GpuDevice {
+                vendor: GpuVendor::Nvidia,
+                index: 0,
+                name: "GPU 0".to_string(),
+            },
             watts: 80.0,
             confidence: Confidence::Measured,
             timestamp: Utc::now(),

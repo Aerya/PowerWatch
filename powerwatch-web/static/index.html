@@ -547,6 +547,12 @@ function componentLabel(component) {
   }
   const key = Object.keys(component)[0];
   const value = component[key];
+  if (key === "GpuDevice" && value && typeof value === "object") {
+    const vendor = String(value.vendor || "gpu").toLowerCase();
+    const index = Number(value.index ?? 0);
+    const name = value.name ? `: ${value.name}` : "";
+    return `gpu (${vendor} #${index}${name})`;
+  }
   const inner = typeof value === "string" ? value.toLowerCase() : JSON.stringify(value);
   return `${key.toLowerCase()} (${inner})`;
 }

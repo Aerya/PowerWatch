@@ -1,3 +1,4 @@
+use crate::model::GpuVendor;
 use crate::sensors::disk::DiskType;
 use std::path::{Path, PathBuf};
 
@@ -50,22 +51,96 @@ pub fn discover_rapl(powercap_dir: &Path) -> Option<RaplTarget> {
     None
 }
 
-pub fn discover_amd_gpu(hwmon_dir: &Path) -> Option<PathBuf> {
-    let entries = std::fs::read_dir(hwmon_dir).ok()?;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GpuPowerSource {
+    PowerUw(PathBuf),
+    EnergyUj(PathBuf),
+}
 
-    for entry in entries.flatten() {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxGpuTarget {
+    pub vendor: GpuVendor,
+    pub index: u32,
+    pub name: String,
+    pub source: GpuPowerSource,
+}
+
+fn hwmon_gpu_name(path: &Path, driver_name: &str, index: u32) -> String {
+    let bus_id = std::fs::canonicalize(path.join("device"))
+        .ok()
+        .and_then(|device| device.file_name().map(|value| value.to_string_lossy().to_string()))
+        .filter(|value| value.contains(':') && value.contains('.'));
+
+    match bus_id {
+        Some(bus_id) => format!("{driver_name} {bus_id}"),
+        None => format!("{driver_name} GPU {index}"),
+    }
+}
+
+pub fn discover_linux_gpu_hwmon(hwmon_dir: &Path) -> Vec<LinuxGpuTarget> {
+    let Ok(entries) = std::fs::read_dir(hwmon_dir) else {
+        return Vec::new();
+    };
+
+    let mut entries: Vec<_> = entries.flatten().collect();
+    entries.sort_by_key(|entry| {
+        std::fs::canonicalize(entry.path().join("device"))
+            .ok()
+            .and_then(|device| device.file_name().map(|value| value.to_os_string()))
+            .unwrap_or_else(|| entry.file_name())
+    });
+
+    let mut amd_index = 0u32;
+    let mut intel_index = 0u32;
+    let mut targets = Vec::new();
+
+    for entry in entries {
         let path = entry.path();
-        let name = std::fs::read_to_string(path.join("name")).ok()?;
+        let Ok(driver_name_raw) = std::fs::read_to_string(path.join("name")) else {
+            continue;
+        };
+        let driver_name = driver_name_raw.trim();
 
-        if name.trim() == "amdgpu" {
-            let power_path = path.join("power1_average");
-            if power_path.exists() {
-                return Some(power_path);
+        let (vendor, index) = match driver_name {
+            "amdgpu" => {
+                let index = amd_index;
+                amd_index += 1;
+                (GpuVendor::Amd, index)
             }
-        }
+            // Device-level Intel DRM hwmon instances. i915_gtN is intentionally
+            // excluded to avoid counting GT subdevices in addition to the card.
+            "i915" | "xe" => {
+                let index = intel_index;
+                intel_index += 1;
+                (GpuVendor::Intel, index)
+            }
+            _ => continue,
+        };
+
+        let source = ["power1_average", "power1_input"]
+            .into_iter()
+            .map(|name| path.join(name))
+            .find(|candidate| candidate.exists())
+            .map(GpuPowerSource::PowerUw)
+            .or_else(|| {
+                let candidate = path.join("energy1_input");
+                candidate.exists().then_some(GpuPowerSource::EnergyUj(candidate))
+            });
+
+        let Some(source) = source else {
+            continue;
+        };
+
+        let name = hwmon_gpu_name(&path, driver_name, index);
+        targets.push(LinuxGpuTarget {
+            vendor,
+            index,
+            name,
+            source,
+        });
     }
 
-    None
+    targets
 }
 
 fn is_virtual_or_aggregate_device(name: &str) -> bool {
@@ -188,26 +263,38 @@ mod tests {
     }
 
     #[test]
-    fn finds_the_hwmon_device_named_amdgpu() {
+    fn discovers_multiple_amd_and_intel_gpu_hwmon_devices() {
         let dir = tempfile::tempdir().unwrap();
         let base = dir.path();
 
-        write(base.join("hwmon0/name"), "coretemp\n");
+        write(base.join("hwmon0/name"), "amdgpu\n");
+        write(base.join("hwmon0/power1_average"), "45000000\n");
         write(base.join("hwmon1/name"), "amdgpu\n");
-        write(base.join("hwmon1/power1_average"), "45000000\n");
+        write(base.join("hwmon1/power1_input"), "55000000\n");
+        write(base.join("hwmon2/name"), "i915\n");
+        write(base.join("hwmon2/energy1_input"), "123456\n");
+        write(base.join("hwmon3/name"), "i915_gt0\n");
+        write(base.join("hwmon3/energy1_input"), "123456\n");
 
-        let power_path = discover_amd_gpu(base).unwrap();
+        let gpus = discover_linux_gpu_hwmon(base);
 
-        assert_eq!(power_path, base.join("hwmon1/power1_average"));
+        assert_eq!(gpus.len(), 3);
+        assert_eq!(gpus[0].vendor, GpuVendor::Amd);
+        assert_eq!(gpus[0].index, 0);
+        assert_eq!(gpus[1].vendor, GpuVendor::Amd);
+        assert_eq!(gpus[1].index, 1);
+        assert_eq!(gpus[2].vendor, GpuVendor::Intel);
+        assert_eq!(gpus[2].index, 0);
+        assert!(matches!(gpus[2].source, GpuPowerSource::EnergyUj(_)));
     }
 
     #[test]
-    fn returns_none_when_no_amdgpu_hwmon_device_exists() {
+    fn ignores_gpu_hwmon_entries_without_power_or_energy_telemetry() {
         let dir = tempfile::tempdir().unwrap();
         let base = dir.path();
-        write(base.join("hwmon0/name"), "coretemp\n");
+        write(base.join("hwmon0/name"), "i915\n");
 
-        assert!(discover_amd_gpu(base).is_none());
+        assert!(discover_linux_gpu_hwmon(base).is_empty());
     }
 
     #[test]

@@ -18,6 +18,50 @@ The container mounts the Intel RAPL tree directly at `/host-powercap`, mounts `/
 
 > The supplied RAPL mount targets Intel/Linux hosts. Remove or adapt it on systems without `/sys/devices/virtual/powercap/intel-rapl`.
 
+## GPU access
+
+GPU passthrough is intentionally optional so the base `compose.yaml` remains portable on headless machines without `/dev/dri` or an NVIDIA runtime. PowerWatch enumerates every GPU that exposes supported telemetry and keeps each card separate in the WebUI, history and alerts.
+
+Sensor names are stable per vendor/index, for example `gpu:nvidia:0`, `gpu:nvidia:1`, `gpu:amd:0` and `gpu:intel:0`. The generic alert target `gpu` remains available and represents the sum of all currently readable GPU sensors.
+
+### AMD and Intel
+
+The base compose already mounts host `/sys` read-only. Add the DRM device overlay so the container also has the host render/card devices:
+
+```bash
+docker compose -f compose.yaml -f compose.gpu-amd-intel.yaml up -d
+```
+
+AMD power comes from the `amdgpu` hwmon interface (`power1_average` or `power1_input`). Intel uses device-level `i915`/`xe` hwmon telemetry and accepts either direct power (`power1_*`) or cumulative energy (`energy1_input`). If the kernel/driver does not expose one of those counters, that GPU is omitted rather than guessed.
+
+### NVIDIA
+
+Install the NVIDIA driver and NVIDIA Container Toolkit on the Docker host, then use:
+
+```bash
+docker compose -f compose.yaml -f compose.gpu-nvidia.yaml up -d
+```
+
+The overlay exposes all NVIDIA GPUs and the `utility` driver capability required by NVML. PowerWatch enumerates every NVML device and reads each card's measured `power_usage`.
+
+### Mixed-vendor hosts
+
+The overlays are composable:
+
+```bash
+docker compose \
+  -f compose.yaml \
+  -f compose.gpu-amd-intel.yaml \
+  -f compose.gpu-nvidia.yaml \
+  up -d
+```
+
+You can verify what the container sees with:
+
+```bash
+docker exec powerwatch powerwatch --json
+```
+
 ## Web UI language
 
 The Web UI is available in **English and French**. Language selection is handled entirely in the browser: French is selected automatically on the first visit when the browser language is French, English is the fallback, and the selected language is stored in browser `localStorage`. No Docker environment variable or server-side configuration is required.

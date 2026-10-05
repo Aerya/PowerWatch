@@ -23,17 +23,7 @@ fn confidence_label(confidence: Confidence) -> &'static str {
 }
 
 fn component_label(component: &powerwatch_core::model::Component) -> String {
-    use powerwatch_core::model::{Component, GpuVendor};
-    match component {
-        Component::Cpu => "cpu".to_string(),
-        Component::Gpu(GpuVendor::Nvidia) => "gpu (nvidia)".to_string(),
-        Component::Gpu(GpuVendor::Amd) => "gpu (amd)".to_string(),
-        Component::Gpu(GpuVendor::Intel) => "gpu (intel)".to_string(),
-        Component::Gpu(GpuVendor::Apple) => "gpu (apple)".to_string(),
-        Component::Ram => "ram".to_string(),
-        Component::Disk(name) => format!("disk ({name})"),
-        Component::Total => "total".to_string(),
-    }
+    component.label()
 }
 
 pub fn render(
