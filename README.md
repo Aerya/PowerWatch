@@ -223,6 +223,8 @@ The dashboard is for the local machine or a trusted private LAN only. It has no 
 
 The Web UI includes a dedicated **Alerts** page at `/alerts`.
 
+![Web Alerts](docs/images/Image_ALERTS.png)
+
 Alerts are evaluated continuously by the Web server and can monitor `total`, `cpu`, `gpu`, `ram`, or any discovered disk sensor such as `disk:sda` / `disk:nvme0n1`. Each rule can define an enable/disable state, a threshold in watts, a sustained duration before firing, and an optional recovery notification.
 
 Alert settings are persisted in `~/.local/share/powerwatch/alerts.json`. In Docker, `HOME=/data`, so the supplied persistent data volume keeps both history and alert configuration across container updates.
