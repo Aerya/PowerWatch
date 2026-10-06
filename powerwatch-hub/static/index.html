@@ -5,52 +5,142 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PowerWatch Hub</title>
 <style>
-:root{color-scheme:dark;--bg:#0d1117;--panel:#161b22;--panel2:#1c2128;--border:#30363d;--text:#c9d1d9;--muted:#8b949e;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--accent:#58a6ff}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-main{max-width:1800px;margin:auto;padding:18px}
-header{display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap}
-h1,h2,h3{margin:0}
-button,input,select{font:inherit}
-button{cursor:pointer}
-.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.btn{border:1px solid var(--border);background:var(--panel2);color:var(--text);border-radius:6px;padding:7px 10px}
-.btn:hover{border-color:var(--accent)}
-.btn-danger{color:#ff9b97}
-.lang-active{color:var(--accent)}
-.hero{display:grid;grid-template-columns:minmax(260px,420px) 1fr;gap:12px;margin:14px 0}
-.total-card,.panel,.node{background:var(--panel);border:1px solid var(--border);border-radius:8px}
-.total-card{padding:14px}
-.total-value{font-size:2rem;font-weight:700;margin-top:8px}
-.muted{color:var(--muted)}
-.statusline{margin-top:8px;font-size:.88rem}
-.panel{padding:12px;margin:12px 0}
-.nodes{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:10px}
-.node{padding:0;overflow:hidden}
-.node summary{list-style:none;display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:10px 12px;cursor:pointer}
-.node summary::-webkit-details-marker{display:none}
-.node-title{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.node-total{font-size:1.15rem;font-weight:700}
-.badge{font-size:.74rem;padding:2px 7px;border:1px solid currentColor;border-radius:999px}
-.online{color:var(--ok)}.stale{color:var(--warn)}.offline{color:var(--bad)}.disabled{color:var(--muted)}
-.node-body{border-top:1px solid var(--border);padding:8px 10px}
-.node-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:8px;font-size:.8rem}
-.node-actions a{color:var(--accent);text-decoration:none}
-.sensor{display:grid;grid-template-columns:minmax(0,1fr) 82px 92px;gap:8px;padding:4px 2px;border-top:1px solid rgba(48,54,61,.45);align-items:center}
-.sensor:first-child{border-top:0}
-.sensor-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sensor-watts,.sensor-confidence{text-align:right;white-space:nowrap}
-.error{color:var(--bad);font-size:.78rem}
-.config-grid{display:grid;grid-template-columns:1fr 1.5fr auto auto;gap:8px;align-items:end}
-label{display:grid;gap:4px;font-size:.78rem;color:var(--muted)}
-input{min-width:0;border:1px solid var(--border);background:var(--bg);color:var(--text);border-radius:5px;padding:7px 8px}
-.notice{font-size:.8rem;color:var(--warn);margin:8px 0}
-#probe-result{font-size:.78rem;margin-top:8px}
-canvas{display:block;width:100%;height:240px;background:#0d1117;border:1px solid var(--border);border-radius:6px}
-.history-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:8px}
-.history-toolbar select{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:5px}
-.empty{padding:28px;text-align:center;color:var(--muted)}
-@media(max-width:850px){.hero{grid-template-columns:1fr}.config-grid{grid-template-columns:1fr}.nodes{grid-template-columns:1fr}}
+:root {
+  color-scheme: dark;
+  --bg: #0d1117;
+  --panel: #161b22;
+  --border: #30363d;
+  --text: #c9d1d9;
+  --muted: #8b949e;
+  --measured: #3fb950;
+  --estimated: #d29922;
+  --error: #f85149;
+  --accent: #58a6ff;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+  padding: 14px 16px;
+}
+main { max-width: 1800px; margin: 0 auto; }
+header { display:flex; gap:12px; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; margin-bottom:8px; }
+h1 { font-size:1.1rem; margin:0 0 3px; color:var(--text); }
+.subtitle { color:var(--muted); font-size:.8rem; }
+button,input,select { font:inherit; }
+button { cursor:pointer; }
+.language-switcher { display:flex; gap:6px; align-items:center; margin-left:auto; }
+.language-switcher button {
+  background:transparent;
+  border:1px solid var(--border);
+  border-radius:4px;
+  color:var(--muted);
+  font:inherit;
+  font-size:.78rem;
+  padding:4px 7px;
+  cursor:pointer;
+}
+.language-switcher button:hover,
+.language-switcher button.active { color:var(--text); border-color:var(--measured); }
+.action-btn,
+.management input,
+.history-toolbar select {
+  background:var(--bg);
+  border:1px solid var(--border);
+  color:var(--text);
+  border-radius:4px;
+  font:inherit;
+  font-size:.82rem;
+  padding:6px 9px;
+}
+.action-btn:hover { border-color:var(--measured); }
+.action-btn.danger { color:var(--error); }
+.hero { display:grid; grid-template-columns:minmax(250px,340px) minmax(0,1fr); gap:8px; margin-bottom:8px; }
+.total-card,.panel,.node-card {
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:6px;
+}
+.total-card { padding:10px 12px; }
+.total-label { color:var(--muted); font-size:.78rem; }
+.total-value { font-size:1.7rem; font-weight:700; margin:7px 0 5px; }
+.statusline { color:var(--muted); font-size:.8rem; }
+.chart-panel { padding:8px; min-width:0; }
+.history-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px; }
+.history-toolbar strong { font-size:.85rem; }
+canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:crosshair; }
+.legend { display:flex; gap:5px; flex-wrap:wrap; margin:6px 0 0; font-size:.76rem; }
+.legend button {
+  display:inline-flex; align-items:center; gap:6px;
+  background:transparent; border:1px solid var(--border); border-radius:4px;
+  color:var(--text); font:inherit; padding:2px 6px; cursor:pointer;
+}
+.legend button:hover { border-color:var(--muted); }
+.legend button.hidden-series { color:var(--muted); opacity:.5; }
+.swatch { width:10px; height:10px; border-radius:2px; display:inline-block; }
+.management { margin-bottom:8px; }
+.management > summary {
+  padding:7px 10px; cursor:pointer; color:var(--text); font-size:.84rem; user-select:none;
+  display:flex; align-items:center; gap:8px;
+}
+.management > summary::marker { color:var(--muted); }
+.manage-count { color:var(--muted); font-weight:normal; font-size:.75rem; }
+.management-body { border-top:1px solid var(--border); padding:8px 10px; }
+.management-grid { display:grid; grid-template-columns:minmax(140px,.7fr) minmax(260px,1.5fr) auto auto; gap:7px; align-items:end; }
+.management label { display:grid; gap:3px; color:var(--muted); font-size:.72rem; }
+.notice { color:var(--muted); font-size:.74rem; margin:0 0 7px; }
+#probe-result { font-size:.75rem; margin-top:6px; min-height:1em; }
+.nodes { display:grid; grid-template-columns:repeat(auto-fit,minmax(420px,1fr)); gap:8px; }
+.node-card { overflow:hidden; border-top:3px solid var(--node-color,var(--border)); min-width:0; }
+.node-card > summary {
+  list-style:none; display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:8px;
+  align-items:center; padding:7px 10px; cursor:pointer;
+}
+.node-card > summary::-webkit-details-marker { display:none; }
+.node-name { display:flex; align-items:center; gap:7px; min-width:0; font-weight:700; }
+.node-dot { width:9px; height:9px; border-radius:50%; background:var(--node-color); flex:0 0 auto; }
+.node-name-text { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.node-total { font-size:1rem; font-weight:700; white-space:nowrap; }
+.badge { font-size:.68rem; padding:1px 6px; border:1px solid currentColor; border-radius:999px; white-space:nowrap; }
+.online { color:var(--measured); }
+.stale { color:var(--estimated); }
+.offline,.error-text { color:var(--error); }
+.disabled { color:var(--muted); }
+.measured { color:var(--measured); }
+.estimated { color:var(--estimated); }
+.node-body { border-top:1px solid var(--border); padding:7px 9px 8px; min-width:0; }
+.quick-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; margin-bottom:7px; }
+.metric { background:var(--bg); border:1px solid var(--border); border-radius:4px; padding:5px 7px; min-width:0; }
+.metric-label { display:block; color:var(--muted); font-size:.66rem; margin-bottom:2px; }
+.metric-value { display:block; font-size:.82rem; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.node-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:0 0 6px; font-size:.72rem; }
+.node-actions a { color:var(--text); text-decoration:none; border-bottom:1px dotted var(--muted); }
+.node-actions a:hover { color:var(--measured); border-bottom-color:var(--measured); }
+.node-actions label { display:flex; gap:5px; align-items:center; color:var(--muted); }
+.node-actions input { accent-color:var(--measured); }
+.sensors { border:1px solid var(--border); border-radius:5px; overflow:hidden; }
+.sensor-row { display:grid; grid-template-columns:minmax(0,1fr) 80px 86px; gap:7px; align-items:center; padding:4px 7px; border-bottom:1px solid var(--border); min-width:0; }
+.sensor-row:last-child { border-bottom:none; }
+.sensor-component { min-width:0; }
+.sensor-main { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sensor-detail { margin-top:2px; color:var(--muted); font-size:.7rem; line-height:1.25; white-space:normal; overflow-wrap:anywhere; }
+.sensor-watts,.sensor-confidence { text-align:right; white-space:nowrap; }
+.sensor-confidence { font-size:.76rem; }
+.sensor-error { grid-column:2/4; text-align:right; font-size:.72rem; }
+.empty { padding:24px; text-align:center; color:var(--muted); }
+@media (min-width:2200px) {
+  .nodes { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .sensor-row { padding:3px 7px; }
+}
+@media (max-width:900px) {
+  body { padding:12px; }
+  .hero { grid-template-columns:1fr; }
+  .management-grid { grid-template-columns:1fr; }
+  .nodes { grid-template-columns:1fr; }
+  .quick-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
 </style>
 </head>
 <body>
@@ -58,22 +148,22 @@ canvas{display:block;width:100%;height:240px;background:#0d1117;border:1px solid
 <header>
   <div>
     <h1>PowerWatch Hub</h1>
-    <div class="muted" data-i18n="subtitle">Dashboard fédéré multi-machines</div>
+    <div class="subtitle" data-i18n="subtitle">Dashboard fédéré multi-machines</div>
   </div>
-  <div class="toolbar">
-    <button class="btn" id="lang-fr">FR</button>
-    <button class="btn" id="lang-en">EN</button>
-    <button class="btn" id="refresh" data-i18n="refresh">Actualiser</button>
+  <div class="language-switcher">
+    <button id="lang-fr">FR</button>
+    <button id="lang-en">EN</button>
+    <button class="action-btn" id="refresh" data-i18n="refresh">Actualiser</button>
   </div>
 </header>
 
 <div class="hero">
   <section class="total-card">
-    <div class="muted" data-i18n="globalTotal">TOTAL INFRASTRUCTURE</div>
+    <div class="total-label" data-i18n="globalTotal">TOTAL INFRASTRUCTURE</div>
     <div class="total-value" id="global-total">0.0 W</div>
     <div class="statusline" id="global-status">—</div>
   </section>
-  <section class="panel" style="margin:0">
+  <section class="panel chart-panel">
     <div class="history-toolbar">
       <strong data-i18n="history">Historique fédéré</strong>
       <select id="history-range">
@@ -82,134 +172,154 @@ canvas{display:block;width:100%;height:240px;background:#0d1117;border:1px solid
         <option value="24h" selected>24 h</option>
         <option value="7d">7 j</option>
         <option value="30d">30 j</option>
+        <option value="180d">180 j</option>
+        <option value="400d">400 j</option>
       </select>
     </div>
     <canvas id="history"></canvas>
+    <div class="legend" id="history-legend"></div>
   </section>
 </div>
 
-<details class="panel">
-  <summary><strong data-i18n="manage">Machines / instances</strong></summary>
-  <p class="notice" data-i18n="security">Les URLs doivent rester privées et être accessibles depuis le conteneur Hub. Le Hub n'a pas d'authentification intégrée.</p>
-  <div class="config-grid">
-    <label><span data-i18n="name">Nom</span><input id="node-name" placeholder="LincStation"></label>
-    <label><span>URL PowerWatch</span><input id="node-url" placeholder="http://192.168.0.196:3064"></label>
-    <button class="btn" id="probe" data-i18n="test">Tester</button>
-    <button class="btn" id="add" data-i18n="add">Ajouter</button>
+<details class="panel management">
+  <summary><strong data-i18n="manage">Machines / instances</strong><span class="manage-count" id="manage-count"></span></summary>
+  <div class="management-body">
+    <p class="notice" data-i18n="security">Les URLs doivent rester privées et être accessibles depuis le conteneur Hub. Le Hub n'a pas d'authentification intégrée.</p>
+    <div class="management-grid">
+      <label><span data-i18n="name">Nom</span><input id="node-name" placeholder="LincStation"></label>
+      <label><span>URL PowerWatch</span><input id="node-url" placeholder="http://192.168.0.196:3064"></label>
+      <button class="action-btn" id="probe" data-i18n="test">Tester</button>
+      <button class="action-btn" id="add" data-i18n="add">Ajouter</button>
+    </div>
+    <div id="probe-result"></div>
   </div>
-  <div id="probe-result"></div>
 </details>
 
-<section>
-  <div class="nodes" id="nodes"></div>
-</section>
+<section class="nodes" id="nodes"></section>
 </main>
 
 <script>
 const I18N={
-  fr:{subtitle:"Dashboard fédéré multi-machines",refresh:"Actualiser",globalTotal:"TOTAL INFRASTRUCTURE",history:"Historique fédéré",manage:"Machines / instances",security:"Les URLs doivent rester privées et être accessibles depuis le conteneur Hub. Le Hub n'a pas d'authentification intégrée.",name:"Nom",test:"Tester",add:"Ajouter",online:"en ligne",stale:"stale",offline:"hors ligne",disabled:"désactivé",included:"compter dans le total",enabled:"activé",remove:"supprimer",open:"ouvrir l'instance",nodes:"machines en ligne",noNodes:"Aucune instance configurée. Ajoute ton premier PowerWatch ci-dessus.",lastSeen:"vu",never:"jamais"},
-  en:{subtitle:"Federated multi-machine dashboard",refresh:"Refresh",globalTotal:"INFRASTRUCTURE TOTAL",history:"Federated history",manage:"Machines / instances",security:"URLs must stay private and be reachable from the Hub container. The Hub has no built-in authentication.",name:"Name",test:"Test",add:"Add",online:"online",stale:"stale",offline:"offline",disabled:"disabled",included:"include in total",enabled:"enabled",remove:"remove",open:"open instance",nodes:"nodes online",noNodes:"No instance configured. Add your first PowerWatch above.",lastSeen:"seen",never:"never"}
+  fr:{subtitle:"Dashboard fédéré multi-machines",refresh:"Actualiser",globalTotal:"TOTAL INFRASTRUCTURE",history:"Historique fédéré",manage:"Machines / instances",security:"Les URLs doivent rester privées et être accessibles depuis le conteneur Hub. Le Hub n'a pas d'authentification intégrée.",name:"Nom",test:"Tester",add:"Ajouter",online:"en ligne",stale:"stale",offline:"hors ligne",disabled:"désactivé",included:"compter dans le total",enabled:"activé",remove:"supprimer",open:"ouvrir l'instance",nodes:"machines en ligne",configured:"configurées",noNodes:"Aucune instance configurée. Ajoute ton premier PowerWatch ci-dessus.",lastSeen:"vu",never:"jamais",disks:"Disques",measured:"Mesurée",estimated:"Estimée",global:"Total global",noHistory:"Pas encore d'historique"},
+  en:{subtitle:"Federated multi-machine dashboard",refresh:"Refresh",globalTotal:"INFRASTRUCTURE TOTAL",history:"Federated history",manage:"Machines / instances",security:"URLs must stay private and be reachable from the Hub container. The Hub has no built-in authentication.",name:"Name",test:"Test",add:"Add",online:"online",stale:"stale",offline:"offline",disabled:"disabled",included:"include in total",enabled:"enabled",remove:"remove",open:"open instance",nodes:"nodes online",configured:"configured",noNodes:"No instance configured. Add your first PowerWatch above.",lastSeen:"seen",never:"never",disks:"Disks",measured:"Measured",estimated:"Estimated",global:"Global total",noHistory:"No history yet"}
 };
+const NODE_COLORS=["#58a6ff","#a371f7","#f0883e","#3fb950","#db61a2","#d29922","#39c5cf","#ff7b72","#8b949e","#79c0ff"];
 let lang=localStorage.getItem("powerwatchHubLang")||"fr";
 let snapshot=null;
+let lastHistory=[];
+const hiddenSeries=new Set();
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const tr=k=>I18N[lang][k]||k;
+function hashString(value){let h=0;for(let i=0;i<value.length;i++)h=((h<<5)-h+value.charCodeAt(i))|0;return Math.abs(h);}
+function nodeColor(id){return NODE_COLORS[hashString(id)%NODE_COLORS.length];}
+function nodeName(id){return snapshot?.nodes?.find(node=>node.id===id)?.name||id;}
+function confidenceClass(value){return String(value||"").toLowerCase()==="measured"?"measured":"estimated";}
+function confidenceLabel(value){return confidenceClass(value)==="measured"?tr("measured"):tr("estimated");}
 function applyLanguage(){
   document.documentElement.lang=lang;
   document.querySelectorAll("[data-i18n]").forEach(el=>el.textContent=tr(el.dataset.i18n));
-  document.getElementById("lang-fr").classList.toggle("lang-active",lang==="fr");
-  document.getElementById("lang-en").classList.toggle("lang-active",lang==="en");
-  if(snapshot) renderSnapshot(snapshot);
+  document.getElementById("lang-fr").classList.toggle("active",lang==="fr");
+  document.getElementById("lang-en").classList.toggle("active",lang==="en");
+  if(snapshot)renderSnapshot(snapshot);
+  drawHistory(lastHistory);
 }
-function slugify(value){
-  return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,48);
-}
-function statusLabel(status){return tr(status);}
-function fmtSeen(value){
-  if(!value)return tr("never");
-  return new Date(value).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"});
-}
+function slugify(value){return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,48);}
+function fmtSeen(value){if(!value)return tr("never");return new Date(value).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"});}
 async function api(url,options={}){
   const res=await fetch(url,{headers:{"Content-Type":"application/json"},...options});
-  if(!res.ok){
-    const text=await res.text();
-    throw new Error(text||`HTTP ${res.status}`);
-  }
+  if(!res.ok){const text=await res.text();throw new Error(text||`HTTP ${res.status}`);}
   if(res.status===204)return null;
   return res.json();
+}
+function splitSensorLabel(sensor){
+  const label=sensor.display_name||sensor.name;
+  const marker=" — ";
+  const pos=label.indexOf(marker);
+  if(pos<0)return {main:label,detail:""};
+  return {main:label.slice(0,pos),detail:label.slice(pos+marker.length)};
+}
+function sensorGroup(node,prefix){
+  return node.sensors.filter(sensor=>sensor.name===prefix||sensor.name.startsWith(prefix+":"));
+}
+function sumReadings(sensors){
+  const values=sensors.map(sensor=>sensor.reading?.watts).filter(value=>Number.isFinite(value));
+  if(!values.length)return null;
+  return values.reduce((sum,value)=>sum+value,0);
+}
+function metric(label,value,cls=""){
+  return `<div class="metric"><span class="metric-label">${esc(label)}</span><span class="metric-value ${esc(cls)}">${value==null?"—":`${value.toFixed(1)} W`}</span></div>`;
 }
 function renderSnapshot(data){
   snapshot=data;
   document.getElementById("global-total").textContent=`${data.total_watts.toFixed(1)} W`;
   document.getElementById("global-status").textContent=`${data.online_nodes}/${data.configured_nodes} ${tr("nodes")}`;
+  document.getElementById("manage-count").textContent=`${data.configured_nodes} ${tr("configured")}`;
   const root=document.getElementById("nodes");
-  if(!data.nodes.length){
-    root.innerHTML=`<div class="empty">${esc(tr("noNodes"))}</div>`;
-    return;
-  }
+  if(!data.nodes.length){root.innerHTML=`<div class="panel empty">${esc(tr("noNodes"))}</div>`;return;}
   root.innerHTML=data.nodes.map(node=>{
+    const color=nodeColor(node.id);
+    const cpu=sumReadings(sensorGroup(node,"cpu"));
+    const gpu=sumReadings(sensorGroup(node,"gpu"));
+    const ram=sumReadings(sensorGroup(node,"ram"));
+    const disks=sumReadings(sensorGroup(node,"disk"));
     const sensors=node.sensors.map(sensor=>{
       if(sensor.reading){
-        const label=sensor.display_name||sensor.name;
-        return `<div class="sensor"><div class="sensor-name" title="${esc(label)}">${esc(label)}</div><div class="sensor-watts">${sensor.reading.watts.toFixed(1)} W</div><div class="sensor-confidence muted">${esc(sensor.reading.confidence)}</div></div>`;
+        const label=splitSensorLabel(sensor);
+        const cls=confidenceClass(sensor.reading.confidence);
+        return `<div class="sensor-row">
+          <div class="sensor-component"><div class="sensor-main" title="${esc(label.main)}">${esc(label.main)}</div>${label.detail?`<div class="sensor-detail" title="${esc(label.detail)}">${esc(label.detail)}</div>`:""}</div>
+          <div class="sensor-watts ${cls}">${sensor.reading.watts.toFixed(1)} W</div>
+          <div class="sensor-confidence ${cls}">${esc(confidenceLabel(sensor.reading.confidence))}</div>
+        </div>`;
       }
-      return `<div class="sensor"><div class="sensor-name">${esc(sensor.display_name||sensor.name)}</div><div class="error" style="grid-column:2/4">${esc(sensor.error||"—")}</div></div>`;
+      const label=splitSensorLabel(sensor);
+      return `<div class="sensor-row"><div class="sensor-component"><div class="sensor-main">${esc(label.main)}</div>${label.detail?`<div class="sensor-detail">${esc(label.detail)}</div>`:""}</div><div class="sensor-error error-text">${esc(sensor.error||"—")}</div></div>`;
     }).join("");
     const total=node.total_watts==null?"—":`${node.total_watts.toFixed(1)} W`;
-    return `<details class="node" open data-id="${esc(node.id)}">
+    return `<details class="node-card" open data-id="${esc(node.id)}" style="--node-color:${color}">
       <summary>
-        <div class="node-title">${esc(node.name)}</div>
-        <span class="badge ${esc(node.status)}">${esc(statusLabel(node.status))}</span>
+        <div class="node-name"><span class="node-dot"></span><span class="node-name-text">${esc(node.name)}</span></div>
+        <span class="badge ${esc(node.status)}">${esc(tr(node.status))}</span>
         <div class="node-total">${esc(total)}</div>
       </summary>
       <div class="node-body">
+        <div class="quick-metrics">
+          ${metric("CPU",cpu,"measured")}
+          ${metric("GPU",gpu,"measured")}
+          ${metric("RAM",ram,"estimated")}
+          ${metric(tr("disks"),disks,"estimated")}
+        </div>
         <div class="node-actions">
           <a href="${esc(node.url)}" target="_blank" rel="noopener">${esc(tr("open"))}</a>
           <span class="muted">${esc(tr("lastSeen"))}: ${esc(fmtSeen(node.last_seen))}</span>
-          <label style="display:flex;gap:5px;align-items:center"><input type="checkbox" class="toggle-enabled" ${node.enabled?"checked":""}> ${esc(tr("enabled"))}</label>
-          <label style="display:flex;gap:5px;align-items:center"><input type="checkbox" class="toggle-total" ${node.include_in_total?"checked":""}> ${esc(tr("included"))}</label>
-          <button class="btn btn-danger remove">${esc(tr("remove"))}</button>
+          <label><input type="checkbox" class="toggle-enabled" ${node.enabled?"checked":""}> ${esc(tr("enabled"))}</label>
+          <label><input type="checkbox" class="toggle-total" ${node.include_in_total?"checked":""}> ${esc(tr("included"))}</label>
+          <button class="action-btn danger remove">${esc(tr("remove"))}</button>
         </div>
-        ${node.last_error?`<div class="error">${esc(node.last_error)}</div>`:""}
-        ${sensors||'<div class="muted">—</div>'}
+        ${node.last_error?`<div class="error-text" style="font-size:.72rem;margin-bottom:5px">${esc(node.last_error)}</div>`:""}
+        <div class="sensors">${sensors||'<div class="empty">—</div>'}</div>
       </div>
     </details>`;
   }).join("");
   bindNodeActions();
+  drawHistory(lastHistory);
 }
-function nodePayload(node,overrides={}){
-  return {id:node.id,name:node.name,url:node.url,enabled:node.enabled,include_in_total:node.include_in_total,...overrides};
-}
+function nodePayload(node,overrides={}){return {id:node.id,name:node.name,url:node.url,enabled:node.enabled,include_in_total:node.include_in_total,...overrides};}
 function bindNodeActions(){
-  document.querySelectorAll(".node").forEach(card=>{
+  document.querySelectorAll(".node-card").forEach(card=>{
     const id=card.dataset.id;
     const node=snapshot.nodes.find(n=>n.id===id);
-    card.querySelector(".toggle-enabled").addEventListener("change",async e=>{
-      await api(`/api/hub/nodes/${encodeURIComponent(id)}`,{method:"POST",body:JSON.stringify(nodePayload(node,{enabled:e.target.checked}))});
-      await refreshSnapshot();
-    });
-    card.querySelector(".toggle-total").addEventListener("change",async e=>{
-      await api(`/api/hub/nodes/${encodeURIComponent(id)}`,{method:"POST",body:JSON.stringify(nodePayload(node,{include_in_total:e.target.checked}))});
-      await refreshSnapshot(); await refreshHistory();
-    });
-    card.querySelector(".remove").addEventListener("click",async()=>{
-      await api(`/api/hub/nodes/${encodeURIComponent(id)}`,{method:"DELETE"});
-      await refreshSnapshot(); await refreshHistory();
-    });
+    card.querySelector(".toggle-enabled").addEventListener("change",async e=>{await api(`/api/hub/nodes/${encodeURIComponent(id)}`,{method:"POST",body:JSON.stringify(nodePayload(node,{enabled:e.target.checked}))});await refreshSnapshot();await refreshHistory();});
+    card.querySelector(".toggle-total").addEventListener("change",async e=>{await api(`/api/hub/nodes/${encodeURIComponent(id)}`,{method:"POST",body:JSON.stringify(nodePayload(node,{include_in_total:e.target.checked}))});await refreshSnapshot();await refreshHistory();});
+    card.querySelector(".remove").addEventListener("click",async()=>{await api(`/api/hub/nodes/${encodeURIComponent(id)}`,{method:"DELETE"});await refreshSnapshot();await refreshHistory();});
   });
 }
-async function refreshSnapshot(){
-  try{renderSnapshot(await api("/api/hub/snapshot"));}catch(e){console.error(e);}
-}
+async function refreshSnapshot(){try{renderSnapshot(await api("/api/hub/snapshot"));}catch(e){console.error(e);}}
 async function probe(){
   const url=document.getElementById("node-url").value.trim();
   const result=document.getElementById("probe-result");
   result.textContent="…";
-  try{
-    const data=await api("/api/hub/test",{method:"POST",body:JSON.stringify({url})});
-    result.className=data.ok?"online":"error";
-    result.textContent=data.ok?`${data.message}${data.total_watts==null?"":` — ${data.total_watts.toFixed(1)} W`}`:data.message;
-  }catch(e){result.className="error";result.textContent=e.message;}
+  try{const data=await api("/api/hub/test",{method:"POST",body:JSON.stringify({url})});result.className=data.ok?"measured":"error-text";result.textContent=data.ok?`${data.message}${data.total_watts==null?"":` — ${data.total_watts.toFixed(1)} W`}`:data.message;}catch(e){result.className="error-text";result.textContent=e.message;}
 }
 async function addNode(){
   const name=document.getElementById("node-name").value.trim();
@@ -220,9 +330,23 @@ async function addNode(){
   document.getElementById("node-name").value="";
   document.getElementById("node-url").value="";
   document.getElementById("probe-result").textContent="";
-  await refreshSnapshot(); await refreshHistory();
+  await refreshSnapshot();await refreshHistory();
+}
+function allSeries(points){
+  const keys=new Set();
+  points.forEach(point=>Object.keys(point.nodes||{}).forEach(key=>keys.add(key)));
+  return ["__global__",...Array.from(keys).sort((a,b)=>nodeName(a).localeCompare(nodeName(b)))];
+}
+function seriesColor(key){return key==="__global__"?"#c9d1d9":nodeColor(key);}
+function seriesLabel(key){return key==="__global__"?tr("global"):nodeName(key);}
+function valueFor(point,key){return key==="__global__"?point.global_watts:point.nodes?.[key];}
+function renderLegend(series){
+  const legend=document.getElementById("history-legend");
+  legend.innerHTML=series.map(key=>`<button type="button" data-series="${esc(key)}" class="${hiddenSeries.has(key)?"hidden-series":""}"><span class="swatch" style="background:${seriesColor(key)}"></span>${esc(seriesLabel(key))}</button>`).join("");
+  legend.querySelectorAll("button").forEach(button=>button.addEventListener("click",()=>{const key=button.dataset.series;hiddenSeries.has(key)?hiddenSeries.delete(key):hiddenSeries.add(key);drawHistory(lastHistory);}));
 }
 function drawHistory(points){
+  lastHistory=points||[];
   const canvas=document.getElementById("history");
   const dpr=window.devicePixelRatio||1;
   const rect=canvas.getBoundingClientRect();
@@ -232,30 +356,34 @@ function drawHistory(points){
   ctx.setTransform(dpr,0,0,dpr,0,0);
   const w=rect.width,h=rect.height;
   ctx.clearRect(0,0,w,h);
-  if(!points.length){ctx.fillStyle="#8b949e";ctx.fillText("No history yet",16,h/2);return;}
+  const series=allSeries(lastHistory);
+  renderLegend(series);
+  if(!lastHistory.length){ctx.fillStyle="#8b949e";ctx.font="11px monospace";ctx.fillText(tr("noHistory"),16,h/2);return;}
+  const visible=series.filter(key=>!hiddenSeries.has(key));
+  const values=[];
+  lastHistory.forEach(point=>visible.forEach(key=>{const value=valueFor(point,key);if(Number.isFinite(value))values.push(value);}));
   const pad={l:44,r:12,t:12,b:22};
-  const minT=new Date(points[0].timestamp).getTime(),maxT=new Date(points[points.length-1].timestamp).getTime();
-  const maxW=Math.max(1,...points.map(p=>p.global_watts));
+  const minT=new Date(lastHistory[0].timestamp).getTime(),maxT=new Date(lastHistory[lastHistory.length-1].timestamp).getTime();
+  const maxW=Math.max(1,...values);
   const x=t=>pad.l+((t-minT)/Math.max(1,maxT-minT))*(w-pad.l-pad.r);
   const y=v=>pad.t+(h-pad.t-pad.b)-(v/maxW)*(h-pad.t-pad.b);
-  ctx.strokeStyle="#30363d";ctx.fillStyle="#8b949e";ctx.font="11px monospace";
+  ctx.strokeStyle="#30363d";ctx.fillStyle="#8b949e";ctx.font="11px monospace";ctx.lineWidth=1;
   for(let i=0;i<=4;i++){const v=maxW*i/4,py=y(v);ctx.beginPath();ctx.moveTo(pad.l,py);ctx.lineTo(w-pad.r,py);ctx.stroke();ctx.fillText(v.toFixed(0),4,py+3);}
-  ctx.strokeStyle="#58a6ff";ctx.lineWidth=2;ctx.beginPath();
-  points.forEach((p,i)=>{const px=x(new Date(p.timestamp).getTime()),py=y(p.global_watts);i?ctx.lineTo(px,py):ctx.moveTo(px,py);});
-  ctx.stroke();
+  visible.forEach(key=>{
+    ctx.strokeStyle=seriesColor(key);ctx.lineWidth=key==="__global__"?2.3:1.7;ctx.beginPath();let started=false;
+    lastHistory.forEach(point=>{const value=valueFor(point,key);if(!Number.isFinite(value)){started=false;return;}const px=x(new Date(point.timestamp).getTime()),py=y(value);if(started)ctx.lineTo(px,py);else{ctx.moveTo(px,py);started=true;}});
+    ctx.stroke();
+  });
 }
-async function refreshHistory(){
-  try{drawHistory(await api(`/api/hub/history?since=${encodeURIComponent(document.getElementById("history-range").value)}`));}catch(e){console.error(e);}
-}
+async function refreshHistory(){try{drawHistory(await api(`/api/hub/history?since=${encodeURIComponent(document.getElementById("history-range").value)}`));}catch(e){console.error(e);}}
 document.getElementById("lang-fr").onclick=()=>{lang="fr";localStorage.setItem("powerwatchHubLang",lang);applyLanguage();};
 document.getElementById("lang-en").onclick=()=>{lang="en";localStorage.setItem("powerwatchHubLang",lang);applyLanguage();};
 document.getElementById("refresh").onclick=async()=>{await refreshSnapshot();await refreshHistory();};
 document.getElementById("probe").onclick=probe;
 document.getElementById("add").onclick=addNode;
 document.getElementById("history-range").onchange=refreshHistory;
-window.addEventListener("resize",()=>refreshHistory());
-applyLanguage();refreshSnapshot();refreshHistory();
-setInterval(refreshSnapshot,2000);setInterval(refreshHistory,60000);
+window.addEventListener("resize",()=>drawHistory(lastHistory));
+applyLanguage();refreshSnapshot().then(refreshHistory);setInterval(refreshSnapshot,2000);setInterval(refreshHistory,60000);
 </script>
 </body>
 </html>

@@ -17,6 +17,8 @@ use tokio::sync::RwLock;
 use tokio::task::JoinSet;
 
 const INDEX_HTML: &str = include_str!("../static/index.html");
+const BACKFILL_DAYS: u32 = 400;
+const BACKFILL_MAX_POINTS: u32 = 5_000;
 
 #[derive(Parser, Debug)]
 #[command(name = "powerwatch-hub")]
@@ -88,6 +90,19 @@ struct RemoteSnapshot {
     sensors: Vec<RemoteSensor>,
     #[serde(default)]
     total: Option<RemoteReading>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct RemoteRangeHistoryResponse {
+    #[serde(default)]
+    points: Vec<RemoteAggregatedReading>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct RemoteAggregatedReading {
+    component: serde_json::Value,
+    timestamp: DateTime<Utc>,
+    avg_watts: f64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -190,6 +205,14 @@ impl HubStorage {
                 ON node_totals(timestamp);
             CREATE INDEX IF NOT EXISTS idx_node_totals_node_time
                 ON node_totals(node_id, timestamp);
+            DELETE FROM node_totals
+              WHERE rowid NOT IN (
+                SELECT MIN(rowid)
+                FROM node_totals
+                GROUP BY timestamp, node_id
+              );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_node_totals_unique
+                ON node_totals(timestamp, node_id);
             ",
         )?;
         Ok(Self { conn })
@@ -203,19 +226,38 @@ impl HubStorage {
         let tx = self.conn.transaction()?;
         {
             let mut stmt = tx.prepare(
-                "INSERT INTO node_totals(timestamp, node_id, watts) VALUES (?1, ?2, ?3)",
+                "INSERT OR REPLACE INTO node_totals(timestamp, node_id, watts) VALUES (?1, ?2, ?3)",
             )?;
             for (node_id, watts) in totals {
                 stmt.execute(params![timestamp.to_rfc3339(), node_id, watts])?;
             }
         }
 
-        let cutoff = timestamp - chrono::Duration::days(400);
+        let cutoff = timestamp - chrono::Duration::days(BACKFILL_DAYS as i64);
         tx.execute(
             "DELETE FROM node_totals WHERE timestamp < ?1",
             params![cutoff.to_rfc3339()],
         )?;
         tx.commit()
+    }
+
+    fn write_history_points(
+        &mut self,
+        node_id: &str,
+        points: &[(DateTime<Utc>, f64)],
+    ) -> rusqlite::Result<usize> {
+        let tx = self.conn.transaction()?;
+        let mut changed = 0usize;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT OR REPLACE INTO node_totals(timestamp, node_id, watts) VALUES (?1, ?2, ?3)",
+            )?;
+            for (timestamp, watts) in points {
+                changed += stmt.execute(params![timestamp.to_rfc3339(), node_id, watts])?;
+            }
+        }
+        tx.commit()?;
+        Ok(changed)
     }
 
     fn history_since(
@@ -328,6 +370,10 @@ fn parse_since(value: &str) -> Result<chrono::Duration, String> {
     }
 }
 
+fn is_total_component(component: &serde_json::Value) -> bool {
+    component.as_str().is_some_and(|value| value == "Total")
+}
+
 async fn fetch_snapshot(client: &Client, base_url: &str) -> Result<RemoteSnapshot, String> {
     let url = format!("{}/api/snapshot", normalize_url(base_url));
     let response = client
@@ -343,6 +389,83 @@ async fn fetch_snapshot(client: &Client, base_url: &str) -> Result<RemoteSnapsho
         .json::<RemoteSnapshot>()
         .await
         .map_err(|error| error.to_string())
+}
+
+async fn fetch_historical_totals(
+    client: &Client,
+    base_url: &str,
+) -> Result<Vec<(DateTime<Utc>, f64)>, String> {
+    let url = format!("{}/api/history/range", normalize_url(base_url));
+    let response = client
+        .get(url)
+        .query(&[
+            ("amount", BACKFILL_DAYS.to_string()),
+            ("unit", "days".to_string()),
+            ("max_points", BACKFILL_MAX_POINTS.to_string()),
+        ])
+        .timeout(Duration::from_secs(20))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    if !response.status().is_success() {
+        return Err(format!("HTTP {}", response.status()));
+    }
+
+    let history = response
+        .json::<RemoteRangeHistoryResponse>()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    Ok(history
+        .points
+        .into_iter()
+        .filter(|point| is_total_component(&point.component))
+        .map(|point| (point.timestamp, point.avg_watts))
+        .collect())
+}
+
+async fn backfill_node(state: AppState, node: NodeConfig) {
+    if !node.enabled {
+        return;
+    }
+
+    match fetch_historical_totals(&state.client, &node.url).await {
+        Ok(points) => {
+            if points.is_empty() {
+                eprintln!("hub history backfill {}: no historical total points available", node.id);
+                return;
+            }
+
+            match state.storage.lock() {
+                Ok(mut storage) => match storage.write_history_points(&node.id, &points) {
+                    Ok(_) => println!(
+                        "hub history backfill {}: imported {} total points",
+                        node.id,
+                        points.len()
+                    ),
+                    Err(error) => eprintln!(
+                        "warning: failed to persist history backfill for {}: {error}",
+                        node.id
+                    ),
+                },
+                Err(_) => eprintln!("warning: hub history storage lock poisoned"),
+            }
+        }
+        Err(error) => eprintln!(
+            "warning: history backfill failed for {} ({}): {error}",
+            node.id, node.url
+        ),
+    }
+}
+
+async fn backfill_all(state: AppState) {
+    let nodes = state.config.read().await.nodes.clone();
+    let mut join_set = JoinSet::new();
+    for node in nodes.into_iter().filter(|node| node.enabled) {
+        join_set.spawn(backfill_node(state.clone(), node));
+    }
+    while join_set.join_next().await.is_some() {}
 }
 
 async fn poll_node(client: Client, node: NodeConfig) -> (String, Result<RemoteSnapshot, String>) {
@@ -526,6 +649,9 @@ async fn add_node(
     config.nodes.sort_by(|a, b| a.name.cmp(&b.name));
     save_config(&state.config_path, &config)
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    drop(config);
+
+    tokio::spawn(backfill_node(state.clone(), node.clone()));
 
     Ok((StatusCode::CREATED, Json(node)))
 }
@@ -548,6 +674,11 @@ async fn update_node(
 
     save_config(&state.config_path, &config)
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    drop(config);
+
+    if node.enabled {
+        tokio::spawn(backfill_node(state.clone(), node.clone()));
+    }
 
     Ok(Json(node))
 }
@@ -659,7 +790,7 @@ async fn main() {
     };
 
     let client = Client::builder()
-        .user_agent("PowerWatch-Hub/0.1")
+        .user_agent("PowerWatch-Hub/0.2")
         .build()
         .expect("failed to build HTTP client");
 
@@ -680,6 +811,7 @@ async fn main() {
         state.clone(),
         Duration::from_secs(args.history_interval.max(5)),
     ));
+    tokio::spawn(backfill_all(state.clone()));
 
     let listener = match tokio::net::TcpListener::bind((args.host, args.port)).await {
         Ok(listener) => listener,
@@ -743,7 +875,13 @@ mod tests {
     }
 
     #[test]
-    fn stores_and_reads_federated_history() {
+    fn recognizes_serialized_total_component() {
+        assert!(is_total_component(&serde_json::json!("Total")));
+        assert!(!is_total_component(&serde_json::json!("Cpu")));
+    }
+
+    #[test]
+    fn stores_and_reads_federated_history_without_duplicates() {
         let tmp = tempfile::NamedTempFile::new().unwrap();
         let mut storage = HubStorage::open(tmp.path()).unwrap();
         let now = Utc::now();
@@ -757,6 +895,9 @@ mod tests {
                 ],
             )
             .unwrap();
+        storage
+            .write_history_points("garuda", &[(now, 72.0)])
+            .unwrap();
 
         let included = ["garuda".to_string(), "lincstation".to_string()]
             .into_iter()
@@ -766,7 +907,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(rows.len(), 1);
-        assert!((rows[0].global_watts - 90.0).abs() < f64::EPSILON);
-        assert_eq!(rows[0].nodes["garuda"], 70.0);
+        assert!((rows[0].global_watts - 92.0).abs() < f64::EPSILON);
+        assert_eq!(rows[0].nodes["garuda"], 72.0);
     }
 }
