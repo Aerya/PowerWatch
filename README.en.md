@@ -22,6 +22,7 @@ This fork is primarily designed for **servers, mini PCs, Linux desktop machines,
 - **Discord** and **Apprise API** notifications.
 - Multi-GPU **NVIDIA / AMD / Intel** detection.
 - **Intel RAPL `uncore` fallback** for some iGPUs without i915/xe hwmon counters.
+- CPU **RAPL fallback through `/dev/cpu/0/msr`** when the kernel does not expose `powercap` (including some Synology DSM systems).
 - Monitoring of all **physical disks** without double-counting RAID/LVM layers.
 - Best-effort display of associated **partitions, mount points, filesystems, mdraid, LVM, and dm-crypt**.
 - CLI and TUI available in the Docker image.
@@ -33,7 +34,7 @@ This fork is primarily designed for **servers, mini PCs, Linux desktop machines,
 
 | Component | Source | Type |
 |---|---|---|
-| CPU | Linux RAPL | Measured |
+| CPU | Linux RAPL (`powercap` or MSR `/dev/cpu/0/msr`) | Measured |
 | NVIDIA GPU | NVML | Measured |
 | AMD GPU | `amdgpu` hwmon | Measured |
 | Intel GPU | `i915` / `xe` hwmon or RAPL `uncore` | Measured |
@@ -44,6 +45,8 @@ This fork is primarily designed for **servers, mini PCs, Linux desktop machines,
 Unavailable sensors are simply ignored.
 
 On some Intel systems, PowerWatch can use the RAPL `uncore` subdomain as the iGPU power reading. In that case, CPU power is calculated from the package value minus `uncore` so the iGPU is not counted twice.
+
+When the Linux `powercap` interface is absent but `/dev/cpu/0/msr` exists, PowerWatch can directly read the RAPL `MSR_RAPL_POWER_UNIT` (`0x606`) and `MSR_PKG_ENERGY_STATUS` (`0x611`) registers. This remains a **hardware-measured** CPU-package value, not an estimate based on CPU utilization.
 
 ## Docker installation
 
@@ -91,6 +94,19 @@ http://192.168.0.50:3000
 ```
 
 The supplied [`compose.yaml`](compose.yaml) is the reference deployment file.
+
+### CPU RAPL via MSR — Synology DSM and kernels without `powercap`
+
+On some Intel systems, including some **Synology DSM** hosts, the kernel does not expose `/sys/.../powercap` even though `/dev/cpu/0/msr` is available.
+
+In that case, uncomment in `compose.yaml`:
+
+```yaml
+devices:
+  - /dev/cpu/0/msr:/dev/cpu/0/msr:r
+```
+
+PowerWatch always prefers `powercap`. MSR is used only as a fallback when no RAPL `powercap` domain is discovered. Only one CPU device is required: `MSR_PKG_ENERGY_STATUS` is **package-wide**, so `/dev/cpu/0/msr` and `/dev/cpu/1/msr` must not be summed.
 
 For hardware and Docker details, see [`DOCKER.md`](DOCKER.md).
 

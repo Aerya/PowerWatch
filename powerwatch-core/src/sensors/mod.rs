@@ -5,4 +5,5 @@ pub mod nvidia;
 pub mod nvme_power_states;
 pub mod ram;
 pub mod rapl;
+pub mod rapl_msr;
 pub mod windows;

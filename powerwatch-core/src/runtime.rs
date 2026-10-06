@@ -8,7 +8,8 @@ pub fn build_default_sampler() -> Sampler {
     use crate::sensors::nvidia::NvidiaSensor;
     use crate::sensors::ram::RamSensor;
     use crate::sensors::rapl::{RaplPackageMinusDomainSensor, RaplSensor};
-    use std::path::Path;
+    use crate::sensors::rapl_msr::RaplMsrSensor;
+    use std::path::{Path, PathBuf};
 
     let mut sampler = Sampler::new();
 
@@ -64,6 +65,17 @@ pub fn build_default_sampler() -> Sampler {
                     domains.package.max_energy_uj,
                 )),
             );
+        }
+    } else {
+        // Some kernels, notably Synology DSM on Gemini Lake, expose the raw
+        // x86 MSR device without the Linux powercap/RAPL sysfs interface.
+        // Read package energy directly from MSR 0x606/0x611 as a measured
+        // fallback. CPU 0 is sufficient because the counter is package-wide.
+        let msr_path = std::env::var("POWERWATCH_MSR_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("/dev/cpu/0/msr"));
+        if let Ok(sensor) = RaplMsrSensor::new(&msr_path) {
+            sampler.add_sensor("cpu", Box::new(sensor));
         }
     }
 
