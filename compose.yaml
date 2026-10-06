@@ -7,6 +7,22 @@ services:
 
     pid: host
 
+    # ---------------------------------------------------------------------
+    # INTEL RAPL VIA MSR - OPTIONAL / OPTIONNEL
+    # ---------------------------------------------------------------------
+    # FR : certains noyaux, notamment Synology DSM sur Gemini Lake, exposent
+    # /dev/cpu/0/msr mais pas /sys/.../powercap. Si ce device existe sur
+    # l'hôte, décommentez les DEUX lignes ci-dessous pour permettre à
+    # PowerWatch de mesurer le package CPU via RAPL MSR.
+    #
+    # EN: some kernels, notably Synology DSM on Gemini Lake, expose
+    # /dev/cpu/0/msr but not /sys/.../powercap. If this device exists on the
+    # host, uncomment BOTH lines below so PowerWatch can measure CPU package
+    # power through RAPL MSR.
+    #
+    # devices:
+    #   - /dev/cpu/0/msr:/dev/cpu/0/msr:r
+
     ports:
       - "${POWERWATCH_BIND_IP:-127.0.0.1}:3000:3000"
 
@@ -27,10 +43,12 @@ services:
       - ./data:/data/.local/share/powerwatch
 
     environment:
-      # FR : chemin RAPL dédié. Si le noyau n'expose pas RAPL, PowerWatch
-      # continue simplement sans capteur CPU mesuré.
-      # EN: dedicated RAPL path. If the kernel exposes no RAPL interface,
-      # PowerWatch simply continues without a measured CPU sensor.
+      # FR : chemin RAPL dédié. Si powercap n'est pas disponible,
+      # PowerWatch tente automatiquement le fallback /dev/cpu/0/msr lorsqu'il
+      # a été exposé au conteneur via le bloc devices ci-dessus.
+      # EN: dedicated RAPL path. If powercap is unavailable, PowerWatch
+      # automatically tries /dev/cpu/0/msr when it has been exposed to the
+      # container through the devices block above.
       POWERWATCH_POWERCAP_PATH: /host-sys-virtual/powercap/intel-rapl
 
       # ---------------------------------------------------------------------
