@@ -27,6 +27,7 @@ Ce fork est pensé en priorité pour les **serveurs, mini-PC, machines desktop L
 - CLI et TUI disponibles dans l'image Docker.
 - Images GHCR multi-architecture **amd64 / arm64**.
 - Interface Web **français / anglais**.
+- **PowerWatch Hub** : agrégation de plusieurs machines dans un dashboard fédéré unique.
 
 ## Mesures
 
@@ -251,6 +252,57 @@ docker exec powerwatch sh -c \
   'find /host-sys-virtual/powercap/intel-rapl -name energy_uj -o -name name 2>/dev/null'
 ```
 
+
+
+## PowerWatch Hub — plusieurs machines, un seul dashboard
+
+PowerWatch peut également fonctionner en mode **Hub**. Chaque machine conserve son instance PowerWatch locale et sa collecte matérielle ; le Hub interroge simplement leurs API HTTP et les regroupe dans une seule WebUI.
+
+Le Hub fournit :
+
+- un **total global** de l'infrastructure ;
+- une carte repliable par machine avec CPU, GPU, RAM et disques ;
+- les états **online / stale / offline / disabled** ;
+- l'ajout, le test, l'activation et la suppression d'instances directement depuis la WebUI ;
+- la possibilité d'exclure une machine du total global ;
+- un historique SQLite fédéré, enregistré par défaut toutes les 60 secondes ;
+- un graphe global multi-machines ;
+- une interface FR / EN.
+
+Le Hub ne nécessite **aucun accès à `/sys`, aucun `pid: host` et aucun accès privilégié**. Il doit seulement pouvoir joindre les URLs privées des instances PowerWatch.
+
+### Démarrage du Hub
+
+```bash
+mkdir -p hub-data
+docker compose -f compose.hub.yaml pull
+docker compose -f compose.hub.yaml up -d
+```
+
+Par défaut, le dashboard Hub écoute sur :
+
+```text
+http://127.0.0.1:3065
+```
+
+Pour l'exposer sur le LAN privé :
+
+```env
+POWERWATCH_HUB_BIND_IP=192.168.0.50
+POWERWATCH_HUB_PORT=3065
+```
+
+Les machines s'ajoutent ensuite depuis la WebUI avec leur URL PowerWatch, par exemple :
+
+```text
+Garuda       http://192.168.0.53:3064
+LincStation  http://192.168.0.196:3064
+DockerLab    http://192.168.0.2:3064
+```
+
+La configuration est stockée dans `hub-data/powerwatch-hub.json` et l'historique fédéré dans `hub-data/powerwatch-hub.db`.
+
+> Le Hub commence à enregistrer son historique à partir de son premier démarrage. Cette première version ne réimporte pas automatiquement l'historique déjà présent sur les nœuds.
 
 ## Sécurité
 

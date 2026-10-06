@@ -1,0 +1,40 @@
+services:
+  powerwatch-hub:
+    image: ghcr.io/aerya/powerwatch:latest
+    container_name: powerwatch-hub
+    restart: always
+
+    # The standard image starts powerwatch-web by default.
+    # The Hub uses the second binary shipped in the same image.
+    entrypoint: ["/usr/local/bin/powerwatch-hub"]
+    command:
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "3000"
+      - "--config"
+      - "/data/powerwatch-hub.json"
+      - "--database"
+      - "/data/powerwatch-hub.db"
+      - "--refresh-interval"
+      - "2"
+      - "--history-interval"
+      - "60"
+      - "--stale-after"
+      - "15"
+
+    # Default: localhost only. Set POWERWATCH_HUB_BIND_IP to a private LAN IP
+    # when the dashboard must be reachable by other machines.
+    ports:
+      - "${POWERWATCH_HUB_BIND_IP:-127.0.0.1}:${POWERWATCH_HUB_PORT:-3065}:3000"
+
+    volumes:
+      - ./hub-data:/data
+
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+networks: {}

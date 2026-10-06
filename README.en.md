@@ -27,6 +27,7 @@ This fork is primarily designed for **servers, mini PCs, Linux desktop machines,
 - CLI and TUI available in the Docker image.
 - Multi-architecture **amd64 / arm64** GHCR images.
 - **French / English** Web UI.
+- **PowerWatch Hub**: aggregate multiple machines into one federated dashboard.
 
 ## Measurements
 
@@ -250,6 +251,57 @@ To check RAPL directly inside the container:
 docker exec powerwatch sh -c \
   'find /host-sys-virtual/powercap/intel-rapl -name energy_uj -o -name name 2>/dev/null'
 ```
+
+
+## PowerWatch Hub — multiple machines, one dashboard
+
+PowerWatch can also run in **Hub** mode. Each machine keeps its local PowerWatch instance and hardware collection; the Hub simply queries their HTTP APIs and groups them into a single Web UI.
+
+The Hub provides:
+
+- a **global infrastructure total**;
+- one collapsible card per machine with CPU, GPU, RAM, and disks;
+- **online / stale / offline / disabled** states;
+- adding, testing, enabling, and removing instances directly from the Web UI;
+- the ability to exclude a machine from the global total;
+- federated SQLite history, stored every 60 seconds by default;
+- a global multi-machine history graph;
+- an FR / EN interface.
+
+The Hub requires **no `/sys` access, no `pid: host`, and no privileged host access**. It only needs network access to the private URLs of the PowerWatch instances.
+
+### Start the Hub
+
+```bash
+mkdir -p hub-data
+docker compose -f compose.hub.yaml pull
+docker compose -f compose.hub.yaml up -d
+```
+
+By default, the Hub dashboard listens on:
+
+```text
+http://127.0.0.1:3065
+```
+
+To expose it on the private LAN:
+
+```env
+POWERWATCH_HUB_BIND_IP=192.168.0.50
+POWERWATCH_HUB_PORT=3065
+```
+
+Machines can then be added from the Web UI using their PowerWatch URL, for example:
+
+```text
+Garuda       http://192.168.0.53:3064
+LincStation  http://192.168.0.196:3064
+DockerLab    http://192.168.0.2:3064
+```
+
+Configuration is stored in `hub-data/powerwatch-hub.json` and federated history in `hub-data/powerwatch-hub.db`.
+
+> The Hub starts recording history from its first launch. This initial version does not automatically backfill history that already exists on the nodes.
 
 ## Security
 
