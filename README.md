@@ -266,8 +266,10 @@ Le Hub fournit :
 - l'ajout, le test, l'activation et la suppression d'instances directement depuis la WebUI ;
 - la possibilité d'exclure une machine du total global ;
 - un historique SQLite fédéré, enregistré par défaut toutes les 60 secondes ;
-- un graphe global multi-machines ;
-- une interface FR / EN.
+- la récupération automatique de l’historique agrégé déjà présent sur les nœuds (jusqu’à 400 jours) ;
+- un graphe fédéré avec **total global + une courbe colorée par instance** ;
+- des cartes compactes avec résumé CPU / GPU / RAM / disques et couleurs mesurée / estimée ;
+- une interface FR / EN alignée visuellement sur la WebUI PowerWatch.
 
 Le Hub ne nécessite **aucun accès à `/sys`, aucun `pid: host` et aucun accès privilégié**. Il doit seulement pouvoir joindre les URLs privées des instances PowerWatch.
 
@@ -302,7 +304,7 @@ DockerLab    http://192.168.0.2:3064
 
 La configuration est stockée dans `hub-data/powerwatch-hub.json` et l'historique fédéré dans `hub-data/powerwatch-hub.db`.
 
-> Le Hub commence à enregistrer son historique à partir de son premier démarrage. Cette première version ne réimporte pas automatiquement l'historique déjà présent sur les nœuds.
+> Au démarrage du Hub et lors de l’ajout/réactivation d’une instance, PowerWatch Hub récupère via `/api/history/range` l’historique agrégé disponible sur le nœud (jusqu’à 400 jours). L’import est idempotent : les mêmes points ne sont pas dupliqués dans SQLite.
 
 ## Sécurité
 
