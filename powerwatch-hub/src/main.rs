@@ -84,8 +84,18 @@ struct RemoteSensor {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+struct RemoteSystemInfo {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    cpu_model: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 struct RemoteSnapshot {
     timestamp: DateTime<Utc>,
+    #[serde(default)]
+    system: Option<RemoteSystemInfo>,
     #[serde(default)]
     sensors: Vec<RemoteSensor>,
     #[serde(default)]
@@ -132,6 +142,7 @@ struct HubNodeView {
     last_seen: Option<DateTime<Utc>>,
     last_error: Option<String>,
     total_watts: Option<f64>,
+    cpu_model: Option<String>,
     sensors: Vec<RemoteSensor>,
 }
 
@@ -171,6 +182,8 @@ struct ProbeResponse {
     ok: bool,
     message: String,
     total_watts: Option<f64>,
+    instance_name: Option<String>,
+    cpu_model: Option<String>,
 }
 
 #[derive(Clone)]
@@ -601,6 +614,12 @@ async fn snapshot(State(state): State<AppState>) -> Json<HubSnapshot> {
             }
         }
 
+        let cpu_model = runtime_node
+            .snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.system.as_ref())
+            .and_then(|system| system.cpu_model.clone());
+
         nodes.push(HubNodeView {
             id: node.id,
             name: node.name,
@@ -611,6 +630,7 @@ async fn snapshot(State(state): State<AppState>) -> Json<HubSnapshot> {
             last_seen: runtime_node.last_seen,
             last_error: runtime_node.last_error,
             total_watts: node_total,
+            cpu_model,
             sensors: runtime_node
                 .snapshot
                 .map(|snapshot| snapshot.sensors)
@@ -706,15 +726,30 @@ async fn probe_node(
     Json(request): Json<ProbeRequest>,
 ) -> Json<ProbeResponse> {
     match fetch_snapshot(&state.client, &request.url).await {
-        Ok(snapshot) => Json(ProbeResponse {
-            ok: true,
-            message: "PowerWatch API reachable".to_string(),
-            total_watts: snapshot.total.map(|reading| reading.watts),
-        }),
+        Ok(snapshot) => {
+            let instance_name = snapshot
+                .system
+                .as_ref()
+                .map(|system| system.name.trim().to_string())
+                .filter(|name| !name.is_empty());
+            let cpu_model = snapshot
+                .system
+                .as_ref()
+                .and_then(|system| system.cpu_model.clone());
+            Json(ProbeResponse {
+                ok: true,
+                message: "PowerWatch API reachable".to_string(),
+                total_watts: snapshot.total.map(|reading| reading.watts),
+                instance_name,
+                cpu_model,
+            })
+        }
         Err(error) => Json(ProbeResponse {
             ok: false,
             message: error,
             total_watts: None,
+            instance_name: None,
+            cpu_model: None,
         }),
     }
 }

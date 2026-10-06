@@ -23,11 +23,13 @@ Ce fork est pensé en priorité pour les **serveurs, mini-PC, machines desktop L
 - Détection multi-GPU **NVIDIA / AMD / Intel**.
 - Fallback **Intel RAPL `uncore`** pour certains iGPU sans compteur i915/xe hwmon.
 - Fallback CPU **RAPL via `/dev/cpu/0/msr`** lorsque le noyau n'expose pas `powercap` (notamment certains Synology DSM).
-- Suivi de tous les **disques physiques** sans double comptage RAID/LVM.
+- Suivi de tous les **disques physiques** sans double comptage RAID/LVM, avec affichage de leur capacité.
 - Affichage best-effort des **partitions, montages, systèmes de fichiers, mdraid, LVM et dm-crypt** liés aux disques.
 - CLI et TUI disponibles dans l'image Docker.
 - Images GHCR multi-architecture **amd64 / arm64**.
 - Interface Web **français / anglais**.
+- Nom d'instance PowerWatch configurable dans la WebUI et proposé automatiquement lors de l'ajout dans le Hub, sans empêcher un alias Hub différent.
+- Modèle CPU affiché avec lien direct vers la recherche **CPU Benchmark / PassMark** et icônes monochromes CPU/RAM/disque.
 - **PowerWatch Hub** : agrégation de plusieurs machines dans un dashboard fédéré unique.
 
 ## Mesures
@@ -150,6 +152,8 @@ disk (nvme0n1) — nvme0n1p2 → cryptroot [dm-crypt] → / [ext4]
 
 Une partition non montée peut également apparaître avec `[unmounted]`.
 
+La capacité de chaque disque physique est lue depuis sysfs (`/sys/class/block/<device>/size`) et affichée avec son libellé enrichi.
+
 Les identifiants internes restent stables (`disk:sda`, `disk:nvme0n1`, etc.) afin de ne pas casser l'historique ni les alertes.
 
 ## WebUI
@@ -166,7 +170,9 @@ La page principale affiche :
 - les historiques ;
 - moyenne, minimum, maximum et énergie ;
 - des périodes prédéfinies et personnalisables ;
-- les libellés enrichis des disques ;
+- les libellés enrichis des disques avec leur capacité ;
+- le modèle CPU avec un lien vers CPU Benchmark / PassMark ;
+- un nom d'instance modifiable, réutilisé comme suggestion lors de l'ajout dans PowerWatch Hub ;
 - le choix de langue FR / EN.
 
 L'image Docker démarre automatiquement PowerWatch avec l'historique activé et le mode NAS/headless.

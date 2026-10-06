@@ -9,6 +9,7 @@ use powerwatch_core::json_snapshot::{build_json_snapshot, JsonSnapshot};
 use powerwatch_core::model::{Component, SensorReading};
 use powerwatch_core::storage::AggregatedReading;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 fn convert_rss_to_mb(output: &str) -> String {
     let mut result = String::new();
@@ -39,6 +40,100 @@ fn convert_rss_to_mb(output: &str) -> String {
 const INDEX_HTML: &str = include_str!("../static/index.html");
 const I18N_JS: &str = include_str!("../static/i18n.js");
 
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+struct InstanceSettings {
+    #[serde(default)]
+    name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct InstanceInfo {
+    name: String,
+    cpu_model: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct InstanceUpdate {
+    name: String,
+}
+
+#[derive(Serialize)]
+struct WebSnapshot {
+    #[serde(flatten)]
+    snapshot: JsonSnapshot,
+    system: InstanceInfo,
+}
+
+fn instance_settings_path() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home).join(".local/share/powerwatch/instance.json")
+}
+
+fn load_instance_settings() -> InstanceSettings {
+    std::fs::read_to_string(instance_settings_path())
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
+}
+
+fn normalize_instance_name(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.chars().count() > 80 {
+        return Err("instance name must be at most 80 characters".to_string());
+    }
+    if name.chars().any(char::is_control) {
+        return Err("instance name cannot contain control characters".to_string());
+    }
+    Ok(name.to_string())
+}
+
+fn save_instance_settings(settings: &InstanceSettings) -> Result<(), String> {
+    let path = instance_settings_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    let data = serde_json::to_vec_pretty(settings).map_err(|error| error.to_string())?;
+    std::fs::write(&tmp, data).map_err(|error| error.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|error| error.to_string())
+}
+
+fn parse_cpu_model(cpuinfo: &str) -> Option<String> {
+    for key in ["model name", "Hardware", "Model"] {
+        if let Some(value) = cpuinfo.lines().find_map(|line| {
+            let (candidate, value) = line.split_once(':')?;
+            (candidate.trim() == key)
+                .then(|| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        }) {
+            return Some(value);
+        }
+    }
+
+    cpuinfo.lines().find_map(|line| {
+        let (candidate, value) = line.split_once(':')?;
+        if candidate.trim() != "Processor" {
+            return None;
+        }
+        let value = value.trim();
+        (!value.is_empty() && !value.chars().all(|c| c.is_ascii_digit()))
+            .then(|| value.to_string())
+    })
+}
+
+fn read_cpu_model() -> Option<String> {
+    let cpuinfo = std::fs::read_to_string("/proc/cpuinfo").ok()?;
+    parse_cpu_model(&cpuinfo)
+}
+
+fn instance_info() -> InstanceInfo {
+    let settings = load_instance_settings();
+    InstanceInfo {
+        name: settings.name,
+        cpu_model: read_cpu_model(),
+    }
+}
+
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/", get(index))
@@ -47,6 +142,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/alerts", get(crate::alerts::overview).put(crate::alerts::update))
         .route("/api/alerts/test", post(crate::alerts::test_notification))
         .route("/api/health", get(health))
+        .route("/api/instance", get(instance).put(update_instance))
         .route("/api/snapshot", get(snapshot))
         .route("/api/history", get(history))
         .route("/api/history/range", get(history_range))
@@ -75,9 +171,26 @@ async fn health() -> StatusCode {
     StatusCode::OK
 }
 
-async fn snapshot(State(state): State<AppState>) -> Json<JsonSnapshot> {
+async fn instance() -> Json<InstanceInfo> {
+    Json(instance_info())
+}
+
+async fn update_instance(
+    Json(request): Json<InstanceUpdate>,
+) -> Result<Json<InstanceInfo>, (StatusCode, String)> {
+    let name = normalize_instance_name(&request.name)
+        .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+    save_instance_settings(&InstanceSettings { name })
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    Ok(Json(instance_info()))
+}
+
+async fn snapshot(State(state): State<AppState>) -> Json<WebSnapshot> {
     let snapshot = state.latest_snapshot.read().unwrap();
-    Json(build_json_snapshot(&snapshot))
+    Json(WebSnapshot {
+        snapshot: build_json_snapshot(&snapshot),
+        system: instance_info(),
+    })
 }
 
 #[derive(Deserialize)]
@@ -422,6 +535,22 @@ mod tests {
             timestamp: chrono::Utc::now(),
             results: vec![],
         }
+    }
+
+    #[test]
+    fn parses_x86_cpu_model_from_proc_cpuinfo() {
+        let sample = "processor : 0\nmodel name : Intel Celeron N5105 @ 2.00GHz\n";
+        assert_eq!(
+            parse_cpu_model(sample).as_deref(),
+            Some("Intel Celeron N5105 @ 2.00GHz")
+        );
+    }
+
+    #[test]
+    fn validates_instance_name_length_and_control_characters() {
+        assert_eq!(normalize_instance_name("  DockerLab  ").unwrap(), "DockerLab");
+        assert!(normalize_instance_name(&"x".repeat(81)).is_err());
+        assert!(normalize_instance_name("bad\nname").is_err());
     }
 
     fn reading(watts: f64) -> SensorReading {
