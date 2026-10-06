@@ -6,7 +6,6 @@
 <title>PowerWatch Hub</title>
 <style>
 :root {
-  color-scheme: dark;
   --bg: #0d1117;
   --panel: #161b22;
   --border: #30363d;
@@ -15,7 +14,6 @@
   --measured: #3fb950;
   --estimated: #d29922;
   --error: #f85149;
-  --accent: #58a6ff;
 }
 * { box-sizing: border-box; }
 body {
@@ -25,9 +23,9 @@ body {
   font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
   padding: 14px 16px;
 }
-main { max-width: 1800px; margin: 0 auto; }
-header { display:flex; gap:12px; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; margin-bottom:8px; }
-h1 { font-size:1.1rem; margin:0 0 3px; color:var(--text); }
+main { width: 100%; }
+header { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+h1 { font-size:1.1rem; margin:0; color:var(--text); }
 .subtitle { color:var(--muted); font-size:.8rem; }
 button,input,select { font:inherit; }
 button { cursor:pointer; }
@@ -67,11 +65,29 @@ button { cursor:pointer; }
 .total-label { color:var(--muted); font-size:.78rem; }
 .total-value { font-size:1.7rem; font-weight:700; margin:7px 0 5px; }
 .statusline { color:var(--muted); font-size:.8rem; }
-.chart-panel { padding:8px; min-width:0; }
-.history-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px; }
+.history-stack { min-width:0; }
+.chart-panel {
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:6px;
+  padding:8px;
+  min-width:0;
+}
+.history-toolbar {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  flex-wrap:wrap;
+  margin:0 0 8px;
+  padding:8px;
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:6px;
+}
 .history-toolbar strong { font-size:.85rem; }
 canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:crosshair; }
-.legend { display:flex; gap:5px; flex-wrap:wrap; margin:6px 0 0; font-size:.76rem; }
+.legend { display:flex; gap:5px; flex-wrap:wrap; margin:6px 0 0; font-size:.78rem; }
 .legend button {
   display:inline-flex; align-items:center; gap:6px;
   background:transparent; border:1px solid var(--border); border-radius:4px;
@@ -146,14 +162,11 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 <body>
 <main>
 <header>
-  <div>
-    <h1>PowerWatch Hub</h1>
-    <div class="subtitle" data-i18n="subtitle">Dashboard fédéré multi-machines</div>
-  </div>
-  <div class="language-switcher">
-    <button id="lang-fr">FR</button>
-    <button id="lang-en">EN</button>
-    <button class="action-btn" id="refresh" data-i18n="refresh">Actualiser</button>
+  <h1>PowerWatch Hub</h1>
+  <div class="subtitle" data-i18n="subtitle">Dashboard fédéré multi-machines</div>
+  <div class="language-switcher" aria-label="Language">
+    <button type="button" id="lang-fr" data-lang="fr">🇫🇷 FR</button>
+    <button type="button" id="lang-en" data-lang="en">🇬🇧 EN</button>
   </div>
 </header>
 
@@ -163,7 +176,7 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
     <div class="total-value" id="global-total">0.0 W</div>
     <div class="statusline" id="global-status">—</div>
   </section>
-  <section class="panel chart-panel">
+  <section class="history-stack">
     <div class="history-toolbar">
       <strong data-i18n="history">Historique fédéré</strong>
       <select id="history-range">
@@ -176,8 +189,10 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
         <option value="400d">400 j</option>
       </select>
     </div>
-    <canvas id="history"></canvas>
-    <div class="legend" id="history-legend"></div>
+    <div class="chart-panel">
+      <canvas id="history"></canvas>
+      <div class="legend" id="history-legend"></div>
+    </div>
   </section>
 </div>
 
@@ -200,13 +215,15 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 
 <script>
 const I18N={
-  fr:{subtitle:"Dashboard fédéré multi-machines",refresh:"Actualiser",globalTotal:"TOTAL INFRASTRUCTURE",history:"Historique fédéré",manage:"Machines / instances",security:"Les URLs doivent rester privées et être accessibles depuis le conteneur Hub. Le Hub n'a pas d'authentification intégrée.",name:"Nom",test:"Tester",add:"Ajouter",online:"en ligne",stale:"stale",offline:"hors ligne",disabled:"désactivé",included:"compter dans le total",enabled:"activé",remove:"supprimer",open:"ouvrir l'instance",nodes:"machines en ligne",configured:"configurées",noNodes:"Aucune instance configurée. Ajoute ton premier PowerWatch ci-dessus.",lastSeen:"vu",never:"jamais",disks:"Disques",measured:"Mesurée",estimated:"Estimée",global:"Total global",noHistory:"Pas encore d'historique"},
-  en:{subtitle:"Federated multi-machine dashboard",refresh:"Refresh",globalTotal:"INFRASTRUCTURE TOTAL",history:"Federated history",manage:"Machines / instances",security:"URLs must stay private and be reachable from the Hub container. The Hub has no built-in authentication.",name:"Name",test:"Test",add:"Add",online:"online",stale:"stale",offline:"offline",disabled:"disabled",included:"include in total",enabled:"enabled",remove:"remove",open:"open instance",nodes:"nodes online",configured:"configured",noNodes:"No instance configured. Add your first PowerWatch above.",lastSeen:"seen",never:"never",disks:"Disks",measured:"Measured",estimated:"Estimated",global:"Global total",noHistory:"No history yet"}
+  fr:{subtitle:"Dashboard fédéré multi-machines",globalTotal:"TOTAL INFRASTRUCTURE",history:"Historique fédéré",manage:"Machines / instances",security:"Les URLs doivent rester privées et être accessibles depuis le conteneur Hub. Le Hub n'a pas d'authentification intégrée.",name:"Nom",test:"Tester",add:"Ajouter",online:"en ligne",stale:"stale",offline:"hors ligne",disabled:"désactivé",included:"compter dans le total",enabled:"activé",remove:"supprimer",open:"ouvrir l'instance",nodes:"machines en ligne",configured:"configurées",noNodes:"Aucune instance configurée. Ajoute ton premier PowerWatch ci-dessus.",lastSeen:"vu",never:"jamais",disks:"Disques",measured:"Mesurée",estimated:"Estimée",global:"Total global",noHistory:"Pas encore d'historique"},
+  en:{subtitle:"Federated multi-machine dashboard",globalTotal:"INFRASTRUCTURE TOTAL",history:"Federated history",manage:"Machines / instances",security:"URLs must stay private and be reachable from the Hub container. The Hub has no built-in authentication.",name:"Name",test:"Test",add:"Add",online:"online",stale:"stale",offline:"offline",disabled:"disabled",included:"include in total",enabled:"enabled",remove:"remove",open:"open instance",nodes:"nodes online",configured:"configured",noNodes:"No instance configured. Add your first PowerWatch above.",lastSeen:"seen",never:"never",disks:"Disks",measured:"Measured",estimated:"Estimated",global:"Global total",noHistory:"No history yet"}
 };
-const NODE_COLORS=["#58a6ff","#a371f7","#f0883e","#3fb950","#db61a2","#d29922","#39c5cf","#ff7b72","#8b949e","#79c0ff"];
+const GLOBAL_COLOR="#58a6ff";
+const NODE_COLORS=["#3fb950","#d29922","#f85149","#a371f7","#39c5cf","#db61a2","#f0883e","#79c0ff","#bc8cff"];
 let lang=localStorage.getItem("powerwatchHubLang")||"fr";
 let snapshot=null;
 let lastHistory=[];
+let historyHover=null;
 const hiddenSeries=new Set();
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const tr=k=>I18N[lang][k]||k;
@@ -337,7 +354,7 @@ function allSeries(points){
   points.forEach(point=>Object.keys(point.nodes||{}).forEach(key=>keys.add(key)));
   return ["__global__",...Array.from(keys).sort((a,b)=>nodeName(a).localeCompare(nodeName(b)))];
 }
-function seriesColor(key){return key==="__global__"?"#c9d1d9":nodeColor(key);}
+function seriesColor(key){return key==="__global__"?GLOBAL_COLOR:nodeColor(key);}
 function seriesLabel(key){return key==="__global__"?tr("global"):nodeName(key);}
 function valueFor(point,key){return key==="__global__"?point.global_watts:point.nodes?.[key];}
 function renderLegend(series){
@@ -345,7 +362,10 @@ function renderLegend(series){
   legend.innerHTML=series.map(key=>`<button type="button" data-series="${esc(key)}" class="${hiddenSeries.has(key)?"hidden-series":""}"><span class="swatch" style="background:${seriesColor(key)}"></span>${esc(seriesLabel(key))}</button>`).join("");
   legend.querySelectorAll("button").forEach(button=>button.addEventListener("click",()=>{const key=button.dataset.series;hiddenSeries.has(key)?hiddenSeries.delete(key):hiddenSeries.add(key);drawHistory(lastHistory);}));
 }
-function drawHistory(points){
+function varColor(name,fallback){
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim()||fallback;
+}
+function drawHistory(points,{updateLegend=true}={}){
   lastHistory=points||[];
   const canvas=document.getElementById("history");
   const dpr=window.devicePixelRatio||1;
@@ -357,31 +377,149 @@ function drawHistory(points){
   const w=rect.width,h=rect.height;
   ctx.clearRect(0,0,w,h);
   const series=allSeries(lastHistory);
-  renderLegend(series);
-  if(!lastHistory.length){ctx.fillStyle="#8b949e";ctx.font="11px monospace";ctx.fillText(tr("noHistory"),16,h/2);return;}
+  if(updateLegend)renderLegend(series);
+  if(!lastHistory.length){
+    historyHover=null;
+    ctx.fillStyle=varColor("--muted","#8b949e");
+    ctx.font="11px monospace";
+    ctx.fillText(tr("noHistory"),16,h/2);
+    return;
+  }
+
   const visible=series.filter(key=>!hiddenSeries.has(key));
   const values=[];
-  lastHistory.forEach(point=>visible.forEach(key=>{const value=valueFor(point,key);if(Number.isFinite(value))values.push(value);}));
+  lastHistory.forEach(point=>visible.forEach(key=>{
+    const value=valueFor(point,key);
+    if(Number.isFinite(value))values.push(value);
+  }));
+
   const pad={l:44,r:12,t:12,b:22};
-  const minT=new Date(lastHistory[0].timestamp).getTime(),maxT=new Date(lastHistory[lastHistory.length-1].timestamp).getTime();
+  const minT=new Date(lastHistory[0].timestamp).getTime();
+  const maxT=new Date(lastHistory[lastHistory.length-1].timestamp).getTime();
   const maxW=Math.max(1,...values);
   const x=t=>pad.l+((t-minT)/Math.max(1,maxT-minT))*(w-pad.l-pad.r);
   const y=v=>pad.t+(h-pad.t-pad.b)-(v/maxW)*(h-pad.t-pad.b);
-  ctx.strokeStyle="#30363d";ctx.fillStyle="#8b949e";ctx.font="11px monospace";ctx.lineWidth=1;
-  for(let i=0;i<=4;i++){const v=maxW*i/4,py=y(v);ctx.beginPath();ctx.moveTo(pad.l,py);ctx.lineTo(w-pad.r,py);ctx.stroke();ctx.fillText(v.toFixed(0),4,py+3);}
+
+  ctx.strokeStyle=varColor("--border","#30363d");
+  ctx.fillStyle=varColor("--muted","#8b949e");
+  ctx.font="11px monospace";
+  ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){
+    const v=maxW*i/4,py=y(v);
+    ctx.beginPath();ctx.moveTo(pad.l,py);ctx.lineTo(w-pad.r,py);ctx.stroke();
+    ctx.fillText(v.toFixed(0),4,py+3);
+  }
+
   visible.forEach(key=>{
-    ctx.strokeStyle=seriesColor(key);ctx.lineWidth=key==="__global__"?2.3:1.7;ctx.beginPath();let started=false;
-    lastHistory.forEach(point=>{const value=valueFor(point,key);if(!Number.isFinite(value)){started=false;return;}const px=x(new Date(point.timestamp).getTime()),py=y(value);if(started)ctx.lineTo(px,py);else{ctx.moveTo(px,py);started=true;}});
+    ctx.strokeStyle=seriesColor(key);
+    ctx.lineWidth=key==="__global__"?2.4:1.8;
+    ctx.beginPath();
+    let started=false;
+    lastHistory.forEach(point=>{
+      const value=valueFor(point,key);
+      if(!Number.isFinite(value)){started=false;return;}
+      const px=x(new Date(point.timestamp).getTime()),py=y(value);
+      if(started)ctx.lineTo(px,py);else{ctx.moveTo(px,py);started=true;}
+    });
     ctx.stroke();
   });
+
+  if(historyHover && Number.isInteger(historyHover.index)){
+    const index=Math.max(0,Math.min(lastHistory.length-1,historyHover.index));
+    const point=lastHistory[index];
+    const timestamp=new Date(point.timestamp);
+    const px=x(timestamp.getTime());
+    const entries=visible
+      .map(key=>({key,label:seriesLabel(key),value:valueFor(point,key),color:seriesColor(key)}))
+      .filter(entry=>Number.isFinite(entry.value));
+
+    ctx.save();
+    ctx.strokeStyle=varColor("--muted","#8b949e");
+    ctx.lineWidth=1;
+    ctx.setLineDash([3,3]);
+    ctx.beginPath();ctx.moveTo(px,pad.t);ctx.lineTo(px,h-pad.b);ctx.stroke();
+    ctx.setLineDash([]);
+
+    entries.forEach(entry=>{
+      ctx.fillStyle=entry.color;
+      ctx.beginPath();
+      ctx.arc(px,y(entry.value),3.5,0,Math.PI*2);
+      ctx.fill();
+    });
+
+    const timeText=timestamp.toLocaleString(lang==="fr"?"fr-FR":"en-US",{
+      year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit"
+    });
+    ctx.font="12px monospace";
+    const valueTexts=entries.map(entry=>`${entry.label}: ${entry.value.toFixed(1)} W`);
+    const tooltipWidth=Math.min(
+      Math.max(190,ctx.measureText(timeText).width+22,...valueTexts.map(text=>ctx.measureText(text).width+34)),
+      Math.max(190,w-16)
+    );
+    const rowHeight=19;
+    const tooltipHeight=16+rowHeight*(entries.length+1);
+    let tx=px+12;
+    if(tx+tooltipWidth>w-8)tx=px-tooltipWidth-12;
+    tx=Math.max(8,tx);
+    let ty=(historyHover.y||pad.t)-tooltipHeight/2;
+    ty=Math.max(8,Math.min(h-tooltipHeight-8,ty));
+
+    ctx.fillStyle="rgba(13,17,23,.96)";
+    ctx.strokeStyle=varColor("--border","#30363d");
+    ctx.lineWidth=1;
+    ctx.fillRect(tx,ty,tooltipWidth,tooltipHeight);
+    ctx.strokeRect(tx+.5,ty+.5,tooltipWidth-1,tooltipHeight-1);
+
+    ctx.fillStyle=varColor("--text","#c9d1d9");
+    ctx.fillText(timeText,tx+10,ty+16);
+    entries.forEach((entry,i)=>{
+      const rowY=ty+16+rowHeight*(i+1);
+      ctx.fillStyle=entry.color;
+      ctx.fillRect(tx+10,rowY-9,9,9);
+      ctx.fillStyle=varColor("--text","#c9d1d9");
+      ctx.fillText(`${entry.label}: ${entry.value.toFixed(1)} W`,tx+25,rowY);
+    });
+    ctx.restore();
+  }
+}
+function nearestHistoryIndex(mouseX,width){
+  if(!lastHistory.length)return null;
+  const pad={l:44,r:12};
+  const usable=Math.max(1,width-pad.l-pad.r);
+  const ratio=Math.max(0,Math.min(1,(mouseX-pad.l)/usable));
+  const minT=new Date(lastHistory[0].timestamp).getTime();
+  const maxT=new Date(lastHistory[lastHistory.length-1].timestamp).getTime();
+  const target=minT+ratio*Math.max(1,maxT-minT);
+  let lo=0,hi=lastHistory.length-1;
+  while(lo<hi){
+    const mid=Math.floor((lo+hi)/2);
+    if(new Date(lastHistory[mid].timestamp).getTime()<target)lo=mid+1;else hi=mid;
+  }
+  if(lo===0)return 0;
+  const a=new Date(lastHistory[lo-1].timestamp).getTime();
+  const b=new Date(lastHistory[lo].timestamp).getTime();
+  return Math.abs(target-a)<=Math.abs(b-target)?lo-1:lo;
 }
 async function refreshHistory(){try{drawHistory(await api(`/api/hub/history?since=${encodeURIComponent(document.getElementById("history-range").value)}`));}catch(e){console.error(e);}}
 document.getElementById("lang-fr").onclick=()=>{lang="fr";localStorage.setItem("powerwatchHubLang",lang);applyLanguage();};
 document.getElementById("lang-en").onclick=()=>{lang="en";localStorage.setItem("powerwatchHubLang",lang);applyLanguage();};
-document.getElementById("refresh").onclick=async()=>{await refreshSnapshot();await refreshHistory();};
 document.getElementById("probe").onclick=probe;
 document.getElementById("add").onclick=addNode;
-document.getElementById("history-range").onchange=refreshHistory;
+document.getElementById("history-range").onchange=()=>{historyHover=null;refreshHistory();};
+const historyCanvas=document.getElementById("history");
+historyCanvas.addEventListener("mousemove",event=>{
+  const rect=historyCanvas.getBoundingClientRect();
+  historyHover={
+    index:nearestHistoryIndex(event.clientX-rect.left,rect.width),
+    x:event.clientX-rect.left,
+    y:event.clientY-rect.top
+  };
+  drawHistory(lastHistory,{updateLegend:false});
+});
+historyCanvas.addEventListener("mouseleave",()=>{
+  historyHover=null;
+  drawHistory(lastHistory,{updateLegend:false});
+});
 window.addEventListener("resize",()=>drawHistory(lastHistory));
 applyLanguage();refreshSnapshot().then(refreshHistory);setInterval(refreshSnapshot,2000);setInterval(refreshHistory,60000);
 </script>
