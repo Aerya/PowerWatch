@@ -171,6 +171,7 @@ fn is_virtual_or_aggregate_device(name: &str) -> bool {
         || name.starts_with("md")
         || name.starts_with("zram")
         || name.starts_with("zd")
+        || name.starts_with("synoboot")
         || (name.starts_with("mmcblk")
             && (name.contains("boot") || name.ends_with("rpmb")))
 }
@@ -188,8 +189,9 @@ pub fn discover_disks(block_dir: &Path) -> Vec<(String, DiskType)> {
     for entry in candidates {
         let name = entry.file_name().to_string_lossy().to_string();
 
-        // Avoid loop/optical devices, aggregate/virtual layers and eMMC
-        // boot/RPMB pseudo devices so storage is not double-counted.
+        // Avoid loop/optical devices, aggregate/virtual layers, Synology
+        // synoboot pseudo devices and eMMC boot/RPMB devices so storage is
+        // not double-counted.
         if is_virtual_or_aggregate_device(&name) {
             continue;
         }
@@ -354,6 +356,8 @@ mod tests {
         write(base.join("loop0/queue/rotational"), "0\n");
         write(base.join("dm-0/queue/rotational"), "0\n");
         write(base.join("md0/queue/rotational"), "0\n");
+        write(base.join("synoboot/queue/rotational"), "1\n");
+        write(base.join("synoboot1/queue/rotational"), "1\n");
         write(base.join("mmcblk0boot0/queue/rotational"), "0\n");
         write(base.join("mmcblk0boot1/queue/rotational"), "0\n");
         write(base.join("mmcblk0rpmb/queue/rotational"), "0\n");
