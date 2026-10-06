@@ -258,6 +258,10 @@ docker exec powerwatch sh -c \
 
 PowerWatch peut également fonctionner en mode **Hub**. Chaque machine conserve son instance PowerWatch locale et sa collecte matérielle ; le Hub interroge simplement leurs API HTTP et les regroupe dans une seule WebUI.
 
+<p align="center">
+  <img src="docs/images/Image_HUB.png" alt="PowerWatch Hub">
+</p>
+
 Le Hub fournit :
 
 - un **total global** de l'infrastructure ;
