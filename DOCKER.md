@@ -38,7 +38,21 @@ et définit :
 POWERWATCH_POWERCAP_PATH=/host-sys-virtual/powercap/intel-rapl
 ```
 
-Ce montage utilise un chemin parent générique présent sur Linux. Si RAPL est disponible, PowerWatch récupère la mesure CPU. Sur certains Intel, si aucun compteur i915/xe hwmon n'est exposé mais qu'un sous-domaine RAPL `uncore` existe, PowerWatch l'utilise comme mesure de l'iGPU. Dans ce cas, la valeur CPU est calculée comme `package - uncore` afin de ne pas compter deux fois l'iGPU dans le total. S'il n'y a pas de RAPL exploitable, PowerWatch continue normalement sans capteur CPU mesuré.
+Ce montage utilise un chemin parent générique présent sur Linux. Si RAPL est disponible, PowerWatch récupère la mesure CPU. Sur certains Intel, si aucun compteur i915/xe hwmon n'est exposé mais qu'un sous-domaine RAPL `uncore` existe, PowerWatch l'utilise comme mesure de l'iGPU. Dans ce cas, la valeur CPU est calculée comme `package - uncore` afin de ne pas compter deux fois l'iGPU dans le total.
+
+Sur certains noyaux, notamment **Synology DSM / Gemini Lake**, `powercap` peut être absent alors que `/dev/cpu/0/msr` existe. PowerWatch peut alors lire directement les compteurs RAPL MSR. Le Compose de référence contient les blocs suivants, commentés par défaut :
+
+```yaml
+cap_add:
+  - SYS_RAWIO
+
+devices:
+  - /dev/cpu/0/msr:/dev/cpu/0/msr:r
+```
+
+Le pilote Linux `msr` exige `CAP_SYS_RAWIO` même pour root dans le conteneur ; le simple mapping du device ne suffit pas et provoque `Operation not permitted`. Il n'est pas nécessaire de passer PowerWatch en `privileged: true`.
+
+S'il n'y a ni `powercap` exploitable ni accès MSR autorisé, PowerWatch continue normalement sans capteur CPU mesuré.
 
 ### 🇬🇧 CPU / RAPL in Docker
 
@@ -56,7 +70,21 @@ and sets:
 POWERWATCH_POWERCAP_PATH=/host-sys-virtual/powercap/intel-rapl
 ```
 
-This uses a generic Linux parent path. When RAPL is available, PowerWatch restores measured CPU power. On some Intel systems, if no i915/xe hwmon counter is exposed but a RAPL `uncore` subdomain exists, PowerWatch uses it as measured iGPU power. In that case CPU is calculated as `package - uncore` so the iGPU is not counted twice in the total. If usable RAPL telemetry is absent, PowerWatch continues normally without a measured CPU sensor.
+This uses a generic Linux parent path. When RAPL is available, PowerWatch restores measured CPU power. On some Intel systems, if no i915/xe hwmon counter is exposed but a RAPL `uncore` subdomain exists, PowerWatch uses it as measured iGPU power. In that case CPU is calculated as `package - uncore` so the iGPU is not counted twice in the total.
+
+On some kernels, notably **Synology DSM / Gemini Lake**, `powercap` may be absent while `/dev/cpu/0/msr` is available. PowerWatch can then read RAPL directly through MSR. The reference Compose includes these blocks, commented by default:
+
+```yaml
+cap_add:
+  - SYS_RAWIO
+
+devices:
+  - /dev/cpu/0/msr:/dev/cpu/0/msr:r
+```
+
+The Linux `msr` driver requires `CAP_SYS_RAWIO` even for root inside the container; mapping the device alone is not enough and results in `Operation not permitted`. PowerWatch does not need `privileged: true`.
+
+If neither usable `powercap` telemetry nor permitted MSR access is available, PowerWatch continues normally without a measured CPU sensor.
 
 ### 🇫🇷 GPU AMD et Intel
 

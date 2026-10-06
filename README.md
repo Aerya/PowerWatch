@@ -101,12 +101,17 @@ Le fichier [`compose.yaml`](compose.yaml) fourni est le fichier de déploiement 
 
 Sur certains systèmes Intel, notamment certains **Synology DSM**, le noyau n'expose pas `/sys/.../powercap` alors que le périphérique `/dev/cpu/0/msr` est disponible.
 
-Dans ce cas, décommentez dans `compose.yaml` :
+Dans ce cas, décommentez dans `compose.yaml` les deux blocs suivants :
 
 ```yaml
+cap_add:
+  - SYS_RAWIO
+
 devices:
   - /dev/cpu/0/msr:/dev/cpu/0/msr:r
 ```
+
+Le pilote Linux `msr` exige **`CAP_SYS_RAWIO`** pour ouvrir `/dev/cpu/*/msr`, y compris lorsque le processus du conteneur tourne en root. Il n'est pas nécessaire d'utiliser `privileged: true` : n'activez que `SYS_RAWIO` avec le device MSR lorsque ce fallback est réellement nécessaire.
 
 PowerWatch utilise toujours `powercap` en priorité. Le MSR n'est utilisé qu'en fallback si aucun domaine RAPL `powercap` n'est découvert. Un seul device CPU est nécessaire : le compteur `MSR_PKG_ENERGY_STATUS` est **commun au package**, il ne faut donc pas additionner `/dev/cpu/0/msr` et `/dev/cpu/1/msr`.
 

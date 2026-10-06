@@ -130,11 +130,14 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 .sensor-icon svg { width:16px; height:16px; display:block; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
 .cpu-benchmark { display:inline-block; min-width:0; max-width:100%; color:var(--text); text-decoration:none; border-bottom:1px dotted var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .cpu-benchmark:hover { color:var(--measured); border-bottom-color:var(--measured); }
-.metric-label { display:flex !important; align-items:center; gap:6px; min-width:0; }
 .node-body { border-top:1px solid var(--border); padding:7px 9px 8px; min-width:0; }
 .quick-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; margin-bottom:7px; }
 .metric { background:var(--bg); border:1px solid var(--border); border-radius:4px; padding:5px 7px; min-width:0; }
-.metric-label { display:block; color:var(--muted); font-size:.66rem; margin-bottom:2px; }
+.metric-label {
+  display:flex; align-items:center; gap:8px; min-width:0; overflow:hidden;
+  color:var(--muted); font-size:.66rem; margin-bottom:2px;
+}
+.metric-label .cpu-benchmark { flex:1 1 auto; }
 .metric-value { display:block; font-size:.82rem; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .node-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:0 0 6px; font-size:.72rem; }
 .node-actions a { color:var(--text); text-decoration:none; border-bottom:1px dotted var(--muted); }
@@ -145,7 +148,15 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 .sensor-row { display:grid; grid-template-columns:minmax(0,1fr) 80px 86px; gap:7px; align-items:center; padding:4px 7px; border-bottom:1px solid var(--border); min-width:0; }
 .sensor-row:last-child { border-bottom:none; }
 .sensor-component { min-width:0; }
-.sensor-main { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sensor-main {
+  display:flex; align-items:center; gap:8px; min-width:0;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.sensor-main > span:not(.sensor-icon),
+.sensor-main > a {
+  min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.sensor-main .cpu-benchmark { flex:1 1 auto; }
 .sensor-detail { margin-top:2px; color:var(--muted); font-size:.7rem; line-height:1.25; white-space:normal; overflow-wrap:anywhere; }
 .sensor-watts,.sensor-confidence { text-align:right; white-space:nowrap; }
 .sensor-confidence { font-size:.76rem; }
@@ -223,8 +234,18 @@ const I18N={
   fr:{subtitle:"Dashboard fédéré multi-machines",globalTotal:"TOTAL INFRASTRUCTURE",history:"Historique fédéré",manage:"Machines / instances",security:"Les URLs doivent rester privées et être accessibles depuis le conteneur Hub. Le Hub n'a pas d'authentification intégrée.",name:"Nom",test:"Tester",add:"Ajouter",online:"en ligne",stale:"stale",offline:"hors ligne",disabled:"désactivé",included:"compter dans le total",enabled:"activé",remove:"supprimer",open:"ouvrir l'instance",nodes:"machines en ligne",configured:"configurées",noNodes:"Aucune instance configurée. Ajoute ton premier PowerWatch ci-dessus.",lastSeen:"vu",never:"jamais",disks:"Disques",measured:"Mesurée",estimated:"Estimée",global:"Total global",noHistory:"Pas encore d'historique"},
   en:{subtitle:"Federated multi-machine dashboard",globalTotal:"INFRASTRUCTURE TOTAL",history:"Federated history",manage:"Machines / instances",security:"URLs must stay private and be reachable from the Hub container. The Hub has no built-in authentication.",name:"Name",test:"Test",add:"Add",online:"online",stale:"stale",offline:"offline",disabled:"disabled",included:"include in total",enabled:"enabled",remove:"remove",open:"open instance",nodes:"nodes online",configured:"configured",noNodes:"No instance configured. Add your first PowerWatch above.",lastSeen:"seen",never:"never",disks:"Disks",measured:"Measured",estimated:"Estimated",global:"Global total",noHistory:"No history yet"}
 };
-const GLOBAL_COLOR="#58a6ff";
-const NODE_COLORS=["#3fb950","#d29922","#f85149","#a371f7","#39c5cf","#db61a2","#f0883e","#79c0ff","#bc8cff"];
+const GLOBAL_COLOR="#ffd166";
+const NODE_COLORS=[
+  "#00d4ff",
+  "#ff4ecd",
+  "#5cff7a",
+  "#ff7a45",
+  "#9d7cff",
+  "#00e5c8",
+  "#ff5d73",
+  "#4d9cff",
+  "#c7f464"
+];
 const SENSOR_ICONS={
   cpu:`<span class="sensor-icon" title="CPU" aria-label="CPU"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 15h3M1 9h3M1 15h3"/></svg></span>`,
   ram:`<span class="sensor-icon" title="RAM" aria-label="RAM"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10v4M11 10v4M15 10v4M3 14h18M7 18v3M11 18v3M15 18v3"/></svg></span>`,
@@ -238,7 +259,11 @@ const hiddenSeries=new Set();
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const tr=k=>I18N[lang][k]||k;
 function hashString(value){let h=0;for(let i=0;i<value.length;i++)h=((h<<5)-h+value.charCodeAt(i))|0;return Math.abs(h);}
-function nodeColor(id){return NODE_COLORS[hashString(id)%NODE_COLORS.length];}
+function nodeColor(id){
+  const index=snapshot?.nodes?.findIndex(node=>node.id===id)??-1;
+  if(index>=0)return NODE_COLORS[index%NODE_COLORS.length];
+  return NODE_COLORS[hashString(id)%NODE_COLORS.length];
+}
 function nodeName(id){return snapshot?.nodes?.find(node=>node.id===id)?.name||id;}
 function confidenceClass(value){return String(value||"").toLowerCase()==="measured"?"measured":"estimated";}
 function confidenceLabel(value){return confidenceClass(value)==="measured"?tr("measured"):tr("estimated");}
@@ -442,7 +467,7 @@ function drawHistory(points,{updateLegend=true}={}){
 
   visible.forEach(key=>{
     ctx.strokeStyle=seriesColor(key);
-    ctx.lineWidth=key==="__global__"?2.4:1.8;
+    ctx.lineWidth=key==="__global__"?3.2:1.9;
     ctx.beginPath();
     let started=false;
     lastHistory.forEach(point=>{
