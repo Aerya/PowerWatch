@@ -129,7 +129,26 @@
   }
   #status { color: var(--muted); font-size: 0.85rem; margin-top: 24px; }
 
-  .language-switcher { display:flex; gap:6px; align-items:center; margin-left:auto; }
+.instance-control { display:flex; gap:6px; align-items:center; min-width:0; }
+.instance-control label { display:flex; gap:6px; align-items:center; color:var(--muted); font-size:.78rem; }
+.instance-control input {
+  width:clamp(120px,16vw,220px);
+  background:var(--bg); border:1px solid var(--border); border-radius:4px;
+  color:var(--text); font:inherit; font-size:.78rem; padding:4px 7px;
+}
+.instance-control button {
+  background:transparent; border:1px solid var(--border); border-radius:4px;
+  color:var(--text); font:inherit; font-size:.78rem; padding:4px 7px; cursor:pointer;
+}
+.instance-control button:hover { border-color:var(--measured); }
+#instance-save-status { color:var(--muted); font-size:.72rem; min-width:1em; }
+.sensor-main { display:flex; align-items:center; gap:7px; }
+.sensor-icon { width:16px; height:16px; flex:0 0 auto; color:currentColor; }
+.sensor-icon svg { width:16px; height:16px; display:block; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.cpu-benchmark { display:inline-block; min-width:0; max-width:100%; color:var(--text); text-decoration:none; border-bottom:1px dotted var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cpu-benchmark:hover { color:var(--measured); border-bottom-color:var(--measured); }
+
+.language-switcher { display:flex; gap:6px; align-items:center; margin-left:auto; }
   .language-switcher button { background:transparent; border:1px solid var(--border); border-radius:4px; color:var(--muted); font:inherit; font-size:.78rem; padding:4px 7px; cursor:pointer; }
   .language-switcher button:hover, .language-switcher button.active { color:var(--text); border-color:var(--measured); }
 
@@ -463,8 +482,13 @@
 </style>
 </head>
 <body data-page="dashboard">
-  <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
     <h1 style="margin:0;">PowerWatch</h1>
+    <div class="instance-control">
+      <label><span data-i18n="dashboard.instanceName">Instance</span><input id="instance-name" maxlength="80" placeholder="DockerLab"></label>
+      <button type="button" id="save-instance" data-i18n="common.save">Save</button>
+      <span id="instance-save-status"></span>
+    </div>
     <div class="language-switcher" aria-label="Language">
       <button type="button" data-lang="fr" onclick="setPowerWatchLanguage('fr')">🇫🇷 FR</button>
       <button type="button" data-lang="en" onclick="setPowerWatchLanguage('en')">🇬🇧 EN</button>
@@ -606,7 +630,54 @@ let componentDisplayLabels = new Map();
 let hoverClientX = null;
 let liveMode = true;
 let currentRange = null;
+let currentSystemInfo = { name: "", cpu_model: null };
 let historyMeta = { label: t("dashboard.live10m"), bucketSeconds: 0, rangeSeconds: 600 };
+
+const SENSOR_ICONS = {
+  cpu: `<span class="sensor-icon" title="CPU" aria-label="CPU"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 15h3M1 9h3M1 15h3"/></svg></span>`,
+  ram: `<span class="sensor-icon" title="RAM" aria-label="RAM"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10v4M11 10v4M15 10v4M3 14h18M7 18v3M11 18v3M15 18v3"/></svg></span>`,
+  disk: `<span class="sensor-icon" title="Disk" aria-label="Disk"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 12h20M6 15h.01M10 15h.01"/></svg></span>`,
+};
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+function cpuBenchmarkUrl(model) {
+  return `https://www.cpubenchmark.net/cpu.php?cpu=${encodeURIComponent(model)}`;
+}
+
+function diskIdentity(mainLabel) {
+  const match = /^disk \(([^)]+)\)(?:\s*·\s*(.+))?$/.exec(mainLabel);
+  if (!match) return mainLabel;
+  return match[2] ? `${match[1]} · ${match[2]}` : match[1];
+}
+
+function renderSensorIdentity(main, sensor, parts) {
+  const kind = sensor.name === "cpu" ? "cpu"
+    : sensor.name === "ram" ? "ram"
+    : sensor.name.startsWith("disk:") ? "disk"
+    : null;
+
+  if (kind === "cpu") {
+    const model = currentSystemInfo.cpu_model;
+    main.innerHTML = SENSOR_ICONS.cpu + (model
+      ? `<a class="cpu-benchmark" href="${cpuBenchmarkUrl(model)}" target="_blank" rel="noopener noreferrer" title="CPU Benchmark">${escapeHtml(model)} ↗</a>`
+      : "");
+    return parts.detail;
+  }
+  if (kind === "ram") {
+    main.innerHTML = SENSOR_ICONS.ram;
+    return parts.detail;
+  }
+  if (kind === "disk") {
+    main.innerHTML = SENSOR_ICONS.disk + `<span>${escapeHtml(diskIdentity(parts.main))}</span>`;
+    return parts.detail;
+  }
+
+  main.textContent = parts.main;
+  return parts.detail;
+}
 
 function componentLabel(component) {
   if (typeof component === "string") {
@@ -627,6 +698,42 @@ function componentLabel(component) {
 function confidenceClass(confidence) {
   return confidence === "Measured" ? "measured" : "estimated";
 }
+
+async function refreshInstanceInfo() {
+  try {
+    const res = await fetch("/api/instance");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const info = await res.json();
+    currentSystemInfo = info;
+    const input = document.getElementById("instance-name");
+    if (document.activeElement !== input) input.value = info.name || "";
+  } catch (err) {
+    console.error("instance metadata:", err);
+  }
+}
+
+async function saveInstanceName() {
+  const status = document.getElementById("instance-save-status");
+  const name = document.getElementById("instance-name").value.trim();
+  status.textContent = "…";
+  try {
+    const res = await fetch("/api/instance", {
+      method: "PUT",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({name}),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    currentSystemInfo = await res.json();
+    status.textContent = t("dashboard.instanceSaved");
+  } catch (err) {
+    status.textContent = t("dashboard.instanceSaveFailed");
+  }
+}
+
+document.getElementById("save-instance").addEventListener("click", saveInstanceName);
+document.getElementById("instance-name").addEventListener("keydown", event => {
+  if (event.key === "Enter") saveInstanceName();
+});
 
 async function refreshSnapshot() {
   try {
@@ -755,14 +862,14 @@ function updateSensorRow(row, sensor) {
 
     const main = document.createElement("div");
     main.className = "sensor-main";
-    main.textContent = parts.main;
+    const detailText = renderSensorIdentity(main, sensor, parts);
     componentCell.appendChild(main);
 
-    if (parts.detail) {
+    if (detailText) {
       const detail = document.createElement("div");
       detail.className = "sensor-detail";
-      detail.textContent = parts.detail;
-      detail.title = parts.detail;
+      detail.textContent = detailText;
+      detail.title = detailText;
       componentCell.appendChild(detail);
     }
 
@@ -783,14 +890,14 @@ function updateSensorRow(row, sensor) {
 
   const main = document.createElement("div");
   main.className = "sensor-main";
-  main.textContent = parts.main;
+  const detailText = renderSensorIdentity(main, sensor, parts);
   componentCell.appendChild(main);
 
-  if (parts.detail) {
+  if (detailText) {
     const detail = document.createElement("div");
     detail.className = "sensor-detail";
-    detail.textContent = parts.detail;
-    detail.title = parts.detail;
+    detail.textContent = detailText;
+    detail.title = detailText;
     componentCell.appendChild(detail);
   }
 
@@ -803,6 +910,7 @@ function updateSensorRow(row, sensor) {
 }
 
 function renderSnapshot(data) {
+  currentSystemInfo = data.system || currentSystemInfo;
   const totalEl = document.getElementById("total");
   if (data.total) {
     const cls = confidenceClass(data.total.confidence);
@@ -1385,6 +1493,7 @@ window.addEventListener("powerwatch:languagechange", () => {
 
 setupChartInteractions();
 setupHistoryControls();
+refreshInstanceInfo();
 refreshSnapshot();
 refreshSuggestions();
 refreshAlertsSummary();

@@ -23,11 +23,13 @@ This fork is primarily designed for **servers, mini PCs, Linux desktop machines,
 - Multi-GPU **NVIDIA / AMD / Intel** detection.
 - **Intel RAPL `uncore` fallback** for some iGPUs without i915/xe hwmon counters.
 - CPU **RAPL fallback through `/dev/cpu/0/msr`** when the kernel does not expose `powercap` (including some Synology DSM systems).
-- Monitoring of all **physical disks** without double-counting RAID/LVM layers.
+- Monitoring of all **physical disks** without double-counting RAID/LVM layers, including their capacity.
 - Best-effort display of associated **partitions, mount points, filesystems, mdraid, LVM, and dm-crypt**.
 - CLI and TUI available in the Docker image.
 - Multi-architecture **amd64 / arm64** GHCR images.
 - **French / English** Web UI.
+- Configurable PowerWatch instance name, automatically suggested when adding the instance to the Hub while keeping the Hub alias independent.
+- CPU model with a direct **CPU Benchmark / PassMark** search link and monochrome CPU/RAM/disk icons.
 - **PowerWatch Hub**: aggregate multiple machines into one federated dashboard.
 
 ## Measurements
@@ -150,6 +152,8 @@ disk (nvme0n1) — nvme0n1p2 → cryptroot [dm-crypt] → / [ext4]
 
 An unmounted partition may also appear with `[unmounted]`.
 
+Each physical disk capacity is read from sysfs (`/sys/class/block/<device>/size`) and displayed in its enriched label.
+
 Internal identifiers remain stable (`disk:sda`, `disk:nvme0n1`, etc.) so mount changes do not break history or alerts.
 
 ## Web UI
@@ -166,7 +170,9 @@ The main page displays:
 - historical data;
 - average, minimum, maximum, and energy;
 - preset and custom time ranges;
-- enriched disk labels;
+- enriched disk labels including capacity;
+- CPU model with a CPU Benchmark / PassMark link;
+- an editable instance name reused as the suggested name when adding the instance to PowerWatch Hub;
 - FR / EN language selection.
 
 The Docker image automatically starts PowerWatch with history enabled and NAS/headless mode.

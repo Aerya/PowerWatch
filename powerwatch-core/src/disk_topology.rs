@@ -3,9 +3,14 @@ use crate::model::Component;
 pub fn component_display_label(component: &Component) -> String {
     #[cfg(target_os = "linux")]
     if let Component::Disk(device) = component {
-        if let Some(detail) = linux::disk_detail(device) {
-            return format!("disk ({device}) — {detail}");
-        }
+        let size = linux::disk_size_label(device);
+        let detail = linux::disk_detail(device);
+        return match (size, detail) {
+            (Some(size), Some(detail)) => format!("disk ({device}) · {size} — {detail}"),
+            (Some(size), None) => format!("disk ({device}) · {size}"),
+            (None, Some(detail)) => format!("disk ({device}) — {detail}"),
+            (None, None) => component.label(),
+        };
     }
 
     component.label()
@@ -23,6 +28,37 @@ mod linux {
         mount_point: String,
         fs_type: String,
         source: String,
+    }
+
+    pub fn disk_size_label(device: &str) -> Option<String> {
+        disk_size_label_from(device, Path::new("/sys/class/block"))
+    }
+
+    fn disk_size_label_from(device: &str, class_block: &Path) -> Option<String> {
+        let sectors = fs::read_to_string(class_block.join(device).join("size"))
+            .ok()?
+            .trim()
+            .parse::<u64>()
+            .ok()?;
+        let bytes = sectors.checked_mul(512)?;
+        Some(format_capacity(bytes))
+    }
+
+    fn format_capacity(bytes: u64) -> String {
+        const UNITS: &[(&str, u64)] = &[
+            ("PiB", 1u64 << 50),
+            ("TiB", 1u64 << 40),
+            ("GiB", 1u64 << 30),
+            ("MiB", 1u64 << 20),
+            ("KiB", 1u64 << 10),
+        ];
+
+        for (unit, size) in UNITS {
+            if bytes >= *size {
+                return format!("{:.2} {unit}", bytes as f64 / *size as f64);
+            }
+        }
+        format!("{bytes} B")
     }
 
     pub fn disk_detail(device: &str) -> Option<String> {
@@ -440,6 +476,19 @@ mod linux {
             assert!(is_partition_of("nvme0n1", "nvme0n1p2"));
             assert!(is_partition_of("mmcblk0", "mmcblk0p1"));
             assert!(!is_partition_of("sda", "sdb1"));
+        }
+
+        #[test]
+        fn formats_disk_capacity_from_sysfs_sector_count() {
+            let temp = tempfile::tempdir().unwrap();
+            let disk = temp.path().join("sda");
+            std::fs::create_dir_all(&disk).unwrap();
+            std::fs::write(disk.join("size"), "7814037168\n").unwrap();
+
+            assert_eq!(
+                disk_size_label_from("sda", temp.path()).as_deref(),
+                Some("3.64 TiB")
+            );
         }
 
         #[test]
