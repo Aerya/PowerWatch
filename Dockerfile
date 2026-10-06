@@ -3,7 +3,7 @@ FROM rust:1-bookworm AS builder
 WORKDIR /src
 COPY . .
 
-RUN cargo build --release -p powerwatch-cli -p powerwatch-tui -p powerwatch-web
+RUN cargo build --release -p powerwatch-cli -p powerwatch-tui -p powerwatch-web -p powerwatch-hub
 
 FROM debian:bookworm-slim
 
@@ -14,6 +14,7 @@ RUN apt-get update \
 COPY --from=builder /src/target/release/powerwatch /usr/local/bin/powerwatch
 COPY --from=builder /src/target/release/powerwatch-tui /usr/local/bin/powerwatch-tui
 COPY --from=builder /src/target/release/powerwatch-web /usr/local/bin/powerwatch-web
+COPY --from=builder /src/target/release/powerwatch-hub /usr/local/bin/powerwatch-hub
 
 ENV HOME=/data
 

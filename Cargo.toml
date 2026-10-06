@@ -5,6 +5,7 @@ members = [
     "powerwatch-cli",
     "powerwatch-tui",
     "powerwatch-web",
+    "powerwatch-hub",
 ]
 
 [workspace.package]

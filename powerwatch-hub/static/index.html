@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PowerWatch Hub</title>
+<style>
+:root{color-scheme:dark;--bg:#0d1117;--panel:#161b22;--panel2:#1c2128;--border:#30363d;--text:#c9d1d9;--muted:#8b949e;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--accent:#58a6ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+main{max-width:1800px;margin:auto;padding:18px}
+header{display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+h1,h2,h3{margin:0}
+button,input,select{font:inherit}
+button{cursor:pointer}
+.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btn{border:1px solid var(--border);background:var(--panel2);color:var(--text);border-radius:6px;padding:7px 10px}
+.btn:hover{border-color:var(--accent)}
+.btn-danger{color:#ff9b97}
+.lang-active{color:var(--accent)}
+.hero{display:grid;grid-template-columns:minmax(260px,420px) 1fr;gap:12px;margin:14px 0}
+.total-card,.panel,.node{background:var(--panel);border:1px solid var(--border);border-radius:8px}
+.total-card{padding:14px}
+.total-value{font-size:2rem;font-weight:700;margin-top:8px}
+.muted{color:var(--muted)}
+.statusline{margin-top:8px;font-size:.88rem}
+.panel{padding:12px;margin:12px 0}
+.nodes{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:10px}
+.node{padding:0;overflow:hidden}
+.node summary{list-style:none;display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:10px 12px;cursor:pointer}
+.node summary::-webkit-details-marker{display:none}
+.node-title{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.node-total{font-size:1.15rem;font-weight:700}
+.badge{font-size:.74rem;padding:2px 7px;border:1px solid currentColor;border-radius:999px}
+.online{color:var(--ok)}.stale{color:var(--warn)}.offline{color:var(--bad)}.disabled{color:var(--muted)}
+.node-body{border-top:1px solid var(--border);padding:8px 10px}
+.node-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:8px;font-size:.8rem}
+.node-actions a{color:var(--accent);text-decoration:none}
+.sensor{display:grid;grid-template-columns:minmax(0,1fr) 82px 92px;gap:8px;padding:4px 2px;border-top:1px solid rgba(48,54,61,.45);align-items:center}
+.sensor:first-child{border-top:0}
+.sensor-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sensor-watts,.sensor-confidence{text-align:right;white-space:nowrap}
+.error{color:var(--bad);font-size:.78rem}
+.config-grid{display:grid;grid-template-columns:1fr 1.5fr auto auto;gap:8px;align-items:end}
+label{display:grid;gap:4px;font-size:.78rem;color:var(--muted)}
+input{min-width:0;border:1px solid var(--border);background:var(--bg);color:var(--text);border-radius:5px;padding:7px 8px}
+.notice{font-size:.8rem;color:var(--warn);margin:8px 0}
+#probe-result{font-size:.78rem;margin-top:8px}
+canvas{display:block;width:100%;height:240px;background:#0d1117;border:1px solid var(--border);border-radius:6px}
+.history-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.history-toolbar select{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:5px}
+.empty{padding:28px;text-align:center;color:var(--muted)}
+@media(max-width:850px){.hero{grid-template-columns:1fr}.config-grid{grid-template-columns:1fr}.nodes{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div>
+    <h1>PowerWatch Hub</h1>
+    <div class="muted" data-i18n="subtitle">Dashboard fédéré multi-machines</div>
+  </div>
+  <div class="toolbar">
+    <button class="btn" id="lang-fr">FR</button>
+    <button class="btn" id="lang-en">EN</button>
+    <button class="btn" id="refresh" data-i18n="refresh">Actualiser</button>
+  </div>
+</header>
+
+<div class="hero">
+  <section class="total-card">
+    <div class="muted" data-i18n="globalTotal">TOTAL INFRASTRUCTURE</div>
+    <div class="total-value" id="global-total">0.0 W</div>
+    <div class="statusline" id="global-status">—</div>
+  </section>
+  <section class="panel" style="margin:0">
+    <div class="history-toolbar">
+      <strong data-i18n="history">Historique fédéré</strong>
+      <select id="history-range">
+        <option value="1h">1 h</option>
+        <option value="6h">6 h</option>
+        <option value="24h" selected>24 h</option>
+        <option value="7d">7 j</option>
+        <option value="30d">30 j</option>
+      </select>
+    </div>
+    <canvas id="history"></canvas>
+  </section>
+</div>
+
+<details class="panel">
+  <summary><strong data-i18n="manage">Machines / instances</strong></summary>
+  <p class="notice" data-i18n="security">Les URLs doivent rester privées et être accessibles depuis le conteneur Hub. Le Hub n'a pas d'authentification intégrée.</p>
+  <div class="config-grid">
+    <label><span data-i18n="name">Nom</span><input id="node-name" placeholder="LincStation"></label>
+    <label><span>URL PowerWatch</span><input id="node-url" placeholder="http://192.168.0.196:3064"></label>
+    <button class="btn" id="probe" data-i18n="test">Tester</button>
+    <button class="btn" id="add" data-i18n="add">Ajouter</button>
+  </div>
+  <div id="probe-result"></div>
+</details>
+
+<section>
+  <div class="nodes" id="nodes"></div>
+</section>
+</main>
+
+<script>
+const I18N={
+  fr:{subtitle:"Dashboard fédéré multi-machines",refresh:"Actualiser",globalTotal:"TOTAL INFRASTRUCTURE",history:"Historique fédéré",manage:"Machines / instances",security:"Les URLs doivent rester privées et être accessibles depuis le conteneur Hub. Le Hub n'a pas d'authentification intégrée.",name:"Nom",test:"Tester",add:"Ajouter",online:"en ligne",stale:"stale",offline:"hors ligne",disabled:"désactivé",included:"compter dans le total",enabled:"activé",remove:"supprimer",open:"ouvrir l'instance",nodes:"machines en ligne",noNodes:"Aucune instance configurée. Ajoute ton premier PowerWatch ci-dessus.",lastSeen:"vu",never:"jamais"},
+  en:{subtitle:"Federated multi-machine dashboard",refresh:"Refresh",globalTotal:"INFRASTRUCTURE TOTAL",history:"Federated history",manage:"Machines / instances",security:"URLs must stay private and be reachable from the Hub container. The Hub has no built-in authentication.",name:"Name",test:"Test",add:"Add",online:"online",stale:"stale",offline:"offline",disabled:"disabled",included:"include in total",enabled:"enabled",remove:"remove",open:"open instance",nodes:"nodes online",noNodes:"No instance configured. Add your first PowerWatch above.",lastSeen:"seen",never:"never"}
+};
+let lang=localStorage.getItem("powerwatchHubLang")||"fr";
+let snapshot=null;
+const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const tr=k=>I18N[lang][k]||k;
+function applyLanguage(){
+  document.documentElement.lang=lang;
+  document.querySelectorAll("[data-i18n]").forEach(el=>el.textContent=tr(el.dataset.i18n));
+  document.getElementById("lang-fr").classList.toggle("lang-active",lang==="fr");
+  document.getElementById("lang-en").classList.toggle("lang-active",lang==="en");
+  if(snapshot) renderSnapshot(snapshot);
+}
+function slugify(value){
+  return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,48);
+}
+function statusLabel(status){return tr(status);}
+function fmtSeen(value){
+  if(!value)return tr("never");
+  return new Date(value).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"});
+}
+async function api(url,options={}){
+  const res=await fetch(url,{headers:{"Content-Type":"application/json"},...options});
+  if(!res.ok){
+    const text=await res.text();
+    throw new Error(text||`HTTP ${res.status}`);
+  }
+  if(res.status===204)return null;
+  return res.json();
+}
+function renderSnapshot(data){
+  snapshot=data;
+  document.getElementById("global-total").textContent=`${data.total_watts.toFixed(1)} W`;
+  document.getElementById("global-status").textContent=`${data.online_nodes}/${data.configured_nodes} ${tr("nodes")}`;
+  const root=document.getElementById("nodes");
+  if(!data.nodes.length){
+    root.innerHTML=`<div class="empty">${esc(tr("noNodes"))}</div>`;
+    return;
+  }
+  root.innerHTML=data.nodes.map(node=>{
+    const sensors=node.sensors.map(sensor=>{
+      if(sensor.reading){
+        const label=sensor.display_name||sensor.name;
+        return `<div class="sensor"><div class="sensor-name" title="${esc(label)}">${esc(label)}</div><div class="sensor-watts">${sensor.reading.watts.toFixed(1)} W</div><div class="sensor-confidence muted">${esc(sensor.reading.confidence)}</div></div>`;
+      }
+      return `<div class="sensor"><div class="sensor-name">${esc(sensor.display_name||sensor.name)}</div><div class="error" style="grid-column:2/4">${esc(sensor.error||"—")}</div></div>`;
+    }).join("");
+    const total=node.total_watts==null?"—":`${node.total_watts.toFixed(1)} W`;
+    return `<details class="node" open data-id="${esc(node.id)}">
+      <summary>
+        <div class="node-title">${esc(node.name)}</div>
+        <span class="badge ${esc(node.status)}">${esc(statusLabel(node.status))}</span>
+        <div class="node-total">${esc(total)}</div>
+      </summary>
+      <div class="node-body">
+        <div class="node-actions">
+          <a href="${esc(node.url)}" target="_blank" rel="noopener">${esc(tr("open"))}</a>
+          <span class="muted">${esc(tr("lastSeen"))}: ${esc(fmtSeen(node.last_seen))}</span>
+          <label style="display:flex;gap:5px;align-items:center"><input type="checkbox" class="toggle-enabled" ${node.enabled?"checked":""}> ${esc(tr("enabled"))}</label>
+          <label style="display:flex;gap:5px;align-items:center"><input type="checkbox" class="toggle-total" ${node.include_in_total?"checked":""}> ${esc(tr("included"))}</label>
+          <button class="btn btn-danger remove">${esc(tr("remove"))}</button>
+        </div>
+        ${node.last_error?`<div class="error">${esc(node.last_error)}</div>`:""}
+        ${sensors||'<div class="muted">—</div>'}
+      </div>
+    </details>`;
+  }).join("");
+  bindNodeActions();
+}
+function nodePayload(node,overrides={}){
+  return {id:node.id,name:node.name,url:node.url,enabled:node.enabled,include_in_total:node.include_in_total,...overrides};
+}
+function bindNodeActions(){
+  document.querySelectorAll(".node").forEach(card=>{
+    const id=card.dataset.id;
+    const node=snapshot.nodes.find(n=>n.id===id);
+    card.querySelector(".toggle-enabled").addEventListener("change",async e=>{
+      await api(`/api/hub/nodes/${encodeURIComponent(id)}`,{method:"POST",body:JSON.stringify(nodePayload(node,{enabled:e.target.checked}))});
+      await refreshSnapshot();
+    });
+    card.querySelector(".toggle-total").addEventListener("change",async e=>{
+      await api(`/api/hub/nodes/${encodeURIComponent(id)}`,{method:"POST",body:JSON.stringify(nodePayload(node,{include_in_total:e.target.checked}))});
+      await refreshSnapshot(); await refreshHistory();
+    });
+    card.querySelector(".remove").addEventListener("click",async()=>{
+      await api(`/api/hub/nodes/${encodeURIComponent(id)}`,{method:"DELETE"});
+      await refreshSnapshot(); await refreshHistory();
+    });
+  });
+}
+async function refreshSnapshot(){
+  try{renderSnapshot(await api("/api/hub/snapshot"));}catch(e){console.error(e);}
+}
+async function probe(){
+  const url=document.getElementById("node-url").value.trim();
+  const result=document.getElementById("probe-result");
+  result.textContent="…";
+  try{
+    const data=await api("/api/hub/test",{method:"POST",body:JSON.stringify({url})});
+    result.className=data.ok?"online":"error";
+    result.textContent=data.ok?`${data.message}${data.total_watts==null?"":` — ${data.total_watts.toFixed(1)} W`}`:data.message;
+  }catch(e){result.className="error";result.textContent=e.message;}
+}
+async function addNode(){
+  const name=document.getElementById("node-name").value.trim();
+  const url=document.getElementById("node-url").value.trim();
+  const id=slugify(name);
+  if(!name||!url||!id)return;
+  await api("/api/hub/nodes",{method:"POST",body:JSON.stringify({id,name,url,enabled:true,include_in_total:true})});
+  document.getElementById("node-name").value="";
+  document.getElementById("node-url").value="";
+  document.getElementById("probe-result").textContent="";
+  await refreshSnapshot(); await refreshHistory();
+}
+function drawHistory(points){
+  const canvas=document.getElementById("history");
+  const dpr=window.devicePixelRatio||1;
+  const rect=canvas.getBoundingClientRect();
+  canvas.width=Math.max(1,Math.round(rect.width*dpr));
+  canvas.height=Math.max(1,Math.round(rect.height*dpr));
+  const ctx=canvas.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  const w=rect.width,h=rect.height;
+  ctx.clearRect(0,0,w,h);
+  if(!points.length){ctx.fillStyle="#8b949e";ctx.fillText("No history yet",16,h/2);return;}
+  const pad={l:44,r:12,t:12,b:22};
+  const minT=new Date(points[0].timestamp).getTime(),maxT=new Date(points[points.length-1].timestamp).getTime();
+  const maxW=Math.max(1,...points.map(p=>p.global_watts));
+  const x=t=>pad.l+((t-minT)/Math.max(1,maxT-minT))*(w-pad.l-pad.r);
+  const y=v=>pad.t+(h-pad.t-pad.b)-(v/maxW)*(h-pad.t-pad.b);
+  ctx.strokeStyle="#30363d";ctx.fillStyle="#8b949e";ctx.font="11px monospace";
+  for(let i=0;i<=4;i++){const v=maxW*i/4,py=y(v);ctx.beginPath();ctx.moveTo(pad.l,py);ctx.lineTo(w-pad.r,py);ctx.stroke();ctx.fillText(v.toFixed(0),4,py+3);}
+  ctx.strokeStyle="#58a6ff";ctx.lineWidth=2;ctx.beginPath();
+  points.forEach((p,i)=>{const px=x(new Date(p.timestamp).getTime()),py=y(p.global_watts);i?ctx.lineTo(px,py):ctx.moveTo(px,py);});
+  ctx.stroke();
+}
+async function refreshHistory(){
+  try{drawHistory(await api(`/api/hub/history?since=${encodeURIComponent(document.getElementById("history-range").value)}`));}catch(e){console.error(e);}
+}
+document.getElementById("lang-fr").onclick=()=>{lang="fr";localStorage.setItem("powerwatchHubLang",lang);applyLanguage();};
+document.getElementById("lang-en").onclick=()=>{lang="en";localStorage.setItem("powerwatchHubLang",lang);applyLanguage();};
+document.getElementById("refresh").onclick=async()=>{await refreshSnapshot();await refreshHistory();};
+document.getElementById("probe").onclick=probe;
+document.getElementById("add").onclick=addNode;
+document.getElementById("history-range").onchange=refreshHistory;
+window.addEventListener("resize",()=>refreshHistory());
+applyLanguage();refreshSnapshot();refreshHistory();
+setInterval(refreshSnapshot,2000);setInterval(refreshHistory,60000);
+</script>
+</body>
+</html>
