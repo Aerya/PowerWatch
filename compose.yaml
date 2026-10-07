@@ -61,10 +61,20 @@ services:
       # ---------------------------------------------------------------------
       # FR :
       # Si l'hôte possède un ou plusieurs GPU NVIDIA :
-      # 1. installer le pilote NVIDIA ;
+      # 1. vérifier que `nvidia-smi` fonctionne sur l'hôte ;
       # 2. installer NVIDIA Container Toolkit ;
-      # 3. décommenter les DEUX lignes ci-dessous ;
-      # 4. décommenter également le bloc "deploy" plus bas.
+      # 3. configurer Docker :
+      #      sudo nvidia-ctk runtime configure --runtime=docker
+      #      sudo systemctl restart docker
+      # 4. valider AVANT PowerWatch :
+      #      docker run --rm --runtime=nvidia --gpus all ubuntu nvidia-smi
+      # 5. décommenter les DEUX lignes ci-dessous ;
+      # 6. décommenter également le bloc "deploy" plus bas.
+      #
+      # Si Docker répond :
+      # could not select device driver "nvidia" with capabilities: [[gpu]]
+      # le runtime NVIDIA n'est pas installé/configuré correctement côté Docker.
+      # Ce n'est pas un problème de montage PowerWatch ou de nvidia-smi.
       #
       # AMD + NVIDIA ? Intel + NVIDIA ? Plusieurs GPU ?
       # Aucun problème : AMD/Intel restent détectés via /sys et tous les GPU
@@ -72,10 +82,20 @@ services:
       #
       # EN:
       # If the host has one or more NVIDIA GPUs:
-      # 1. install the NVIDIA driver;
+      # 1. make sure `nvidia-smi` works on the host;
       # 2. install NVIDIA Container Toolkit;
-      # 3. uncomment BOTH lines below;
-      # 4. also uncomment the "deploy" block below.
+      # 3. configure Docker:
+      #      sudo nvidia-ctk runtime configure --runtime=docker
+      #      sudo systemctl restart docker
+      # 4. validate BEFORE PowerWatch:
+      #      docker run --rm --runtime=nvidia --gpus all ubuntu nvidia-smi
+      # 5. uncomment BOTH lines below;
+      # 6. also uncomment the "deploy" block below.
+      #
+      # If Docker reports:
+      # could not select device driver "nvidia" with capabilities: [[gpu]]
+      # the NVIDIA runtime is not correctly installed/configured for Docker.
+      # This is not a PowerWatch bind-mount or nvidia-smi issue.
       #
       # AMD + NVIDIA? Intel + NVIDIA? Multiple GPUs?
       # No problem: AMD/Intel remain detected through /sys and every NVIDIA

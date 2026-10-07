@@ -110,44 +110,135 @@ If Intel exposes no hwmon power counter but provides a RAPL `uncore` subdomain, 
 
 ## NVIDIA
 
-NVIDIA requires two host-side prerequisites that Docker cannot provide automatically:
+NVIDIA support relies on NVML and requires host-side setup that Docker cannot provide automatically. Having the proprietary NVIDIA driver installed is **not enough**: Docker must also have NVIDIA Container Toolkit installed and its runtime configured.
 
-1. the NVIDIA driver;
-2. NVIDIA Container Toolkit.
-
-The NVIDIA block is already present in the **same `compose.yaml`**, but commented by default so PowerWatch can start normally on machines without NVIDIA.
+Official documentation: [NVIDIA Container Toolkit — Install Guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
 
 ### 🇫🇷 Activation NVIDIA
 
-Dans `compose.yaml`, décommentez entièrement les blocs `environment:` et `deploy:` de la section **NVIDIA GPU(S)**, puis :
+Vérifiez d'abord que le pilote fonctionne directement sur l'hôte :
 
 ```bash
-docker compose up -d
+nvidia-smi
 ```
 
-`NVIDIA_VISIBLE_DEVICES: all` expose tous les GPU NVIDIA et la capability `utility` fournit NVML, utilisée par PowerWatch pour lire leur consommation réelle.
+Installez ensuite **NVIDIA Container Toolkit** si nécessaire. Sur Ubuntu/Debian, si le paquet n'est pas disponible dans vos dépôts actuels, ajoutez le dépôt officiel en suivant le guide NVIDIA lié ci-dessus.
+
+Configurez ensuite explicitement Docker pour le runtime NVIDIA et redémarrez le daemon :
+
+```bash
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+```
+
+Avant même de démarrer PowerWatch, testez l'accès GPU avec un conteneur indépendant :
+
+```bash
+docker run --rm --runtime=nvidia --gpus all ubuntu nvidia-smi
+```
+
+Cette commande doit afficher le ou les GPU NVIDIA. Si elle échoue, corrigez d'abord la configuration NVIDIA/Docker.
+
+En particulier, l'erreur :
+
+```text
+could not select device driver "nvidia" with capabilities: [[gpu]]
+```
+
+signifie que Docker ne dispose pas d'un runtime NVIDIA utilisable. Elle se produit **avant le démarrage de PowerWatch** et ne se corrige pas en montant manuellement `nvidia-smi` ou `/dev/nvidia*` dans le conteneur.
+
+Une fois le test Docker fonctionnel, décommentez dans `compose.yaml` :
+
+```yaml
+environment:
+  NVIDIA_VISIBLE_DEVICES: all
+  NVIDIA_DRIVER_CAPABILITIES: utility
+
+deploy:
+  resources:
+    reservations:
+      devices:
+        - driver: nvidia
+          count: all
+          capabilities: [gpu]
+```
+
+Puis recréez PowerWatch :
+
+```bash
+docker compose up -d --force-recreate
+```
+
+`NVIDIA_VISIBLE_DEVICES: all` rend tous les GPU disponibles au runtime et `NVIDIA_DRIVER_CAPABILITIES: utility` expose les bibliothèques/outils nécessaires à NVML. PowerWatch n'a pas besoin des capabilities graphiques `graphics` ou `display`.
 
 Une machine mixte fonctionne de la même façon :
 
-- AMD + NVIDIA : AMD est détecté via `/sys`, activez simplement le bloc NVIDIA ;
-- Intel iGPU + NVIDIA : Intel est détecté via `/sys`, activez simplement le bloc NVIDIA ;
-- plusieurs AMD, Intel ou NVIDIA : chaque GPU est enregistré séparément.
+- AMD + NVIDIA : AMD est détecté via `/sys`, activez simplement NVIDIA comme ci-dessus ;
+- Intel iGPU + NVIDIA : Intel est détecté via `/sys`, activez simplement NVIDIA comme ci-dessus ;
+- plusieurs AMD, Intel ou NVIDIA : chaque GPU lisible est enregistré séparément.
 
 ### 🇬🇧 Enabling NVIDIA
 
-In `compose.yaml`, fully uncomment the `environment:` and `deploy:` blocks under **NVIDIA GPU(S)**, then run:
+First verify that the NVIDIA driver works directly on the host:
 
 ```bash
-docker compose up -d
+nvidia-smi
 ```
 
-`NVIDIA_VISIBLE_DEVICES: all` exposes every NVIDIA GPU and the `utility` capability provides NVML, which PowerWatch uses for measured GPU power.
+Then install **NVIDIA Container Toolkit** if needed. On Ubuntu/Debian, if the package is not available from your currently configured repositories, add NVIDIA's official repository by following the installation guide linked above.
+
+Explicitly configure Docker for the NVIDIA runtime and restart the daemon:
+
+```bash
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+```
+
+Before starting PowerWatch, test GPU access with an independent container:
+
+```bash
+docker run --rm --runtime=nvidia --gpus all ubuntu nvidia-smi
+```
+
+This command must display the NVIDIA GPU(s). If it fails, fix the NVIDIA/Docker setup first.
+
+In particular, this error:
+
+```text
+could not select device driver "nvidia" with capabilities: [[gpu]]
+```
+
+means Docker does not have a usable NVIDIA runtime. It happens **before PowerWatch starts** and is not fixed by manually bind-mounting `nvidia-smi` or `/dev/nvidia*` into the container.
+
+Once the Docker test works, uncomment in `compose.yaml`:
+
+```yaml
+environment:
+  NVIDIA_VISIBLE_DEVICES: all
+  NVIDIA_DRIVER_CAPABILITIES: utility
+
+deploy:
+  resources:
+    reservations:
+      devices:
+        - driver: nvidia
+          count: all
+          capabilities: [gpu]
+```
+
+Then recreate PowerWatch:
+
+```bash
+docker compose up -d --force-recreate
+```
+
+`NVIDIA_VISIBLE_DEVICES: all` makes every GPU available to the runtime and `NVIDIA_DRIVER_CAPABILITIES: utility` exposes the libraries/tools required for NVML. PowerWatch does not need the `graphics` or `display` capabilities.
 
 Mixed-vendor systems work the same way:
 
-- AMD + NVIDIA: AMD is detected through `/sys`; simply enable the NVIDIA block;
-- Intel iGPU + NVIDIA: Intel is detected through `/sys`; simply enable the NVIDIA block;
-- multiple AMD, Intel or NVIDIA GPUs: every GPU is stored separately.
+- AMD + NVIDIA: AMD remains detected through `/sys`; enable NVIDIA as shown above;
+- Intel iGPU + NVIDIA: Intel remains detected through `/sys`; enable NVIDIA as shown above;
+- multiple AMD, Intel, or NVIDIA GPUs: every readable GPU is tracked separately.
 
 ## Verify detected hardware / Vérifier le matériel détecté
 
