@@ -8,6 +8,30 @@
   <strong>Français</strong> · <a href="README.en.md">English</a>
 </p>
 
+## Sommaire
+
+- [Fonctionnalités](#fonctionnalités)
+- [Mesures](#mesures)
+- [Installation Docker](#installation-docker)
+  - [Prérequis](#prérequis)
+  - [Démarrage rapide](#démarrage-rapide)
+  - [CPU RAPL via MSR](#cpu-rapl-via-msr--synology-dsm-et-noyaux-sans-powercap)
+- [GPU](#gpu)
+  - [AMD](#amd)
+  - [Intel](#intel)
+  - [NVIDIA](#nvidia)
+- [Disques, partitions et stockage](#disques-partitions-et-stockage)
+- [WebUI](#webui)
+- [Historique](#historique)
+- [Alertes et notifications](#alertes-et-notifications)
+- [CLI et TUI dans Docker](#cli-et-tui-dans-docker)
+- [Vérifier les capteurs détectés](#vérifier-les-capteurs-détectés)
+- [PowerWatch Hub](#powerwatch-hub--plusieurs-machines-un-seul-dashboard)
+  - [Démarrage du Hub](#démarrage-du-hub)
+- [Sécurité](#sécurité)
+- [Attribution](#attribution)
+- [Licence](#licence)
+
 **PowerWatch** surveille la consommation électrique d'une machine Linux depuis Docker et l'affiche dans une WebUI, avec historique, alertes et plusieurs sources matérielles réelles ou estimées.
 
 Ce fork est pensé en priorité pour les **serveurs, mini-PC, machines desktop Linux et hôtes Docker**. Le déploiement documenté ici est **Docker uniquement**.
@@ -131,15 +155,44 @@ Lorsqu'ils ne fournissent pas de télémétrie de puissance mais que RAPL expose
 
 ### NVIDIA
 
-Le pilote NVIDIA et **NVIDIA Container Toolkit** doivent être installés sur l'hôte.
+Le support NVIDIA repose sur **NVML**. Le pilote NVIDIA doit fonctionner sur l'hôte et **NVIDIA Container Toolkit doit être installé puis configuré pour Docker**.
 
-Le bloc NVIDIA est déjà présent dans `compose.yaml`, mais commenté pour que le même fichier fonctionne aussi sur les machines sans NVIDIA. Décommentez les lignes NVIDIA indiquées dans le Compose puis redémarrez :
+Commencez par vérifier le pilote sur l'hôte :
 
 ```bash
-docker compose up -d
+nvidia-smi
 ```
 
-Plusieurs GPU et les machines mixtes AMD/Intel/NVIDIA sont supportés lorsque les compteurs correspondants sont lisibles.
+Puis vérifiez/installez NVIDIA Container Toolkit et configurez le runtime Docker :
+
+```bash
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+```
+
+Avant de lancer PowerWatch, validez impérativement l'accès GPU depuis Docker :
+
+```bash
+docker run --rm --runtime=nvidia --gpus all ubuntu nvidia-smi
+```
+
+Si ce test affiche le GPU, Docker/NVIDIA est correctement configuré. Vous pouvez alors décommenter dans `compose.yaml` les variables `NVIDIA_VISIBLE_DEVICES` / `NVIDIA_DRIVER_CAPABILITIES` ainsi que le bloc `deploy.resources.reservations.devices`, puis recréer PowerWatch :
+
+```bash
+docker compose up -d --force-recreate
+```
+
+Si Docker renvoie :
+
+```text
+could not select device driver "nvidia" with capabilities: [[gpu]]
+```
+
+le problème se situe **avant PowerWatch** : Docker ne dispose pas encore d'un runtime NVIDIA utilisable. Un montage manuel de `nvidia-smi` dans le conteneur ne corrige pas ce problème.
+
+Sur Ubuntu/Debian, si `nvidia-container-toolkit` n'est pas encore disponible dans vos dépôts configurés, suivez l'installation officielle NVIDIA avant d'exécuter `nvidia-ctk` : [NVIDIA Container Toolkit — Install Guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
+
+`NVIDIA_DRIVER_CAPABILITIES: utility` suffit à PowerWatch pour accéder à NVML ; aucune pile graphique n'est nécessaire. Plusieurs GPU et les machines mixtes AMD/Intel/NVIDIA sont supportés lorsque les compteurs correspondants sont lisibles.
 
 ## Disques, partitions et stockage
 
