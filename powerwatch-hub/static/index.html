@@ -162,6 +162,24 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 .sensor-confidence { font-size:.76rem; }
 .sensor-error { grid-column:2/4; text-align:right; font-size:.72rem; }
 .empty { padding:24px; text-align:center; color:var(--muted); }
+
+#app-footer {
+  margin-top:10px;
+  padding-top:8px;
+  border-top:1px solid var(--border);
+  color:var(--muted);
+  font-size:.82rem;
+  line-height:1.5;
+}
+#app-footer a {
+  color:var(--text);
+  text-decoration:none;
+  border-bottom:1px dotted var(--muted);
+}
+#app-footer a:hover {
+  color:var(--measured);
+  border-bottom-color:var(--measured);
+}
 @media (min-width:2200px) {
   .nodes { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .sensor-row { padding:3px 7px; }
@@ -227,12 +245,19 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 </details>
 
 <section class="nodes" id="nodes"></section>
+
+<footer id="app-footer">
+  <span>© 2026 <strong>Aerya</strong></span>
+  <span> · <a href="https://github.com/Aerya/PowerWatch" target="_blank" rel="noopener noreferrer">GitHub</a></span>
+  <span> · <a href="https://upandclear.org" target="_blank" rel="noopener noreferrer">UpAndClear</a></span>
+  <span> · <span data-i18n="footerBasedOn">Basé sur</span> <a href="https://github.com/lnpotter/PowerWatch" target="_blank" rel="noopener noreferrer">lnpotter/PowerWatch</a> — <span data-i18n="footerThanks">merci pour le projet d’origine.</span></span>
+</footer>
 </main>
 
 <script>
 const I18N={
-  fr:{subtitle:"Dashboard fédéré multi-machines",globalTotal:"TOTAL INFRASTRUCTURE",history:"Historique fédéré",manage:"Machines / instances",security:"Les URLs doivent rester privées et être accessibles depuis le conteneur Hub. Le Hub n'a pas d'authentification intégrée.",name:"Nom",test:"Tester",add:"Ajouter",online:"en ligne",stale:"stale",offline:"hors ligne",disabled:"désactivé",included:"compter dans le total",enabled:"activé",remove:"supprimer",open:"ouvrir l'instance",nodes:"machines en ligne",configured:"configurées",noNodes:"Aucune instance configurée. Ajoute ton premier PowerWatch ci-dessus.",lastSeen:"vu",never:"jamais",disks:"Disques",measured:"Mesurée",estimated:"Estimée",global:"Total global",noHistory:"Pas encore d'historique"},
-  en:{subtitle:"Federated multi-machine dashboard",globalTotal:"INFRASTRUCTURE TOTAL",history:"Federated history",manage:"Machines / instances",security:"URLs must stay private and be reachable from the Hub container. The Hub has no built-in authentication.",name:"Name",test:"Test",add:"Add",online:"online",stale:"stale",offline:"offline",disabled:"disabled",included:"include in total",enabled:"enabled",remove:"remove",open:"open instance",nodes:"nodes online",configured:"configured",noNodes:"No instance configured. Add your first PowerWatch above.",lastSeen:"seen",never:"never",disks:"Disks",measured:"Measured",estimated:"Estimated",global:"Global total",noHistory:"No history yet"}
+  fr:{subtitle:"Dashboard fédéré multi-machines",globalTotal:"TOTAL INFRASTRUCTURE",history:"Historique fédéré",manage:"Machines / instances",security:"Les URLs doivent rester privées et être accessibles depuis le conteneur Hub. Le Hub n'a pas d'authentification intégrée.",name:"Nom",test:"Tester",add:"Ajouter",online:"en ligne",stale:"stale",offline:"hors ligne",disabled:"désactivé",included:"compter dans le total",enabled:"activé",remove:"supprimer",open:"ouvrir l'instance",nodes:"machines en ligne",configured:"configurées",noNodes:"Aucune instance configurée. Ajoute ton premier PowerWatch ci-dessus.",lastSeen:"vu",never:"jamais",disks:"Disques",measured:"Mesurée",estimated:"Estimée",global:"Total global",noHistory:"Pas encore d'historique",footerBasedOn:"Basé sur",footerThanks:"merci pour le projet d’origine."},
+  en:{subtitle:"Federated multi-machine dashboard",globalTotal:"INFRASTRUCTURE TOTAL",history:"Federated history",manage:"Machines / instances",security:"URLs must stay private and be reachable from the Hub container. The Hub has no built-in authentication.",name:"Name",test:"Test",add:"Add",online:"online",stale:"stale",offline:"offline",disabled:"disabled",included:"include in total",enabled:"enabled",remove:"remove",open:"open instance",nodes:"nodes online",configured:"configured",noNodes:"No instance configured. Add your first PowerWatch above.",lastSeen:"seen",never:"never",disks:"Disks",measured:"Measured",estimated:"Estimated",global:"Global total",noHistory:"No history yet",footerBasedOn:"Based on",footerThanks:"thank you for the original project."}
 };
 const GLOBAL_COLOR="#ffd166";
 const NODE_COLORS=[
