@@ -16,6 +16,7 @@
   - [Prérequis](#prérequis)
   - [Démarrage rapide](#démarrage-rapide)
   - [CPU RAPL via MSR](#cpu-rapl-via-msr--synology-dsm-et-noyaux-sans-powercap)
+- [Compilation native](#compilation-native)
 - [GPU](#gpu)
   - [AMD](#amd)
   - [Intel](#intel)
@@ -34,7 +35,7 @@
 
 **PowerWatch** surveille la consommation électrique d'une machine Linux depuis Docker et l'affiche dans une WebUI, avec historique, alertes et plusieurs sources matérielles réelles ou estimées.
 
-Ce fork est pensé en priorité pour les **serveurs, mini-PC, machines desktop Linux et hôtes Docker**. Le déploiement documenté ici est **Docker uniquement**.
+Ce fork est pensé en priorité pour les **serveurs, mini-PC, machines desktop Linux et hôtes Docker**. **Docker reste la méthode de déploiement recommandée et la mieux maîtrisée** ; une compilation native depuis les sources est également documentée pour les utilisateurs avancés.
 
 > **Sécurité :** la WebUI n'a pas d'authentification intégrée. Utilisez-la uniquement sur un **LAN privé de confiance**. Ne l'exposez pas directement sur Internet.
 
@@ -140,6 +141,92 @@ Le pilote Linux `msr` exige **`CAP_SYS_RAWIO`** pour ouvrir `/dev/cpu/*/msr`, y 
 PowerWatch utilise toujours `powercap` en priorité. Le MSR n'est utilisé qu'en fallback si aucun domaine RAPL `powercap` n'est découvert. Un seul device CPU est nécessaire : le compteur `MSR_PKG_ENERGY_STATUS` est **commun au package**, il ne faut donc pas additionner `/dev/cpu/0/msr` et `/dev/cpu/1/msr`.
 
 Pour les détails matériels et Docker : [`DOCKER.md`](DOCKER.md).
+
+## Compilation native
+
+Docker reste la méthode de déploiement recommandée pour PowerWatch. La compilation native est destinée aux utilisateurs avancés qui souhaitent exécuter directement les binaires sur leur distribution Linux.
+
+### Prérequis
+
+Il faut disposer de :
+
+- **Git** ;
+- une version stable récente de **Rust** et **Cargo** ;
+- une chaîne de compilation C fonctionnelle (`gcc` ou `clang`, linker, `make`, etc.).
+
+Rust peut être installé avec la méthode officielle [`rustup`](https://rustup.rs/).
+
+Exemples de prérequis système courants :
+
+```bash
+# Debian / Ubuntu
+sudo apt install build-essential pkg-config git curl
+
+# Fedora
+sudo dnf group install "Development Tools"
+sudo dnf install git pkgconf-pkg-config curl
+
+# Arch Linux / Garuda
+sudo pacman -S --needed base-devel git curl
+```
+
+### Compiler PowerWatch
+
+Clonez le dépôt puis compilez tout le workspace en mode release :
+
+```bash
+git clone https://github.com/Aerya/PowerWatch.git
+cd PowerWatch
+cargo build --release --workspace
+```
+
+Les quatre exécutables sont générés dans `target/release/` :
+
+```text
+powerwatch
+powerwatch-tui
+powerwatch-web
+powerwatch-hub
+```
+
+### Lancer les binaires
+
+CLI :
+
+```bash
+./target/release/powerwatch
+./target/release/powerwatch --json
+```
+
+TUI :
+
+```bash
+./target/release/powerwatch-tui
+```
+
+WebUI locale avec historique :
+
+```bash
+./target/release/powerwatch-web   --host 127.0.0.1   --port 3000   --log   --history-interval 60
+```
+
+Pour un serveur/headless, ajoutez `--nas-mode`. Pour écouter sur le LAN, utilisez une adresse privée ou `0.0.0.0`, en gardant à l'esprit que PowerWatch **n'intègre pas d'authentification**.
+
+Hub avec ses fichiers de configuration et d'historique dans le répertoire courant :
+
+```bash
+./target/release/powerwatch-hub   --host 127.0.0.1   --port 3065   --config ./powerwatch-hub.json   --database ./powerwatch-hub.db
+```
+
+### Accès au matériel
+
+En natif, PowerWatch lit directement les interfaces matérielles exposées par Linux. Il n'y a donc pas de montage Docker à configurer.
+
+- **NVIDIA** : NVIDIA Container Toolkit n'est pas nécessaire en natif. Le pilote NVIDIA/NVML doit simplement fonctionner sur l'hôte ; `nvidia-smi` permet de le vérifier.
+- **AMD / Intel** : les compteurs disponibles dans `/sys` sont lus directement.
+- **RAPL MSR** : si le fallback `/dev/cpu/0/msr` est nécessaire, le processus doit disposer des permissions/capabilities exigées par le noyau pour ouvrir le device, notamment `CAP_SYS_RAWIO` selon la configuration de l'hôte.
+
+> **Support :** la compilation native est fournie comme possibilité avancée. Les dépendances, permissions, chemins matériels et comportements peuvent varier selon la distribution et le noyau. Le déploiement Docker reste la référence documentée et testée par la CI PowerWatch.
 
 ## GPU
 

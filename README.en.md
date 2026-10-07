@@ -16,6 +16,7 @@
   - [Requirements](#requirements)
   - [Quick start](#quick-start)
   - [CPU RAPL via MSR](#cpu-rapl-via-msr--synology-dsm-and-kernels-without-powercap)
+- [Native compilation](#native-compilation)
 - [GPU](#gpu)
   - [AMD](#amd)
   - [Intel](#intel)
@@ -34,7 +35,7 @@
 
 **PowerWatch** monitors the power consumption of a Linux machine from Docker and displays it in a Web UI, with history, alerts, and several measured or estimated hardware sources.
 
-This fork is primarily designed for **servers, mini PCs, Linux desktop machines, and Docker hosts**. The deployment documented here is **Docker-only**.
+This fork is primarily designed for **servers, mini PCs, Linux desktop machines, and Docker hosts**. **Docker remains the recommended and best-controlled deployment method**; native compilation from source is also documented for advanced users.
 
 > **Security:** the Web UI has no built-in authentication. Use it only on a **trusted private LAN**. Do not expose it directly to the Internet.
 
@@ -140,6 +141,92 @@ The Linux `msr` driver requires **`CAP_SYS_RAWIO`** to open `/dev/cpu/*/msr`, ev
 PowerWatch always prefers `powercap`. MSR is used only as a fallback when no RAPL `powercap` domain is discovered. Only one CPU device is required: `MSR_PKG_ENERGY_STATUS` is **package-wide**, so `/dev/cpu/0/msr` and `/dev/cpu/1/msr` must not be summed.
 
 For hardware and Docker details, see [`DOCKER.md`](DOCKER.md).
+
+## Native compilation
+
+Docker remains the recommended deployment method for PowerWatch. Native compilation is intended for advanced users who want to run the binaries directly on their Linux distribution.
+
+### Requirements
+
+You need:
+
+- **Git**;
+- a recent stable **Rust** and **Cargo** toolchain;
+- a working C build toolchain (`gcc` or `clang`, linker, `make`, etc.).
+
+Rust can be installed using the official [`rustup`](https://rustup.rs/) method.
+
+Common system prerequisite examples:
+
+```bash
+# Debian / Ubuntu
+sudo apt install build-essential pkg-config git curl
+
+# Fedora
+sudo dnf group install "Development Tools"
+sudo dnf install git pkgconf-pkg-config curl
+
+# Arch Linux / Garuda
+sudo pacman -S --needed base-devel git curl
+```
+
+### Build PowerWatch
+
+Clone the repository and build the complete workspace in release mode:
+
+```bash
+git clone https://github.com/Aerya/PowerWatch.git
+cd PowerWatch
+cargo build --release --workspace
+```
+
+The four executables are generated under `target/release/`:
+
+```text
+powerwatch
+powerwatch-tui
+powerwatch-web
+powerwatch-hub
+```
+
+### Run the binaries
+
+CLI:
+
+```bash
+./target/release/powerwatch
+./target/release/powerwatch --json
+```
+
+TUI:
+
+```bash
+./target/release/powerwatch-tui
+```
+
+Local Web UI with history:
+
+```bash
+./target/release/powerwatch-web   --host 127.0.0.1   --port 3000   --log   --history-interval 60
+```
+
+For a server/headless system, add `--nas-mode`. To listen on the LAN, use a private address or `0.0.0.0`, keeping in mind that PowerWatch **has no built-in authentication**.
+
+Hub with its configuration and history files stored in the current directory:
+
+```bash
+./target/release/powerwatch-hub   --host 127.0.0.1   --port 3065   --config ./powerwatch-hub.json   --database ./powerwatch-hub.db
+```
+
+### Hardware access
+
+When running natively, PowerWatch reads the hardware interfaces exposed by Linux directly, so there are no Docker bind mounts to configure.
+
+- **NVIDIA**: NVIDIA Container Toolkit is not required for native execution. The NVIDIA driver/NVML only needs to work on the host; `nvidia-smi` can be used to verify it.
+- **AMD / Intel**: available counters under `/sys` are read directly.
+- **RAPL MSR**: if the `/dev/cpu/0/msr` fallback is required, the process must have the permissions/capabilities required by the kernel to open the device, including `CAP_SYS_RAWIO` depending on the host configuration.
+
+> **Support:** native compilation is provided as an advanced option. Dependencies, permissions, hardware paths, and behavior can vary across distributions and kernels. Docker remains the reference deployment documented and tested by PowerWatch CI.
 
 ## GPU
 
