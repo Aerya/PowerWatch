@@ -218,6 +218,7 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
     <div class="total-label" data-i18n="globalTotal">TOTAL INFRASTRUCTURE</div>
     <div class="total-value" id="global-total">0.0 W</div>
     <div class="statusline" id="global-status">—</div>
+    <div class="statusline" data-i18n="totalMixed">Mesures + estimations</div>
   </section>
   <section class="history-stack">
     <div class="history-toolbar">
@@ -265,8 +266,8 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 
 <script>
 const I18N={
-  fr:{subtitle:"Dashboard fédéré multi-machines",globalTotal:"TOTAL INFRASTRUCTURE",history:"Historique fédéré",manage:"Machines / instances",security:"Les URLs doivent rester privées et être accessibles depuis le conteneur Hub. Le Hub n'a pas d'authentification intégrée.",name:"Nom",test:"Tester",add:"Ajouter",online:"en ligne",stale:"stale",offline:"hors ligne",disabled:"désactivé",included:"compter dans le total",enabled:"activé",remove:"supprimer",open:"ouvrir l'instance",nodes:"machines en ligne",configured:"configurées",noNodes:"Aucune instance configurée. Ajoute ton premier PowerWatch ci-dessus.",lastSeen:"vu",never:"jamais",disks:"Disques",psu:"Alimentation",module:"module",modules:"modules",nominal:"nominale",usable:"utilisables",smbiosUnavailable:"SMBIOS inaccessible",psuNotReported:"non fournie par le firmware SMBIOS",notReportedSmbios:"non reportée par SMBIOS",reportedBySmbios:"reportée par SMBIOS",measured:"Mesurée",estimated:"Estimée",global:"Total global",noHistory:"Pas encore d'historique",footerBasedOn:"Basé sur",footerThanks:"merci pour le projet d’origine."},
-  en:{subtitle:"Federated multi-machine dashboard",globalTotal:"INFRASTRUCTURE TOTAL",history:"Federated history",manage:"Machines / instances",security:"URLs must stay private and be reachable from the Hub container. The Hub has no built-in authentication.",name:"Name",test:"Test",add:"Add",online:"online",stale:"stale",offline:"offline",disabled:"disabled",included:"include in total",enabled:"enabled",remove:"remove",open:"open instance",nodes:"nodes online",configured:"configured",noNodes:"No instance configured. Add your first PowerWatch above.",lastSeen:"seen",never:"never",disks:"Disks",psu:"Power supply",module:"module",modules:"modules",nominal:"nominal",usable:"usable",smbiosUnavailable:"SMBIOS unavailable",psuNotReported:"not exposed by SMBIOS firmware",notReportedSmbios:"not reported by SMBIOS",reportedBySmbios:"reported by SMBIOS",measured:"Measured",estimated:"Estimated",global:"Global total",noHistory:"No history yet",footerBasedOn:"Based on",footerThanks:"thank you for the original project."}
+  fr:{subtitle:"Dashboard fédéré multi-machines",globalTotal:"TOTAL INFRASTRUCTURE",totalMixed:"Mesures + estimations",history:"Historique fédéré",manage:"Machines / instances",security:"Les URLs doivent rester privées et être accessibles depuis le conteneur Hub. Le Hub n'a pas d'authentification intégrée.",name:"Nom",test:"Tester",add:"Ajouter",online:"en ligne",stale:"stale",offline:"hors ligne",disabled:"désactivé",included:"compter dans le total",enabled:"activé",remove:"supprimer",open:"ouvrir l'instance",nodes:"machines en ligne",configured:"configurées",noNodes:"Aucune instance configurée. Ajoute ton premier PowerWatch ci-dessus.",lastSeen:"vu",never:"jamais",disks:"Disques",psu:"Alimentation",module:"module",modules:"modules",nominal:"nominale",psuUnverified:"SMBIOS non vérifié",usable:"utilisables",smbiosUnavailable:"SMBIOS inaccessible",psuNotReported:"non fournie par le firmware SMBIOS",notReportedSmbios:"non reportée par SMBIOS",reportedBySmbios:"reportée par SMBIOS",measured:"Mesurée",estimated:"Estimée",global:"Total global",noHistory:"Pas encore d'historique",footerBasedOn:"Basé sur",footerThanks:"merci pour le projet d’origine."},
+  en:{subtitle:"Federated multi-machine dashboard",globalTotal:"INFRASTRUCTURE TOTAL",totalMixed:"Measured + estimated",history:"Federated history",manage:"Machines / instances",security:"URLs must stay private and be reachable from the Hub container. The Hub has no built-in authentication.",name:"Name",test:"Test",add:"Add",online:"online",stale:"stale",offline:"offline",disabled:"disabled",included:"include in total",enabled:"enabled",remove:"remove",open:"open instance",nodes:"nodes online",configured:"configured",noNodes:"No instance configured. Add your first PowerWatch above.",lastSeen:"seen",never:"never",disks:"Disks",psu:"Power supply",module:"module",modules:"modules",nominal:"nominal",psuUnverified:"SMBIOS unverified",usable:"usable",smbiosUnavailable:"SMBIOS unavailable",psuNotReported:"not exposed by SMBIOS firmware",notReportedSmbios:"not reported by SMBIOS",reportedBySmbios:"reported by SMBIOS",measured:"Measured",estimated:"Estimated",global:"Global total",noHistory:"No history yet",footerBasedOn:"Based on",footerThanks:"thank you for the original project."}
 };
 const GLOBAL_COLOR="#ffd166";
 const NODE_COLORS=[
@@ -366,7 +367,7 @@ function powerSupplySummary(node){
   if(supplies.length>1)parts.push(`${supplies.length} PSU`);
   if(Number.isFinite(Number(first.max_power_watts))&&Number(first.max_power_watts)>0)parts.push(`${first.max_power_watts} W ${tr("nominal")}`);
   if(model)parts.push(model);
-  parts.push("SMBIOS");
+  parts.push(tr("psuUnverified"));
   return parts.join(" · ");
 }
 function powerSupplyDetail(node){
@@ -445,8 +446,7 @@ function renderSnapshot(data){
         <div class="hardware-line">
           ${SENSOR_ICONS.psu}
           <span class="hardware-title">${esc(tr("psu"))}</span>
-          <span class="hardware-value">${esc(powerSupplySummary(node))}</span>
-          ${powerSupplyDetail(node)?`<span class="hardware-detail" title="${esc(powerSupplyDetail(node))}">${esc(powerSupplyDetail(node))}</span>`:""}
+          <span class="hardware-value" title="${esc(powerSupplyDetail(node) || powerSupplySummary(node))}">${esc(powerSupplySummary(node))}</span>
         </div>
         <div class="node-actions">
           <a href="${esc(node.url)}" target="_blank" rel="noopener">${esc(tr("open"))}</a>

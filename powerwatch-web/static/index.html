@@ -776,7 +776,7 @@ function powerSupplySummary(system = currentSystemInfo) {
     parts.push(`${first.max_power_watts} W ${t("dashboard.nominal")}`);
   }
   if (model) parts.push(model);
-  parts.push("SMBIOS");
+  parts.push(t("dashboard.psuUnverified"));
   return parts.join(" · ");
 }
 
@@ -815,8 +815,9 @@ function renderHardwareSummary(system = currentSystemInfo) {
   const supplySummary = powerSupplySummary(system);
   psu.textContent = supplySummary;
   const supplyDetail = powerSupplyDetail(system);
-  psuDetail.textContent = supplyDetail;
-  psuDetail.title = supplyDetail;
+  psu.title = supplyDetail || supplySummary;
+  psuDetail.textContent = "";
+  psuDetail.hidden = true;
 }
 
 function renderSensorIdentity(main, sensor, parts) {

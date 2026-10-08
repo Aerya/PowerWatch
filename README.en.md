@@ -94,7 +94,8 @@ For the **power supply**:
 
 - PowerWatch reads SMBIOS **Type 39 / System Power Supply**;
 - generic firmware entries (`Default string`, `OEM Define`, status/type alone without credible identity or capacity) and explicitly absent PSU bays are hidden;
-- the Web UI and Hub only present a plausible reported nominal capacity and/or meaningful manufacturer identity in a compact form;
+- the Web UI and Hub display **one compact PSU summary**, without repeating the wattage on the same line; optional details remain available in a tooltip;
+- reported capacities are explicitly labeled **“SMBIOS unverified”**: even a plausible value may not match the real PSU rating;
 - the watt value is an **SMBIOS-reported nominal maximum capacity, not physically verified**, not live electrical consumption;
 - nominal PSU capacity is **never added** to the PowerWatch consumption total.
 
@@ -470,7 +471,7 @@ PowerWatch can also run in **Hub** mode. Each machine keeps its local PowerWatch
 
 The Hub provides:
 
-- a **global infrastructure total**;
+- a **global infrastructure total** labeled **“Measured + estimated”**;
 - one collapsible card per machine with CPU, GPU, RAM, and disks;
 - **online / stale / offline / disabled** states;
 - adding, testing, enabling, and removing instances directly from the Web UI;
@@ -480,6 +481,8 @@ The Hub provides:
 - a federated graph with the **global total + one colored line per instance**;
 - compact node cards with CPU / GPU / RAM / disk summaries and measured / estimated colors;
 - an FR / EN interface visually aligned with the main PowerWatch Web UI.
+
+The global total adds up the node values, **both measured and estimated**. It is not a wall-outlet power measurement, and nominal PSU capacity is never included.
 
 The Hub requires **no `/sys` access, no `pid: host`, and no privileged host access**. It only needs network access to the private URLs of the PowerWatch instances.
 
