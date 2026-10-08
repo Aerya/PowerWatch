@@ -208,7 +208,14 @@ pub fn discover_disks(block_dir: &Path) -> Vec<(String, DiskType)> {
             if rotational.trim() == "1" {
                 DiskType::Hdd7200Rpm
             } else {
-                DiskType::SsdSata
+                let removable = std::fs::read_to_string(entry.path().join("removable"))
+                    .ok()
+                    .is_some_and(|value| value.trim() == "1");
+                if name.starts_with("mmcblk") || removable {
+                    DiskType::LowPowerFlash
+                } else {
+                    DiskType::SsdSata
+                }
             }
         };
 
@@ -364,6 +371,9 @@ mod tests {
         write(base.join("mmcblk0/queue/rotational"), "0\n");
         write(base.join("sda/queue/rotational"), "1\n");
         write(base.join("sdb/queue/rotational"), "0\n");
+        write(base.join("sdb/removable"), "0\n");
+        write(base.join("sdc/queue/rotational"), "0\n");
+        write(base.join("sdc/removable"), "1\n");
         write(base.join("nvme0n1/queue/rotational"), "0\n");
         write(base.join("nvme1n1/queue/rotational"), "0\n");
 
@@ -372,11 +382,12 @@ mod tests {
         assert_eq!(
             disks,
             vec![
-                ("mmcblk0".to_string(), DiskType::SsdSata),
+                ("mmcblk0".to_string(), DiskType::LowPowerFlash),
                 ("nvme0n1".to_string(), DiskType::Nvme),
                 ("nvme1n1".to_string(), DiskType::Nvme),
                 ("sda".to_string(), DiskType::Hdd7200Rpm),
                 ("sdb".to_string(), DiskType::SsdSata),
+                ("sdc".to_string(), DiskType::LowPowerFlash),
             ]
         );
     }

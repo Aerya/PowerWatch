@@ -80,7 +80,6 @@ mod linux {
         mountinfo: &str,
     ) -> Option<String> {
         let mut descriptions = BTreeSet::new();
-        let mut referenced_partitions = BTreeSet::new();
         let mut groups: BTreeMap<(Vec<String>, String), BTreeSet<String>> = BTreeMap::new();
 
         for mount in parse_mountinfo(mountinfo) {
@@ -95,12 +94,6 @@ mod linux {
                     }
 
                     matched_candidate = true;
-
-                    for layer in &layers {
-                        if is_partition_of(device, layer) {
-                            referenced_partitions.insert(layer.clone());
-                        }
-                    }
 
                     if !technical {
                         groups
@@ -140,12 +133,6 @@ mod linux {
 
             if !parts.is_empty() {
                 descriptions.insert(parts.join(" → "));
-            }
-        }
-
-        for partition in partition_names(class_block, device) {
-            if !referenced_partitions.contains(&partition) {
-                descriptions.insert(format!("{partition} [unmounted]"));
             }
         }
 
@@ -332,37 +319,6 @@ mod linux {
             .map(|value| value.to_string_lossy().to_string())
     }
 
-    fn partition_names(class_block: &Path, device: &str) -> Vec<String> {
-        let Ok(device_path) = fs::canonicalize(class_block.join(device)) else {
-            return Vec::new();
-        };
-        let Ok(entries) = fs::read_dir(device_path) else {
-            return Vec::new();
-        };
-
-        let mut partitions = entries
-            .flatten()
-            .filter_map(|entry| {
-                let path = entry.path();
-                path.join("partition")
-                    .exists()
-                    .then(|| entry.file_name().to_string_lossy().to_string())
-            })
-            .collect::<Vec<_>>();
-        partitions.sort();
-        partitions
-    }
-
-    fn is_partition_of(device: &str, candidate: &str) -> bool {
-        if let Some(rest) = candidate.strip_prefix(device) {
-            return !rest.is_empty()
-                && (rest.chars().all(|c| c.is_ascii_digit())
-                    || (rest.starts_with('p')
-                        && rest[1..].chars().all(|c| c.is_ascii_digit())));
-        }
-        false
-    }
-
     fn layer_label(class_block: &Path, name: &str) -> String {
         let block = class_block.join(name);
 
@@ -470,12 +426,54 @@ mod linux {
             assert!(mount_rank("/mnt/data") < mount_rank("/var/log"));
         }
 
+        #[cfg(unix)]
+        fn make_fake_disk_tree(root: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
+            use std::os::unix::fs::symlink;
+
+            let physical = root.join("devices/sda");
+            let class_block = root.join("class/block");
+            let dev_block = root.join("dev/block");
+            std::fs::create_dir_all(&physical).unwrap();
+            std::fs::create_dir_all(&class_block).unwrap();
+            std::fs::create_dir_all(&dev_block).unwrap();
+            symlink(&physical, class_block.join("sda")).unwrap();
+
+            for (partition, major_minor) in [("sda1", "8:1"), ("sda2", "8:2")] {
+                let partition_path = physical.join(partition);
+                std::fs::create_dir_all(&partition_path).unwrap();
+                std::fs::write(partition_path.join("partition"), "1\n").unwrap();
+                symlink(&partition_path, class_block.join(partition)).unwrap();
+                symlink(&partition_path, dev_block.join(major_minor)).unwrap();
+            }
+
+            (class_block, dev_block)
+        }
+
+        #[cfg(unix)]
         #[test]
-        fn identifies_common_partition_names() {
-            assert!(is_partition_of("sda", "sda1"));
-            assert!(is_partition_of("nvme0n1", "nvme0n1p2"));
-            assert!(is_partition_of("mmcblk0", "mmcblk0p1"));
-            assert!(!is_partition_of("sda", "sdb1"));
+        fn hides_unmounted_partitions_when_one_partition_is_mounted() {
+            let temp = tempfile::tempdir().unwrap();
+            let (class_block, dev_block) = make_fake_disk_tree(temp.path());
+            let mountinfo =
+                "42 31 8:1 / /mnt/data rw,relatime - ext4 /dev/sda1 rw\n";
+
+            let detail = disk_detail_from("sda", &class_block, &dev_block, mountinfo);
+
+            assert_eq!(detail.as_deref(), Some("sda1 → /mnt/data [ext4]"));
+            let detail = detail.unwrap();
+            assert!(!detail.contains("sda2"));
+            assert!(!detail.contains("unmounted"));
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn shows_no_partition_detail_when_nothing_is_mounted() {
+            let temp = tempfile::tempdir().unwrap();
+            let (class_block, dev_block) = make_fake_disk_tree(temp.path());
+
+            let detail = disk_detail_from("sda", &class_block, &dev_block, "");
+
+            assert_eq!(detail, None);
         }
 
         #[test]

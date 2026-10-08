@@ -49,7 +49,7 @@ This fork is primarily designed for **servers, mini PCs, Linux desktop machines,
 - **Intel RAPL `uncore` fallback** for some iGPUs without i915/xe hwmon counters.
 - CPU **RAPL fallback through `/dev/cpu/0/msr`** when the kernel does not expose `powercap` (including some Synology DSM systems).
 - Monitoring of all **physical disks** without double-counting RAID/LVM layers, including their capacity.
-- Best-effort display of associated **partitions, mount points, filesystems, mdraid, LVM, and dm-crypt**.
+- Best-effort display of associated **mounted partitions, filesystems, mdraid, LVM, and dm-crypt**, without noise from unmounted partitions.
 - CLI and TUI available in the Docker image.
 - Multi-architecture **amd64 / arm64** GHCR images.
 - **French / English** Web UI.
@@ -66,7 +66,7 @@ This fork is primarily designed for **servers, mini PCs, Linux desktop machines,
 | AMD GPU | `amdgpu` hwmon | Measured |
 | Intel GPU | `i915` / `xe` hwmon or RAPL `uncore` | Measured |
 | RAM | Heuristic | Estimated |
-| Disks | Activity + disk type | Estimated |
+| Disks | Busy time (`/proc/diskstats`) + media profile; NVMe power states when available | Estimated |
 | Total | Sum of available sensors | Mixed |
 
 Unavailable sensors are simply ignored.
@@ -283,11 +283,9 @@ On Ubuntu/Debian, if `nvidia-container-toolkit` is not available from your curre
 
 ## Disks, partitions, and storage
 
-PowerWatch creates a power sensor only for each **physical disk**.
+PowerWatch creates a power sensor only for each **physical disk**. Layers such as mdraid, LVM, and dm-crypt are not added as fake disks and therefore are not counted a second time.
 
-Layers such as mdraid, LVM, and dm-crypt are not added as fake disks and therefore are not counted a second time.
-
-When Linux can reconstruct the relationship, the display may look like:
+When Linux can reconstruct the relationship, only chains that end in a **useful mounted filesystem** are displayed, for example:
 
 ```text
 disk (sda) — sda1 → md0 [RAID1] → vg-data/lv-media [LVM] → /mnt/data [ext4]
@@ -295,11 +293,26 @@ disk (sda) — sda1 → md0 [RAID1] → vg-data/lv-media [LVM] → /mnt/data [ex
 disk (nvme0n1) — nvme0n1p2 → cryptroot [dm-crypt] → / [ext4]
 ```
 
-An unmounted partition may also appear with `[unmounted]`.
+Unmounted partitions are intentionally hidden. If a disk has no mounted partition, PowerWatch simply keeps the disk, its capacity, and its estimated power without adding an `[unmounted]` list. If some partitions are mounted and others are not, only the mounted ones are shown.
 
-Each physical disk capacity is read from sysfs (`/sys/class/block/<device>/size`) and displayed in its enriched label.
+Each physical disk capacity is read from sysfs (`/sys/class/block/<device>/size`) and displayed in its enriched label. Internal identifiers remain stable (`disk:sda`, `disk:nvme0n1`, etc.) so mount changes do not break history or alerts.
 
-Internal identifiers remain stable (`disk:sda`, `disk:nvme0n1`, etc.) so mount changes do not break history or alerts.
+### Disk power estimation
+
+Disk values remain **estimates**, not direct electrical measurements. For generic profiles, PowerWatch uses the time the device was busy in `/proc/diskstats` between two samples and interpolates between an idle and an active value:
+
+| Detected type | Idle | Active | Detection |
+|---|---:|---:|---|
+| Rotational HDD | 4 W | 8 W | `queue/rotational = 1` |
+| Non-removable SSD | 0.5 W | 3 W | non-rotational and non-removable |
+| Low-power flash (removable USB flash, eMMC/SD) | 0.2 W | 1.5 W | `removable = 1` or an `mmcblk*` device |
+| NVMe generic fallback | 1 W | 6 W | `nvme*` device |
+
+For example, an SSD busy for roughly 50% of the sampling interval is estimated halfway between 0.5 W and 3 W instead of immediately jumping to the full active value after any I/O. The ratio is clamped between 0 and 100%.
+
+For NVMe drives, PowerWatch first tries to use `nvme-cli` together with the current power state exposed by sysfs. When available, it uses the maximum power advertised by the drive for the current power state. If that information is unavailable, PowerWatch falls back to the generic NVMe profile above.
+
+Removable-media detection depends on what the kernel exposes, so a USB enclosure may be classified as HDD, SSD, or flash according to `rotational` and `removable`. Confidence remains **Estimated** in every case.
 
 ## Web UI
 
