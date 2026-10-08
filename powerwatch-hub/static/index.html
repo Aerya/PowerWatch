@@ -139,6 +139,15 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 }
 .metric-label .cpu-benchmark { flex:1 1 auto; }
 .metric-value { display:block; font-size:.82rem; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.hardware-line {
+  display:flex; align-items:center; gap:7px; min-width:0;
+  margin:-1px 0 7px; padding:5px 7px;
+  background:var(--bg); border:1px solid var(--border); border-radius:4px;
+  font-size:.7rem;
+}
+.hardware-line .hardware-title { color:var(--muted); flex:0 0 auto; }
+.hardware-line .hardware-value { color:var(--text); flex:0 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.hardware-line .hardware-detail { color:var(--muted); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .node-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:0 0 6px; font-size:.72rem; }
 .node-actions a { color:var(--text); text-decoration:none; border-bottom:1px dotted var(--muted); }
 .node-actions a:hover { color:var(--measured); border-bottom-color:var(--measured); }
@@ -256,8 +265,8 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 
 <script>
 const I18N={
-  fr:{subtitle:"Dashboard fédéré multi-machines",globalTotal:"TOTAL INFRASTRUCTURE",history:"Historique fédéré",manage:"Machines / instances",security:"Les URLs doivent rester privées et être accessibles depuis le conteneur Hub. Le Hub n'a pas d'authentification intégrée.",name:"Nom",test:"Tester",add:"Ajouter",online:"en ligne",stale:"stale",offline:"hors ligne",disabled:"désactivé",included:"compter dans le total",enabled:"activé",remove:"supprimer",open:"ouvrir l'instance",nodes:"machines en ligne",configured:"configurées",noNodes:"Aucune instance configurée. Ajoute ton premier PowerWatch ci-dessus.",lastSeen:"vu",never:"jamais",disks:"Disques",measured:"Mesurée",estimated:"Estimée",global:"Total global",noHistory:"Pas encore d'historique",footerBasedOn:"Basé sur",footerThanks:"merci pour le projet d’origine."},
-  en:{subtitle:"Federated multi-machine dashboard",globalTotal:"INFRASTRUCTURE TOTAL",history:"Federated history",manage:"Machines / instances",security:"URLs must stay private and be reachable from the Hub container. The Hub has no built-in authentication.",name:"Name",test:"Test",add:"Add",online:"online",stale:"stale",offline:"offline",disabled:"disabled",included:"include in total",enabled:"enabled",remove:"remove",open:"open instance",nodes:"nodes online",configured:"configured",noNodes:"No instance configured. Add your first PowerWatch above.",lastSeen:"seen",never:"never",disks:"Disks",measured:"Measured",estimated:"Estimated",global:"Global total",noHistory:"No history yet",footerBasedOn:"Based on",footerThanks:"thank you for the original project."}
+  fr:{subtitle:"Dashboard fédéré multi-machines",globalTotal:"TOTAL INFRASTRUCTURE",history:"Historique fédéré",manage:"Machines / instances",security:"Les URLs doivent rester privées et être accessibles depuis le conteneur Hub. Le Hub n'a pas d'authentification intégrée.",name:"Nom",test:"Tester",add:"Ajouter",online:"en ligne",stale:"stale",offline:"hors ligne",disabled:"désactivé",included:"compter dans le total",enabled:"activé",remove:"supprimer",open:"ouvrir l'instance",nodes:"machines en ligne",configured:"configurées",noNodes:"Aucune instance configurée. Ajoute ton premier PowerWatch ci-dessus.",lastSeen:"vu",never:"jamais",disks:"Disques",psu:"Alimentation",module:"module",modules:"modules",nominal:"nominale",notReportedSmbios:"non reportée par SMBIOS",reportedBySmbios:"reportée par SMBIOS",measured:"Mesurée",estimated:"Estimée",global:"Total global",noHistory:"Pas encore d'historique",footerBasedOn:"Basé sur",footerThanks:"merci pour le projet d’origine."},
+  en:{subtitle:"Federated multi-machine dashboard",globalTotal:"INFRASTRUCTURE TOTAL",history:"Federated history",manage:"Machines / instances",security:"URLs must stay private and be reachable from the Hub container. The Hub has no built-in authentication.",name:"Name",test:"Test",add:"Add",online:"online",stale:"stale",offline:"offline",disabled:"disabled",included:"include in total",enabled:"enabled",remove:"remove",open:"open instance",nodes:"nodes online",configured:"configured",noNodes:"No instance configured. Add your first PowerWatch above.",lastSeen:"seen",never:"never",disks:"Disks",psu:"Power supply",module:"module",modules:"modules",nominal:"nominal",notReportedSmbios:"not reported by SMBIOS",reportedBySmbios:"reported by SMBIOS",measured:"Measured",estimated:"Estimated",global:"Global total",noHistory:"No history yet",footerBasedOn:"Based on",footerThanks:"thank you for the original project."}
 };
 const GLOBAL_COLOR="#ffd166";
 const NODE_COLORS=[
@@ -274,7 +283,8 @@ const NODE_COLORS=[
 const SENSOR_ICONS={
   cpu:`<span class="sensor-icon" title="CPU" aria-label="CPU"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 15h3M1 9h3M1 15h3"/></svg></span>`,
   ram:`<span class="sensor-icon" title="RAM" aria-label="RAM"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10v4M11 10v4M15 10v4M3 14h18M7 18v3M11 18v3M15 18v3"/></svg></span>`,
-  disk:`<span class="sensor-icon" title="Disk" aria-label="Disk"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 12h20M6 15h.01M10 15h.01"/></svg></span>`
+  disk:`<span class="sensor-icon" title="Disk" aria-label="Disk"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 12h20M6 15h.01M10 15h.01"/></svg></span>`,
+  psu:`<span class="sensor-icon" title="PSU" aria-label="PSU"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="12" r="4"/><path d="M17 9v6M19 10v4"/></svg></span>`
 };
 let lang=localStorage.getItem("powerwatchHubLang")||"fr";
 let snapshot=null;
@@ -315,10 +325,58 @@ function diskIdentity(mainLabel){
   if(!match)return mainLabel;
   return match[2]?`${match[1]} · ${match[2]}`:match[1];
 }
+function formatMemoryBytes(bytes){
+  const value=Number(bytes);
+  if(!Number.isFinite(value)||value<=0)return "";
+  const gib=value/(1024**3);
+  return `${gib.toFixed(gib>=10?1:2).replace(/\.0+$/,"")} GiB`;
+}
+function memoryModules(node){return Array.isArray(node?.memory_modules)?node.memory_modules:[];}
+function memoryCapacity(node){return node?.memory_installed_bytes||node?.memory_total_bytes||null;}
+function memorySummary(node){
+  const parts=[];
+  const capacity=formatMemoryBytes(memoryCapacity(node));
+  if(capacity)parts.push(capacity);
+  const count=memoryModules(node).length;
+  if(count)parts.push(`${count} ${tr(count===1?"module":"modules")}`);
+  return parts.join(" · ");
+}
+function memoryIdentity(node){
+  const summary=memorySummary(node);
+  return summary?`RAM · ${summary}`:"RAM";
+}
+function memoryModuleDetail(node){
+  return memoryModules(node).map(module=>{
+    const location=[module.locator,module.bank_locator].filter(Boolean).join(" / ");
+    const vendor=[module.manufacturer,module.part_number].filter(Boolean).join(" ");
+    return [location,formatMemoryBytes(module.size_bytes),module.memory_type,module.form_factor,module.speed,vendor].filter(Boolean).join(" · ");
+  }).filter(Boolean).join(" ; ");
+}
+function powerSupplies(node){return Array.isArray(node?.power_supplies)?node.power_supplies:[];}
+function powerSupplySummary(node){
+  const supplies=powerSupplies(node);
+  if(!supplies.length)return tr("notReportedSmbios");
+  const first=supplies[0];
+  const model=[first.manufacturer,first.model||first.name].filter(Boolean).join(" ");
+  const parts=[];
+  if(supplies.length>1)parts.push(`${supplies.length} PSU`);
+  if(Number.isFinite(Number(first.max_power_watts))&&Number(first.max_power_watts)>0)parts.push(`${first.max_power_watts} W ${tr("nominal")}`);
+  if(model)parts.push(model);
+  return parts.join(" · ")||tr("reportedBySmbios");
+}
+function powerSupplyDetail(node){
+  return powerSupplies(node).map((supply,index)=>[
+    supply.location||supply.name||`PSU ${index+1}`,
+    [supply.manufacturer,supply.model].filter(Boolean).join(" "),
+    Number.isFinite(Number(supply.max_power_watts))&&Number(supply.max_power_watts)>0?`${supply.max_power_watts} W ${tr("nominal")}`:"",
+    supply.supply_type,
+    supply.status
+  ].filter(Boolean).join(" · ")).filter(Boolean).join(" ; ");
+}
 function sensorMainHtml(sensor,node){
   const label=splitSensorLabel(sensor);
   if(sensor.name==="cpu")return SENSOR_ICONS.cpu+cpuModelLink(node.cpu_model);
-  if(sensor.name==="ram")return SENSOR_ICONS.ram;
+  if(sensor.name==="ram")return SENSOR_ICONS.ram+`<span>${esc(memoryIdentity(node))}</span>`;
   if(sensor.name.startsWith("disk:"))return SENSOR_ICONS.disk+`<span>${esc(diskIdentity(label.main))}</span>`;
   return esc(label.main);
 }
@@ -356,15 +414,17 @@ function renderSnapshot(data){
     const sensors=node.sensors.map(sensor=>{
       if(sensor.reading){
         const label=splitSensorLabel(sensor);
+        const detail=sensor.name==="ram"?(memoryModuleDetail(node)||label.detail):label.detail;
         const cls=confidenceClass(sensor.reading.confidence);
         return `<div class="sensor-row">
-          <div class="sensor-component"><div class="sensor-main" title="${esc(label.main)}">${sensorMainHtml(sensor,node)}</div>${label.detail?`<div class="sensor-detail" title="${esc(label.detail)}">${esc(label.detail)}</div>`:""}</div>
+          <div class="sensor-component"><div class="sensor-main" title="${esc(label.main)}">${sensorMainHtml(sensor,node)}</div>${detail?`<div class="sensor-detail" title="${esc(detail)}">${esc(detail)}</div>`:""}</div>
           <div class="sensor-watts ${cls}">${sensor.reading.watts.toFixed(1)} W</div>
           <div class="sensor-confidence ${cls}">${esc(confidenceLabel(sensor.reading.confidence))}</div>
         </div>`;
       }
       const label=splitSensorLabel(sensor);
-      return `<div class="sensor-row"><div class="sensor-component"><div class="sensor-main">${sensorMainHtml(sensor,node)}</div>${label.detail?`<div class="sensor-detail">${esc(label.detail)}</div>`:""}</div><div class="sensor-error error-text">${esc(sensor.error||"—")}</div></div>`;
+      const detail=sensor.name==="ram"?(memoryModuleDetail(node)||label.detail):label.detail;
+      return `<div class="sensor-row"><div class="sensor-component"><div class="sensor-main">${sensorMainHtml(sensor,node)}</div>${detail?`<div class="sensor-detail" title="${esc(detail)}">${esc(detail)}</div>`:""}</div><div class="sensor-error error-text">${esc(sensor.error||"—")}</div></div>`;
     }).join("");
     const total=node.total_watts==null?"—":`${node.total_watts.toFixed(1)} W`;
     return `<details class="node-card" open data-id="${esc(node.id)}" style="--node-color:${color}">
@@ -377,8 +437,14 @@ function renderSnapshot(data){
         <div class="quick-metrics">
           ${metric(SENSOR_ICONS.cpu+cpuModelLink(node.cpu_model),cpu,"measured",true)}
           ${metric("GPU",gpu,"measured")}
-          ${metric(SENSOR_ICONS.ram,ram,"estimated",true)}
+          ${metric(SENSOR_ICONS.ram+`<span>${esc(memoryIdentity(node))}</span>`,ram,"estimated",true)}
           ${metric(SENSOR_ICONS.disk,disks,"estimated",true)}
+        </div>
+        <div class="hardware-line">
+          ${SENSOR_ICONS.psu}
+          <span class="hardware-title">${esc(tr("psu"))}</span>
+          <span class="hardware-value">${esc(powerSupplySummary(node))}</span>
+          ${powerSupplyDetail(node)?`<span class="hardware-detail" title="${esc(powerSupplyDetail(node))}">${esc(powerSupplyDetail(node))}</span>`:""}
         </div>
         <div class="node-actions">
           <a href="${esc(node.url)}" target="_blank" rel="noopener">${esc(tr("open"))}</a>

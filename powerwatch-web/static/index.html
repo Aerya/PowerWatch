@@ -82,6 +82,40 @@
     text-overflow: ellipsis;
   }
 
+  .hardware-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin: 0 0 10px;
+  }
+  .hardware-card {
+    min-width: 0;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+  }
+  .hardware-label {
+    color: var(--muted);
+    font-size: 0.72rem;
+    margin-bottom: 3px;
+  }
+  .hardware-value {
+    font-size: 0.88rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hardware-detail {
+    margin-top: 3px;
+    color: var(--muted);
+    font-size: 0.72rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .measured { color: var(--measured); }
   .estimated { color: var(--estimated); }
   .error-text { color: var(--error); }
@@ -267,6 +301,7 @@
   @media (max-width: 760px) {
     body { padding: 12px; }
     .stats-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+    .hardware-summary { grid-template-columns: 1fr; }
   }
 
   /* Suggestions styling */
@@ -497,6 +532,20 @@
   </div>
   <div class="total" id="total" data-i18n="common.loading">Loading...</div>
   <div id="alerts-summary" style="margin:-6px 0 16px;color:var(--muted);font-size:.82rem;"></div>
+
+  <div class="hardware-summary" id="hardware-summary">
+    <div class="hardware-card">
+      <div class="hardware-label" data-i18n="dashboard.ramInstalled">Installed RAM</div>
+      <div class="hardware-value" id="hardware-ram">—</div>
+      <div class="hardware-detail" id="hardware-ram-detail"></div>
+    </div>
+    <div class="hardware-card">
+      <div class="hardware-label" data-i18n="dashboard.powerSupply">Power supply</div>
+      <div class="hardware-value" id="hardware-psu">—</div>
+      <div class="hardware-detail" id="hardware-psu-detail"></div>
+    </div>
+  </div>
+
   <table id="sensors">
     <thead>
       <tr><th data-i18n="dashboard.table.component">component</th><th data-i18n="dashboard.table.watts">watts</th><th data-i18n="dashboard.table.confidence">confidence</th></tr>
@@ -630,7 +679,14 @@ let componentDisplayLabels = new Map();
 let hoverClientX = null;
 let liveMode = true;
 let currentRange = null;
-let currentSystemInfo = { name: "", cpu_model: null };
+let currentSystemInfo = {
+  name: "",
+  cpu_model: null,
+  memory_total_bytes: null,
+  memory_installed_bytes: null,
+  memory_modules: [],
+  power_supplies: [],
+};
 let historyMeta = { label: t("dashboard.live10m"), bucketSeconds: 0, rangeSeconds: 600 };
 
 const SENSOR_ICONS = {
@@ -653,6 +709,101 @@ function diskIdentity(mainLabel) {
   return match[2] ? `${match[1]} · ${match[2]}` : match[1];
 }
 
+function formatMemoryBytes(bytes) {
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value <= 0) return "";
+  const gib = value / (1024 ** 3);
+  return `${gib.toFixed(gib >= 10 ? 1 : 2).replace(/\.0+$/, "")} GiB`;
+}
+
+function memoryModules(system = currentSystemInfo) {
+  return Array.isArray(system?.memory_modules) ? system.memory_modules : [];
+}
+
+function memoryCapacity(system = currentSystemInfo) {
+  return system?.memory_installed_bytes || system?.memory_total_bytes || null;
+}
+
+function memorySummary(system = currentSystemInfo) {
+  const parts = [];
+  const capacity = formatMemoryBytes(memoryCapacity(system));
+  if (capacity) parts.push(capacity);
+  const count = memoryModules(system).length;
+  if (count) {
+    parts.push(`${count} ${t(count === 1 ? "dashboard.memoryModule" : "dashboard.memoryModules")}`);
+  }
+  return parts.join(" · ");
+}
+
+function memoryModuleDetail(system = currentSystemInfo) {
+  return memoryModules(system).map((module) => {
+    const location = [module.locator, module.bank_locator].filter(Boolean).join(" / ");
+    const vendor = [module.manufacturer, module.part_number].filter(Boolean).join(" ");
+    return [
+      location,
+      formatMemoryBytes(module.size_bytes),
+      module.memory_type,
+      module.form_factor,
+      module.speed,
+      vendor,
+    ].filter(Boolean).join(" · ");
+  }).filter(Boolean).join(" ; ");
+}
+
+function powerSupplies(system = currentSystemInfo) {
+  return Array.isArray(system?.power_supplies) ? system.power_supplies : [];
+}
+
+function powerSupplySummary(system = currentSystemInfo) {
+  const supplies = powerSupplies(system);
+  if (!supplies.length) return t("dashboard.notReportedSmbios");
+
+  const first = supplies[0];
+  const model = [first.manufacturer, first.model || first.name].filter(Boolean).join(" ");
+  const parts = [];
+  if (supplies.length > 1) parts.push(`${supplies.length} PSU`);
+  if (Number.isFinite(Number(first.max_power_watts)) && Number(first.max_power_watts) > 0) {
+    parts.push(`${first.max_power_watts} W ${t("dashboard.nominal")}`);
+  }
+  if (model) parts.push(model);
+  return parts.join(" · ") || t("dashboard.reportedBySmbios");
+}
+
+function powerSupplyDetail(system = currentSystemInfo) {
+  return powerSupplies(system).map((supply, index) => {
+    const identity = [
+      supply.location || supply.name || `PSU ${index + 1}`,
+      [supply.manufacturer, supply.model].filter(Boolean).join(" "),
+      Number.isFinite(Number(supply.max_power_watts)) && Number(supply.max_power_watts) > 0
+        ? `${supply.max_power_watts} W ${t("dashboard.nominal")}`
+        : "",
+      supply.supply_type,
+      supply.status,
+    ].filter(Boolean);
+    return identity.join(" · ");
+  }).filter(Boolean).join(" ; ");
+}
+
+function renderHardwareSummary(system = currentSystemInfo) {
+  const ram = document.getElementById("hardware-ram");
+  const ramDetail = document.getElementById("hardware-ram-detail");
+  const psu = document.getElementById("hardware-psu");
+  const psuDetail = document.getElementById("hardware-psu-detail");
+  if (!ram || !ramDetail || !psu || !psuDetail) return;
+
+  const ramSummary = memorySummary(system);
+  ram.textContent = ramSummary || t("dashboard.notReported");
+  const moduleDetail = memoryModuleDetail(system);
+  ramDetail.textContent = moduleDetail;
+  ramDetail.title = moduleDetail;
+
+  const supplySummary = powerSupplySummary(system);
+  psu.textContent = supplySummary;
+  const supplyDetail = powerSupplyDetail(system);
+  psuDetail.textContent = supplyDetail;
+  psuDetail.title = supplyDetail;
+}
+
 function renderSensorIdentity(main, sensor, parts) {
   const kind = sensor.name === "cpu" ? "cpu"
     : sensor.name === "ram" ? "ram"
@@ -667,8 +818,9 @@ function renderSensorIdentity(main, sensor, parts) {
     return parts.detail;
   }
   if (kind === "ram") {
-    main.innerHTML = SENSOR_ICONS.ram;
-    return parts.detail;
+    const summary = memorySummary(currentSystemInfo);
+    main.innerHTML = SENSOR_ICONS.ram + `<span>${escapeHtml(summary ? `RAM · ${summary}` : "RAM")}</span>`;
+    return memoryModuleDetail(currentSystemInfo) || parts.detail;
   }
   if (kind === "disk") {
     main.innerHTML = SENSOR_ICONS.disk + `<span>${escapeHtml(diskIdentity(parts.main))}</span>`;
@@ -705,6 +857,7 @@ async function refreshInstanceInfo() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const info = await res.json();
     currentSystemInfo = info;
+    renderHardwareSummary(currentSystemInfo);
     const input = document.getElementById("instance-name");
     if (document.activeElement !== input) input.value = info.name || "";
   } catch (err) {
@@ -911,6 +1064,7 @@ function updateSensorRow(row, sensor) {
 
 function renderSnapshot(data) {
   currentSystemInfo = data.system || currentSystemInfo;
+  renderHardwareSummary(currentSystemInfo);
   const totalEl = document.getElementById("total");
   if (data.total) {
     const cls = confidenceClass(data.total.confidence);

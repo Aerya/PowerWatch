@@ -12,6 +12,7 @@
 
 - [Fonctionnalités](#fonctionnalités)
 - [Mesures](#mesures)
+  - [RAM et alimentation](#ram-et-alimentation)
 - [Installation Docker](#installation-docker)
   - [Prérequis](#prérequis)
   - [Démarrage rapide](#démarrage-rapide)
@@ -55,6 +56,8 @@ Ce fork est pensé en priorité pour les **serveurs, mini-PC, machines desktop L
 - Interface Web **français / anglais**.
 - Nom d'instance PowerWatch configurable dans la WebUI et proposé automatiquement lors de l'ajout dans le Hub, sans empêcher un alias Hub différent.
 - Modèle CPU affiché avec lien direct vers la recherche **CPU Benchmark / PassMark** et icônes monochromes CPU/RAM/disque.
+- Inventaire RAM best-effort : **capacité installée, nombre de modules occupés et détails de chaque module** via SMBIOS lorsque disponibles.
+- Informations alimentation best-effort via **SMBIOS Type 39** : puissance nominale maximale, fabricant/modèle, emplacement, type et état lorsque le firmware les publie.
 - **PowerWatch Hub** : agrégation de plusieurs machines dans un dashboard fédéré unique.
 
 ## Mesures
@@ -74,6 +77,28 @@ Un capteur indisponible est simplement ignoré.
 Sur certains Intel, PowerWatch peut utiliser le sous-domaine RAPL `uncore` comme mesure de l'iGPU. Dans ce cas, la valeur CPU est calculée à partir du package en retirant `uncore` afin de ne pas compter deux fois l'iGPU.
 
 Lorsque l'interface Linux `powercap` est absente mais que `/dev/cpu/0/msr` existe, PowerWatch peut lire directement les registres RAPL `MSR_RAPL_POWER_UNIT` (`0x606`) et `MSR_PKG_ENERGY_STATUS` (`0x611`). Cette valeur reste une **mesure matérielle** du package CPU, pas une estimation basée sur le pourcentage d'utilisation.
+
+### RAM et alimentation
+
+PowerWatch complète les mesures électriques avec un petit inventaire matériel best-effort, affiché dans la WebUI locale et transmis au Hub.
+
+Pour la **RAM** :
+
+- la mémoire totale utilisable est lue depuis `/proc/meminfo` ;
+- lorsque SMBIOS est disponible, `dmidecode --type 17` permet de récupérer la capacité réellement installée et les périphériques mémoire occupés ;
+- chaque module peut afficher son emplacement, sa capacité, son type (DDR4/DDR5...), son format (DIMM/SODIMM/Row Of Chips), sa vitesse configurée, son fabricant et sa référence ;
+- le nombre affiché correspond aux **Memory Devices SMBIOS occupés**. Sur certaines machines, de la mémoire soudée peut donc apparaître comme un module même s'il ne s'agit pas physiquement d'une barrette amovible.
+
+Pour l'**alimentation** :
+
+- PowerWatch interroge SMBIOS **Type 39 / System Power Supply** ;
+- lorsqu'il est renseigné par le constructeur, il peut afficher fabricant, modèle/référence, emplacement, type, état et **Max Power Capacity** ;
+- la valeur en watts est la **puissance nominale maximale déclarée par l'alimentation**, pas sa consommation électrique instantanée ;
+- cette puissance nominale n'est **jamais ajoutée** au total de consommation PowerWatch.
+
+De nombreuses cartes mères grand public et alimentations ATX classiques ne publient aucun SMBIOS Type 39. Dans ce cas PowerWatch affiche simplement que l'alimentation n'est **pas reportée par SMBIOS** au lieu d'inventer une valeur.
+
+L'image Docker PowerWatch inclut `dmidecode`. Comme `/sys` de l'hôte est déjà monté en lecture seule par le Compose de référence, aucune permission Docker supplémentaire n'est normalement nécessaire pour ces informations lorsque le noyau les expose. La détection reste volontairement best-effort.
 
 ## Installation Docker
 
@@ -160,14 +185,14 @@ Exemples de prérequis système courants :
 
 ```bash
 # Debian / Ubuntu
-sudo apt install build-essential pkg-config git curl
+sudo apt install build-essential pkg-config git curl dmidecode
 
 # Fedora
 sudo dnf group install "Development Tools"
-sudo dnf install git pkgconf-pkg-config curl
+sudo dnf install git pkgconf-pkg-config curl dmidecode
 
 # Arch Linux / Garuda
-sudo pacman -S --needed base-devel git curl
+sudo pacman -S --needed base-devel git curl dmidecode
 ```
 
 ### Compiler PowerWatch
