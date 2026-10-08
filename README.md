@@ -94,7 +94,8 @@ Pour l'**alimentation** :
 
 - PowerWatch lit SMBIOS **Type 39 / System Power Supply** ;
 - les entrées génériques du firmware (`Default string`, `OEM Define`, états/types sans capacité ni identité crédible) sont masquées, ainsi que les baies explicitement absentes ;
-- la WebUI et le Hub n'affichent que la puissance nominale plausible déclarée et/ou une identification constructeur crédible, sous une forme condensée ;
+- la WebUI et le Hub n'affichent qu'un **résumé compact**, sans répéter les watts dans la même ligne ; les détails éventuels restent accessibles en infobulle ;
+- une puissance annoncée est explicitement marquée **« SMBIOS non vérifié »** : même une valeur apparemment plausible peut différer de la puissance réelle du bloc d'alimentation ;
 - la valeur en watts est une **capacité nominale maximale déclarée via SMBIOS, non vérifiée physiquement**, pas sa consommation électrique instantanée ;
 - cette puissance nominale n'est **jamais ajoutée** au total de consommation PowerWatch.
 
@@ -471,7 +472,7 @@ PowerWatch peut également fonctionner en mode **Hub**. Chaque machine conserve 
 
 Le Hub fournit :
 
-- un **total global** de l'infrastructure ;
+- un **total global** de l'infrastructure, accompagné de la mention **« Mesures + estimations »** ;
 - une carte repliable par machine avec CPU, GPU, RAM et disques ;
 - les états **online / stale / offline / disabled** ;
 - l'ajout, le test, l'activation et la suppression d'instances directement depuis la WebUI ;
@@ -481,6 +482,8 @@ Le Hub fournit :
 - un graphe fédéré avec **total global + une courbe colorée par instance** ;
 - des cartes compactes avec résumé CPU / GPU / RAM / disques et couleurs mesurée / estimée ;
 - une interface FR / EN alignée visuellement sur la WebUI PowerWatch.
+
+Le total global additionne les valeurs remontées par les instances, **qu'elles soient mesurées ou estimées**. Il ne correspond pas à une mesure de consommation à la prise et n'inclut pas la puissance nominale des alimentations.
 
 Le Hub ne nécessite **aucun accès à `/sys`, aucun `pid: host` et aucun accès privilégié**. Il doit seulement pouvoir joindre les URLs privées des instances PowerWatch.
 
