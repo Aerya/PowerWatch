@@ -9,7 +9,9 @@ use powerwatch_core::json_snapshot::{build_json_snapshot, JsonSnapshot};
 use powerwatch_core::model::{Component, SensorReading};
 use powerwatch_core::storage::AggregatedReading;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 fn convert_rss_to_mb(output: &str) -> String {
     let mut result = String::new();
@@ -47,9 +49,45 @@ struct InstanceSettings {
 }
 
 #[derive(Debug, Clone, Serialize)]
+struct MemoryModuleInfo {
+    locator: Option<String>,
+    bank_locator: Option<String>,
+    size_bytes: u64,
+    memory_type: Option<String>,
+    form_factor: Option<String>,
+    speed: Option<String>,
+    manufacturer: Option<String>,
+    part_number: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct PowerSupplyInfo {
+    name: Option<String>,
+    manufacturer: Option<String>,
+    model: Option<String>,
+    location: Option<String>,
+    status: Option<String>,
+    supply_type: Option<String>,
+    max_power_watts: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct HardwareInfo {
+    cpu_model: Option<String>,
+    memory_total_bytes: Option<u64>,
+    memory_installed_bytes: Option<u64>,
+    memory_modules: Vec<MemoryModuleInfo>,
+    power_supplies: Vec<PowerSupplyInfo>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct InstanceInfo {
     name: String,
     cpu_model: Option<String>,
+    memory_total_bytes: Option<u64>,
+    memory_installed_bytes: Option<u64>,
+    memory_modules: Vec<MemoryModuleInfo>,
+    power_supplies: Vec<PowerSupplyInfo>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -126,11 +164,214 @@ fn read_cpu_model() -> Option<String> {
     parse_cpu_model(&cpuinfo)
 }
 
+fn parse_mem_total_bytes(meminfo: &str) -> Option<u64> {
+    let value_kib = meminfo.lines().find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        if key.trim() != "MemTotal" {
+            return None;
+        }
+        value.split_whitespace().next()?.parse::<u64>().ok()
+    })?;
+    value_kib.checked_mul(1024)
+}
+
+fn read_memory_total_bytes() -> Option<u64> {
+    let meminfo = std::fs::read_to_string("/proc/meminfo").ok()?;
+    parse_mem_total_bytes(&meminfo)
+}
+
+fn clean_dmi_value(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+
+    let lower = value.to_ascii_lowercase();
+    if matches!(
+        lower.as_str(),
+        "unknown"
+            | "not specified"
+            | "not provided"
+            | "none"
+            | "no module installed"
+            | "to be filled by o.e.m."
+            | "to be filled by oem"
+    ) {
+        return None;
+    }
+
+    Some(value.to_string())
+}
+
+fn parse_dmi_sections(output: &str, heading: &str) -> Vec<HashMap<String, String>> {
+    output
+        .split("\n\n")
+        .filter_map(|block| {
+            if !block.lines().any(|line| line.trim() == heading) {
+                return None;
+            }
+
+            let mut fields = HashMap::new();
+            for line in block.lines() {
+                let line = line.trim();
+                let Some((key, value)) = line.split_once(':') else {
+                    continue;
+                };
+                let key = key.trim();
+                if key.is_empty() {
+                    continue;
+                }
+                fields.insert(key.to_string(), value.trim().to_string());
+            }
+            Some(fields)
+        })
+        .collect()
+}
+
+fn parse_capacity_bytes(value: &str) -> Option<u64> {
+    let mut parts = value.split_whitespace();
+    let amount = parts.next()?.parse::<u64>().ok()?;
+    let unit = parts.next().unwrap_or("B").to_ascii_uppercase();
+    let multiplier = match unit.as_str() {
+        "B" => 1,
+        "KB" | "KIB" => 1u64 << 10,
+        "MB" | "MIB" => 1u64 << 20,
+        "GB" | "GIB" => 1u64 << 30,
+        "TB" | "TIB" => 1u64 << 40,
+        _ => return None,
+    };
+    amount.checked_mul(multiplier)
+}
+
+fn parse_power_watts(value: &str) -> Option<u32> {
+    value.split_whitespace().next()?.parse::<u32>().ok()
+}
+
+fn parse_memory_modules(output: &str) -> Vec<MemoryModuleInfo> {
+    parse_dmi_sections(output, "Memory Device")
+        .into_iter()
+        .filter_map(|fields| {
+            let size_bytes = fields
+                .get("Size")
+                .and_then(|value| parse_capacity_bytes(value))
+                .filter(|size| *size > 0)?;
+            let speed = fields
+                .get("Configured Memory Speed")
+                .or_else(|| fields.get("Speed"))
+                .or_else(|| fields.get("Configured Clock Speed"))
+                .and_then(|value| clean_dmi_value(value));
+
+            Some(MemoryModuleInfo {
+                locator: fields.get("Locator").and_then(|value| clean_dmi_value(value)),
+                bank_locator: fields
+                    .get("Bank Locator")
+                    .and_then(|value| clean_dmi_value(value)),
+                size_bytes,
+                memory_type: fields.get("Type").and_then(|value| clean_dmi_value(value)),
+                form_factor: fields
+                    .get("Form Factor")
+                    .and_then(|value| clean_dmi_value(value)),
+                speed,
+                manufacturer: fields
+                    .get("Manufacturer")
+                    .and_then(|value| clean_dmi_value(value)),
+                part_number: fields
+                    .get("Part Number")
+                    .and_then(|value| clean_dmi_value(value)),
+            })
+        })
+        .collect()
+}
+
+fn parse_power_supplies(output: &str) -> Vec<PowerSupplyInfo> {
+    parse_dmi_sections(output, "System Power Supply")
+        .into_iter()
+        .filter_map(|fields| {
+            let supply = PowerSupplyInfo {
+                name: fields.get("Name").and_then(|value| clean_dmi_value(value)),
+                manufacturer: fields
+                    .get("Manufacturer")
+                    .and_then(|value| clean_dmi_value(value)),
+                model: fields
+                    .get("Model Part Number")
+                    .and_then(|value| clean_dmi_value(value)),
+                location: fields
+                    .get("Location")
+                    .and_then(|value| clean_dmi_value(value)),
+                status: fields.get("Status").and_then(|value| clean_dmi_value(value)),
+                supply_type: fields.get("Type").and_then(|value| clean_dmi_value(value)),
+                max_power_watts: fields
+                    .get("Max Power Capacity")
+                    .and_then(|value| parse_power_watts(value)),
+            };
+
+            (supply.name.is_some()
+                || supply.manufacturer.is_some()
+                || supply.model.is_some()
+                || supply.location.is_some()
+                || supply.status.is_some()
+                || supply.supply_type.is_some()
+                || supply.max_power_watts.is_some())
+            .then_some(supply)
+        })
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn read_dmidecode_type(dmi_type: &str) -> Option<String> {
+    let output = std::process::Command::new("dmidecode")
+        .args(["--type", dmi_type])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn read_dmidecode_type(_dmi_type: &str) -> Option<String> {
+    None
+}
+
+fn read_hardware_info() -> HardwareInfo {
+    let memory_modules = read_dmidecode_type("17")
+        .map(|output| parse_memory_modules(&output))
+        .unwrap_or_default();
+    let memory_installed_bytes = (!memory_modules.is_empty()).then(|| {
+        memory_modules
+            .iter()
+            .fold(0u64, |total, module| total.saturating_add(module.size_bytes))
+    });
+    let power_supplies = read_dmidecode_type("39")
+        .map(|output| parse_power_supplies(&output))
+        .unwrap_or_default();
+
+    HardwareInfo {
+        cpu_model: read_cpu_model(),
+        memory_total_bytes: read_memory_total_bytes(),
+        memory_installed_bytes,
+        memory_modules,
+        power_supplies,
+    }
+}
+
+static HARDWARE_INFO: OnceLock<HardwareInfo> = OnceLock::new();
+
+fn hardware_info() -> &'static HardwareInfo {
+    HARDWARE_INFO.get_or_init(read_hardware_info)
+}
+
 fn instance_info() -> InstanceInfo {
     let settings = load_instance_settings();
+    let hardware = hardware_info();
     InstanceInfo {
         name: settings.name,
-        cpu_model: read_cpu_model(),
+        cpu_model: hardware.cpu_model.clone(),
+        memory_total_bytes: hardware.memory_total_bytes,
+        memory_installed_bytes: hardware.memory_installed_bytes,
+        memory_modules: hardware.memory_modules.clone(),
+        power_supplies: hardware.power_supplies.clone(),
     }
 }
 
@@ -544,6 +785,70 @@ mod tests {
             parse_cpu_model(sample).as_deref(),
             Some("Intel Celeron N5105 @ 2.00GHz")
         );
+    }
+
+    #[test]
+    fn parses_linux_memtotal_as_bytes() {
+        let sample = "MemTotal:       32768000 kB\nMemFree:         123456 kB\n";
+        assert_eq!(parse_mem_total_bytes(sample), Some(33_554_432_000));
+    }
+
+    #[test]
+    fn parses_only_populated_memory_devices() {
+        let sample = r#"
+Handle 0x0030, DMI type 17, 92 bytes
+Memory Device
+        Size: 16 GB
+        Form Factor: DIMM
+        Locator: DIMM_A1
+        Bank Locator: BANK 0
+        Type: DDR4
+        Speed: 3200 MT/s
+        Configured Memory Speed: 3200 MT/s
+        Manufacturer: Kingston
+        Part Number: KF432C16
+
+Handle 0x0031, DMI type 17, 92 bytes
+Memory Device
+        Size: No Module Installed
+        Locator: DIMM_A2
+
+Handle 0x0032, DMI type 17, 92 bytes
+Memory Device
+        Size: 16384 MB
+        Form Factor: DIMM
+        Locator: DIMM_B1
+        Type: DDR4
+        Configured Memory Speed: 3200 MT/s
+        Manufacturer: Kingston
+        Part Number: KF432C16
+"#;
+        let modules = parse_memory_modules(sample);
+        assert_eq!(modules.len(), 2);
+        assert_eq!(modules[0].size_bytes, 16u64 << 30);
+        assert_eq!(modules[0].locator.as_deref(), Some("DIMM_A1"));
+        assert_eq!(modules[1].size_bytes, 16u64 << 30);
+        assert_eq!(modules[1].locator.as_deref(), Some("DIMM_B1"));
+    }
+
+    #[test]
+    fn parses_smbios_system_power_supply() {
+        let sample = r#"
+Handle 0x0040, DMI type 39, 22 bytes
+System Power Supply
+        Location: PSU Bay 1
+        Name: PSU 1
+        Manufacturer: ExampleCorp
+        Model Part Number: PX-750
+        Max Power Capacity: 750 W
+        Status: Present, OK
+        Type: Switching
+"#;
+        let supplies = parse_power_supplies(sample);
+        assert_eq!(supplies.len(), 1);
+        assert_eq!(supplies[0].max_power_watts, Some(750));
+        assert_eq!(supplies[0].manufacturer.as_deref(), Some("ExampleCorp"));
+        assert_eq!(supplies[0].model.as_deref(), Some("PX-750"));
     }
 
     #[test]

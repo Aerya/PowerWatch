@@ -12,6 +12,7 @@
 
 - [Features](#features)
 - [Measurements](#measurements)
+  - [RAM and power supply](#ram-and-power-supply)
 - [Docker installation](#docker-installation)
   - [Requirements](#requirements)
   - [Quick start](#quick-start)
@@ -55,6 +56,8 @@ This fork is primarily designed for **servers, mini PCs, Linux desktop machines,
 - **French / English** Web UI.
 - Configurable PowerWatch instance name, automatically suggested when adding the instance to the Hub while keeping the Hub alias independent.
 - CPU model with a direct **CPU Benchmark / PassMark** search link and monochrome CPU/RAM/disk icons.
+- Best-effort RAM inventory: **installed capacity, populated memory-device count, and per-module details** through SMBIOS when available.
+- Best-effort power-supply information through **SMBIOS Type 39**: nominal maximum capacity, manufacturer/model, location, type, and status when firmware reports them.
 - **PowerWatch Hub**: aggregate multiple machines into one federated dashboard.
 
 ## Measurements
@@ -74,6 +77,28 @@ Unavailable sensors are simply ignored.
 On some Intel systems, PowerWatch can use the RAPL `uncore` subdomain as the iGPU power reading. In that case, CPU power is calculated from the package value minus `uncore` so the iGPU is not counted twice.
 
 When the Linux `powercap` interface is absent but `/dev/cpu/0/msr` exists, PowerWatch can directly read the RAPL `MSR_RAPL_POWER_UNIT` (`0x606`) and `MSR_PKG_ENERGY_STATUS` (`0x611`) registers. This remains a **hardware-measured** CPU-package value, not an estimate based on CPU utilization.
+
+### RAM and power supply
+
+PowerWatch complements electrical readings with a small best-effort hardware inventory shown in the local Web UI and forwarded to the Hub.
+
+For **RAM**:
+
+- usable total memory is read from `/proc/meminfo`;
+- when SMBIOS is available, `dmidecode --type 17` provides installed capacity and populated memory devices;
+- each populated device can expose its locator, capacity, type (DDR4/DDR5...), form factor (DIMM/SODIMM/Row Of Chips), configured speed, manufacturer, and part number;
+- the displayed count is the number of populated **SMBIOS Memory Devices**. On some systems, soldered memory can therefore appear as a module even though it is not a removable DIMM.
+
+For the **power supply**:
+
+- PowerWatch queries SMBIOS **Type 39 / System Power Supply**;
+- when populated by the manufacturer, it can expose manufacturer, model/part number, location, type, status, and **Max Power Capacity**;
+- the watt value is the PSU's **reported nominal maximum capacity**, not live electrical consumption;
+- nominal PSU capacity is **never added** to the PowerWatch consumption total.
+
+Many consumer motherboards and standard ATX PSUs do not expose SMBIOS Type 39 at all. In that case PowerWatch simply reports that the PSU is **not reported by SMBIOS** instead of inventing a value.
+
+The PowerWatch Docker image includes `dmidecode`. Since the reference Compose already bind-mounts the host `/sys` read-only, no additional Docker permission is normally required for this inventory when the kernel exposes the DMI tables. Detection intentionally remains best-effort.
 
 ## Docker installation
 
@@ -160,14 +185,14 @@ Common system prerequisite examples:
 
 ```bash
 # Debian / Ubuntu
-sudo apt install build-essential pkg-config git curl
+sudo apt install build-essential pkg-config git curl dmidecode
 
 # Fedora
 sudo dnf group install "Development Tools"
-sudo dnf install git pkgconf-pkg-config curl
+sudo dnf install git pkgconf-pkg-config curl dmidecode
 
 # Arch Linux / Garuda
-sudo pacman -S --needed base-devel git curl
+sudo pacman -S --needed base-devel git curl dmidecode
 ```
 
 ### Build PowerWatch

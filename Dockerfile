@@ -8,7 +8,7 @@ RUN cargo build --release -p powerwatch-cli -p powerwatch-tui -p powerwatch-web 
 FROM debian:bookworm-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl procps \
+    && apt-get install -y --no-install-recommends ca-certificates curl procps dmidecode \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /src/target/release/powerwatch /usr/local/bin/powerwatch

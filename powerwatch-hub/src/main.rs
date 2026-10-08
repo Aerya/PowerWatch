@@ -83,12 +83,58 @@ struct RemoteSensor {
     error: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+struct RemoteMemoryModuleInfo {
+    #[serde(default)]
+    locator: Option<String>,
+    #[serde(default)]
+    bank_locator: Option<String>,
+    #[serde(default)]
+    size_bytes: u64,
+    #[serde(default)]
+    memory_type: Option<String>,
+    #[serde(default)]
+    form_factor: Option<String>,
+    #[serde(default)]
+    speed: Option<String>,
+    #[serde(default)]
+    manufacturer: Option<String>,
+    #[serde(default)]
+    part_number: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+struct RemotePowerSupplyInfo {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    manufacturer: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    location: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    supply_type: Option<String>,
+    #[serde(default)]
+    max_power_watts: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 struct RemoteSystemInfo {
     #[serde(default)]
     name: String,
     #[serde(default)]
     cpu_model: Option<String>,
+    #[serde(default)]
+    memory_total_bytes: Option<u64>,
+    #[serde(default)]
+    memory_installed_bytes: Option<u64>,
+    #[serde(default)]
+    memory_modules: Vec<RemoteMemoryModuleInfo>,
+    #[serde(default)]
+    power_supplies: Vec<RemotePowerSupplyInfo>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -143,6 +189,10 @@ struct HubNodeView {
     last_error: Option<String>,
     total_watts: Option<f64>,
     cpu_model: Option<String>,
+    memory_total_bytes: Option<u64>,
+    memory_installed_bytes: Option<u64>,
+    memory_modules: Vec<RemoteMemoryModuleInfo>,
+    power_supplies: Vec<RemotePowerSupplyInfo>,
     sensors: Vec<RemoteSensor>,
 }
 
@@ -614,11 +664,11 @@ async fn snapshot(State(state): State<AppState>) -> Json<HubSnapshot> {
             }
         }
 
-        let cpu_model = runtime_node
+        let system = runtime_node
             .snapshot
             .as_ref()
-            .and_then(|snapshot| snapshot.system.as_ref())
-            .and_then(|system| system.cpu_model.clone());
+            .and_then(|snapshot| snapshot.system.clone())
+            .unwrap_or_default();
 
         nodes.push(HubNodeView {
             id: node.id,
@@ -630,7 +680,11 @@ async fn snapshot(State(state): State<AppState>) -> Json<HubSnapshot> {
             last_seen: runtime_node.last_seen,
             last_error: runtime_node.last_error,
             total_watts: node_total,
-            cpu_model,
+            cpu_model: system.cpu_model,
+            memory_total_bytes: system.memory_total_bytes,
+            memory_installed_bytes: system.memory_installed_bytes,
+            memory_modules: system.memory_modules,
+            power_supplies: system.power_supplies,
             sensors: runtime_node
                 .snapshot
                 .map(|snapshot| snapshot.sensors)
