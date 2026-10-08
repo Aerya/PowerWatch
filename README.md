@@ -85,20 +85,21 @@ PowerWatch complète les mesures électriques avec un petit inventaire matériel
 Pour la **RAM** :
 
 - la mémoire totale utilisable est lue depuis `/proc/meminfo` ;
-- lorsque SMBIOS est disponible, `dmidecode --type 17` permet de récupérer la capacité réellement installée et les périphériques mémoire occupés ;
+- PowerWatch lit en priorité la table SMBIOS/DMI brute du noyau pour récupérer la capacité réellement installée et les périphériques mémoire occupés ;
 - chaque module peut afficher son emplacement, sa capacité, son type (DDR4/DDR5...), son format (DIMM/SODIMM/Row Of Chips), sa vitesse configurée, son fabricant et sa référence ;
-- le nombre affiché correspond aux **Memory Devices SMBIOS occupés**. Sur certaines machines, de la mémoire soudée peut donc apparaître comme un module même s'il ne s'agit pas physiquement d'une barrette amovible.
+- le nombre affiché correspond aux **Memory Devices SMBIOS occupés**. Sur certaines machines, de la mémoire soudée peut donc apparaître comme un module même s'il ne s'agit pas physiquement d'une barrette amovible ;
+- si SMBIOS est inaccessible, PowerWatch affiche la mémoire **utilisable** vue par Linux et ne la présente plus comme de la « RAM installée ».
 
 Pour l'**alimentation** :
 
-- PowerWatch interroge SMBIOS **Type 39 / System Power Supply** ;
+- PowerWatch lit SMBIOS **Type 39 / System Power Supply** ;
 - lorsqu'il est renseigné par le constructeur, il peut afficher fabricant, modèle/référence, emplacement, type, état et **Max Power Capacity** ;
 - la valeur en watts est la **puissance nominale maximale déclarée par l'alimentation**, pas sa consommation électrique instantanée ;
 - cette puissance nominale n'est **jamais ajoutée** au total de consommation PowerWatch.
 
-De nombreuses cartes mères grand public et alimentations ATX classiques ne publient aucun SMBIOS Type 39. Dans ce cas PowerWatch affiche simplement que l'alimentation n'est **pas reportée par SMBIOS** au lieu d'inventer une valeur.
+Docker masque normalement `/sys/firmware` dans les conteneurs. Le Compose PowerWatch monte donc explicitement le firmware de l'hôte en lecture seule sous `/host-sys-firmware` et définit `POWERWATCH_DMI_TABLE_PATH=/host-sys-firmware/dmi/tables/DMI`. PowerWatch parse directement cette table : aucun mode `privileged` ni accès à `/dev/mem` n'est nécessaire.
 
-L'image Docker PowerWatch inclut `dmidecode`. Comme `/sys` de l'hôte est déjà monté en lecture seule par le Compose de référence, aucune permission Docker supplémentaire n'est normalement nécessaire pour ces informations lorsque le noyau les expose. La détection reste volontairement best-effort.
+De nombreuses cartes mères grand public et alimentations ATX classiques ne publient aucun SMBIOS Type 39. PowerWatch distingue alors deux cas : **SMBIOS inaccessible** ou **alimentation non fournie par le firmware SMBIOS**, au lieu de laisser croire que les deux situations sont identiques. `dmidecode` reste disponible comme fallback lorsque la table brute n'est pas lisible.
 
 ## Installation Docker
 

@@ -135,6 +135,8 @@ struct RemoteSystemInfo {
     memory_modules: Vec<RemoteMemoryModuleInfo>,
     #[serde(default)]
     power_supplies: Vec<RemotePowerSupplyInfo>,
+    #[serde(default)]
+    smbios_available: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -193,6 +195,7 @@ struct HubNodeView {
     memory_installed_bytes: Option<u64>,
     memory_modules: Vec<RemoteMemoryModuleInfo>,
     power_supplies: Vec<RemotePowerSupplyInfo>,
+    smbios_available: bool,
     sensors: Vec<RemoteSensor>,
 }
 
@@ -685,6 +688,7 @@ async fn snapshot(State(state): State<AppState>) -> Json<HubSnapshot> {
             memory_installed_bytes: system.memory_installed_bytes,
             memory_modules: system.memory_modules,
             power_supplies: system.power_supplies,
+            smbios_available: system.smbios_available,
             sensors: runtime_node
                 .snapshot
                 .map(|snapshot| snapshot.sensors)

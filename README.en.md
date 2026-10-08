@@ -85,20 +85,21 @@ PowerWatch complements electrical readings with a small best-effort hardware inv
 For **RAM**:
 
 - usable total memory is read from `/proc/meminfo`;
-- when SMBIOS is available, `dmidecode --type 17` provides installed capacity and populated memory devices;
+- PowerWatch first reads the kernel's raw SMBIOS/DMI table to recover physically installed capacity and populated memory devices;
 - each populated device can expose its locator, capacity, type (DDR4/DDR5...), form factor (DIMM/SODIMM/Row Of Chips), configured speed, manufacturer, and part number;
-- the displayed count is the number of populated **SMBIOS Memory Devices**. On some systems, soldered memory can therefore appear as a module even though it is not a removable DIMM.
+- the displayed count is the number of populated **SMBIOS Memory Devices**. On some systems, soldered memory can therefore appear as a module even though it is not a removable DIMM;
+- if SMBIOS is unavailable, PowerWatch displays **usable** Linux memory and no longer labels that fallback value as “Installed RAM”.
 
 For the **power supply**:
 
-- PowerWatch queries SMBIOS **Type 39 / System Power Supply**;
+- PowerWatch reads SMBIOS **Type 39 / System Power Supply**;
 - when populated by the manufacturer, it can expose manufacturer, model/part number, location, type, status, and **Max Power Capacity**;
 - the watt value is the PSU's **reported nominal maximum capacity**, not live electrical consumption;
 - nominal PSU capacity is **never added** to the PowerWatch consumption total.
 
-Many consumer motherboards and standard ATX PSUs do not expose SMBIOS Type 39 at all. In that case PowerWatch simply reports that the PSU is **not reported by SMBIOS** instead of inventing a value.
+Docker masks `/sys/firmware` inside containers by default. The PowerWatch Compose therefore mounts the host firmware read-only at `/host-sys-firmware` and sets `POWERWATCH_DMI_TABLE_PATH=/host-sys-firmware/dmi/tables/DMI`. PowerWatch parses that raw table directly, so neither `privileged` mode nor `/dev/mem` access is required.
 
-The PowerWatch Docker image includes `dmidecode`. Since the reference Compose already bind-mounts the host `/sys` read-only, no additional Docker permission is normally required for this inventory when the kernel exposes the DMI tables. Detection intentionally remains best-effort.
+Many consumer motherboards and standard ATX PSUs do not expose SMBIOS Type 39 at all. PowerWatch now distinguishes **SMBIOS unavailable** from **PSU not exposed by SMBIOS firmware** instead of treating both cases as the same condition. `dmidecode` remains available as a fallback when the raw table cannot be read.
 
 ## Docker installation
 

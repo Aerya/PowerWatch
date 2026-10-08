@@ -45,6 +45,10 @@ services:
     volumes:
       - /sys:/sys:ro
       - /sys/devices/virtual:/host-sys-virtual:ro
+      # Docker masks /sys/firmware inside containers. Mount it under a
+      # dedicated, non-masked path so PowerWatch can read the host SMBIOS/DMI
+      # table without privileged mode or /dev/mem.
+      - /sys/firmware:/host-sys-firmware:ro
       - ./data:/data/.local/share/powerwatch
 
     environment:
@@ -55,6 +59,14 @@ services:
       # automatically tries /dev/cpu/0/msr when both the device and
       # CAP_SYS_RAWIO have been exposed through the blocks above.
       POWERWATCH_POWERCAP_PATH: /host-sys-virtual/powercap/intel-rapl
+
+      # FR : table SMBIOS/DMI brute du firmware hôte pour l'inventaire RAM
+      # et alimentation. Si le noyau ne l'expose pas, PowerWatch conserve ses
+      # fallbacks et indique explicitement que SMBIOS est indisponible.
+      # EN: raw host SMBIOS/DMI table used for RAM and PSU inventory. If the
+      # kernel does not expose it, PowerWatch keeps its fallbacks and reports
+      # SMBIOS as unavailable explicitly.
+      POWERWATCH_DMI_TABLE_PATH: /host-sys-firmware/dmi/tables/DMI
 
       # ---------------------------------------------------------------------
       # NVIDIA GPU(S) - OPTIONAL / OPTIONNEL
