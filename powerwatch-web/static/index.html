@@ -535,7 +535,7 @@
 
   <div class="hardware-summary" id="hardware-summary">
     <div class="hardware-card">
-      <div class="hardware-label" data-i18n="dashboard.ramInstalled">Installed RAM</div>
+      <div class="hardware-label" id="hardware-ram-label" data-i18n="dashboard.ramInstalled">Installed RAM</div>
       <div class="hardware-value" id="hardware-ram">—</div>
       <div class="hardware-detail" id="hardware-ram-detail"></div>
     </div>
@@ -686,6 +686,7 @@ let currentSystemInfo = {
   memory_installed_bytes: null,
   memory_modules: [],
   power_supplies: [],
+  smbios_available: false,
 };
 let historyMeta = { label: t("dashboard.live10m"), bucketSeconds: 0, rangeSeconds: 600 };
 
@@ -724,10 +725,19 @@ function memoryCapacity(system = currentSystemInfo) {
   return system?.memory_installed_bytes || system?.memory_total_bytes || null;
 }
 
+function hasInstalledMemoryCapacity(system = currentSystemInfo) {
+  return Number.isFinite(Number(system?.memory_installed_bytes))
+    && Number(system.memory_installed_bytes) > 0;
+}
+
 function memorySummary(system = currentSystemInfo) {
   const parts = [];
   const capacity = formatMemoryBytes(memoryCapacity(system));
-  if (capacity) parts.push(capacity);
+  if (capacity) {
+    parts.push(hasInstalledMemoryCapacity(system)
+      ? capacity
+      : `${capacity} ${t("dashboard.usable")}`);
+  }
   const count = memoryModules(system).length;
   if (count) {
     parts.push(`${count} ${t(count === 1 ? "dashboard.memoryModule" : "dashboard.memoryModules")}`);
@@ -756,7 +766,11 @@ function powerSupplies(system = currentSystemInfo) {
 
 function powerSupplySummary(system = currentSystemInfo) {
   const supplies = powerSupplies(system);
-  if (!supplies.length) return t("dashboard.notReportedSmbios");
+  if (!supplies.length) {
+    return system?.smbios_available
+      ? t("dashboard.psuNotReported")
+      : t("dashboard.smbiosUnavailable");
+  }
 
   const first = supplies[0];
   const model = [first.manufacturer, first.model || first.name].filter(Boolean).join(" ");
@@ -785,17 +799,28 @@ function powerSupplyDetail(system = currentSystemInfo) {
 }
 
 function renderHardwareSummary(system = currentSystemInfo) {
+  const ramLabel = document.getElementById("hardware-ram-label");
   const ram = document.getElementById("hardware-ram");
   const ramDetail = document.getElementById("hardware-ram-detail");
   const psu = document.getElementById("hardware-psu");
   const psuDetail = document.getElementById("hardware-psu-detail");
-  if (!ram || !ramDetail || !psu || !psuDetail) return;
+  if (!ramLabel || !ram || !ramDetail || !psu || !psuDetail) return;
+
+  const installed = hasInstalledMemoryCapacity(system);
+  const ramLabelKey = installed ? "dashboard.ramInstalled" : "dashboard.ramUsable";
+  ramLabel.dataset.i18n = ramLabelKey;
+  ramLabel.textContent = t(ramLabelKey);
 
   const ramSummary = memorySummary(system);
   ram.textContent = ramSummary || t("dashboard.notReported");
   const moduleDetail = memoryModuleDetail(system);
-  ramDetail.textContent = moduleDetail;
-  ramDetail.title = moduleDetail;
+  const moduleFallback = moduleDetail
+    ? ""
+    : (system?.smbios_available
+      ? t("dashboard.moduleDetailsUnavailable")
+      : t("dashboard.smbiosUnavailable"));
+  ramDetail.textContent = moduleDetail || moduleFallback;
+  ramDetail.title = moduleDetail || moduleFallback;
 
   const supplySummary = powerSupplySummary(system);
   psu.textContent = supplySummary;

@@ -22,6 +22,31 @@ The image defaults already enable:
 
 The container mounts host `/sys` read-only for general hardware discovery and also mounts `/sys/devices/virtual` at `/host-sys-virtual` so CPU RAPL remains visible inside Docker. It uses the host PID namespace and persists SQLite history and alert configuration in `./data`.
 
+## SMBIOS / RAM / PSU
+
+Docker masks `/sys/firmware` inside containers by default, so the generic `/sys:/sys:ro` bind is not enough for SMBIOS inventory.
+
+The reference Compose explicitly adds:
+
+```text
+/sys/firmware:/host-sys-firmware:ro
+```
+
+and:
+
+```text
+POWERWATCH_DMI_TABLE_PATH=/host-sys-firmware/dmi/tables/DMI
+```
+
+PowerWatch parses the host DMI table directly from that read-only path to obtain populated SMBIOS Type 17 memory devices and Type 39 power-supply records. This does **not** require `privileged: true`, `/dev/mem`, or extra capabilities.
+
+If the host kernel does not expose the raw DMI table, PowerWatch keeps the Linux `/proc/meminfo` fallback for usable memory and can still try `dmidecode`. The UI deliberately distinguishes:
+
+- installed RAM from SMBIOS vs usable RAM from Linux;
+- SMBIOS unavailable vs a valid SMBIOS table that simply contains no Type 39 PSU record.
+
+On ordinary desktop PCs, an absent Type 39 record is common and does not indicate a PowerWatch error.
+
 ### 🇫🇷 CPU / RAPL dans Docker
 
 Le simple montage `/sys:/sys:ro` ne suffit pas sur toutes les distributions : certains hôtes exposent bien RAPL sur la machine mais le sous-arbre `powercap` n'apparaît pas au même endroit dans le conteneur.

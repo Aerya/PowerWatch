@@ -78,6 +78,7 @@ struct HardwareInfo {
     memory_installed_bytes: Option<u64>,
     memory_modules: Vec<MemoryModuleInfo>,
     power_supplies: Vec<PowerSupplyInfo>,
+    smbios_available: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -88,6 +89,7 @@ struct InstanceInfo {
     memory_installed_bytes: Option<u64>,
     memory_modules: Vec<MemoryModuleInfo>,
     power_supplies: Vec<PowerSupplyInfo>,
+    smbios_available: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -247,6 +249,282 @@ fn parse_power_watts(value: &str) -> Option<u32> {
     value.split_whitespace().next()?.parse::<u32>().ok()
 }
 
+#[derive(Debug, Clone)]
+struct RawSmbiosStructure {
+    kind: u8,
+    formatted: Vec<u8>,
+    strings: Vec<String>,
+}
+
+fn le_u16(data: &[u8], offset: usize) -> Option<u16> {
+    let bytes = data.get(offset..offset + 2)?;
+    Some(u16::from_le_bytes([bytes[0], bytes[1]]))
+}
+
+fn le_u32(data: &[u8], offset: usize) -> Option<u32> {
+    let bytes = data.get(offset..offset + 4)?;
+    Some(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+}
+
+fn parse_raw_smbios_structures(table: &[u8]) -> Vec<RawSmbiosStructure> {
+    let mut structures = Vec::new();
+    let mut offset = 0usize;
+
+    while offset + 4 <= table.len() {
+        let kind = table[offset];
+        let length = table[offset + 1] as usize;
+        if length < 4 || offset + length > table.len() {
+            break;
+        }
+
+        let strings_start = offset + length;
+        let mut strings_end = strings_start;
+        while strings_end + 1 < table.len()
+            && !(table[strings_end] == 0 && table[strings_end + 1] == 0)
+        {
+            strings_end += 1;
+        }
+        if strings_end + 1 >= table.len() {
+            break;
+        }
+
+        let strings = if strings_end == strings_start {
+            Vec::new()
+        } else {
+            table[strings_start..strings_end]
+                .split(|byte| *byte == 0)
+                .filter(|value| !value.is_empty())
+                .map(|value| String::from_utf8_lossy(value).trim().to_string())
+                .collect()
+        };
+
+        structures.push(RawSmbiosStructure {
+            kind,
+            formatted: table[offset..offset + length].to_vec(),
+            strings,
+        });
+
+        offset = strings_end + 2;
+        if kind == 127 {
+            break;
+        }
+    }
+
+    structures
+}
+
+fn raw_smbios_string(record: &RawSmbiosStructure, offset: usize) -> Option<String> {
+    let index = *record.formatted.get(offset)? as usize;
+    if index == 0 {
+        return None;
+    }
+    record
+        .strings
+        .get(index - 1)
+        .and_then(|value| clean_dmi_value(value))
+}
+
+fn raw_memory_size_bytes(record: &RawSmbiosStructure) -> Option<u64> {
+    let size = le_u16(&record.formatted, 0x0C)?;
+    match size {
+        0 | 0xFFFF => None,
+        0x7FFF => le_u32(&record.formatted, 0x1C)
+            .filter(|value| *value > 0)
+            .map(|value| u64::from(value) << 20),
+        value if value & 0x8000 != 0 => {
+            Some(u64::from(value & 0x7FFF) << 10)
+        }
+        value => Some(u64::from(value) << 20),
+    }
+}
+
+fn raw_memory_form_factor(code: u8) -> Option<String> {
+    let value = match code {
+        0x03 => "SIMM",
+        0x04 => "SIP",
+        0x05 => "Chip",
+        0x06 => "DIP",
+        0x07 => "ZIP",
+        0x08 => "Proprietary Card",
+        0x09 => "DIMM",
+        0x0A => "TSOP",
+        0x0B => "Row of chips",
+        0x0C => "RIMM",
+        0x0D => "SODIMM",
+        0x0E => "SRIMM",
+        0x0F => "FB-DIMM",
+        0x10 => "Die",
+        _ => return None,
+    };
+    Some(value.to_string())
+}
+
+fn raw_memory_type(code: u8) -> Option<String> {
+    let value = match code {
+        0x03 => "DRAM",
+        0x07 => "RAM",
+        0x0F => "SDRAM",
+        0x11 => "RDRAM",
+        0x12 => "DDR",
+        0x13 => "DDR2",
+        0x14 => "DDR2 FB-DIMM",
+        0x18 => "DDR3",
+        0x19 => "FBD2",
+        0x1A => "DDR4",
+        0x1B => "LPDDR",
+        0x1C => "LPDDR2",
+        0x1D => "LPDDR3",
+        0x1E => "LPDDR4",
+        0x1F => "Logical non-volatile device",
+        0x20 => "HBM",
+        0x21 => "HBM2",
+        0x22 => "DDR5",
+        0x23 => "LPDDR5",
+        0x24 => "HBM3",
+        0x25 => "MRDIMM",
+        _ => return None,
+    };
+    Some(value.to_string())
+}
+
+fn raw_memory_speed(record: &RawSmbiosStructure) -> Option<String> {
+    let configured = le_u16(&record.formatted, 0x20);
+    let configured = match configured {
+        Some(0xFFFF) => le_u32(&record.formatted, 0x58).map(u64::from),
+        Some(value) if value > 0 => Some(u64::from(value)),
+        _ => None,
+    };
+
+    let maximum = match le_u16(&record.formatted, 0x15) {
+        Some(0xFFFF) => le_u32(&record.formatted, 0x54).map(u64::from),
+        Some(value) if value > 0 => Some(u64::from(value)),
+        _ => None,
+    };
+
+    configured
+        .or(maximum)
+        .filter(|value| *value > 0)
+        .map(|value| format!("{value} MT/s"))
+}
+
+fn parse_raw_memory_modules(table: &[u8]) -> Vec<MemoryModuleInfo> {
+    parse_raw_smbios_structures(table)
+        .into_iter()
+        .filter(|record| record.kind == 17)
+        .filter_map(|record| {
+            let size_bytes = raw_memory_size_bytes(&record)?;
+            Some(MemoryModuleInfo {
+                locator: raw_smbios_string(&record, 0x10),
+                bank_locator: raw_smbios_string(&record, 0x11),
+                size_bytes,
+                memory_type: record
+                    .formatted
+                    .get(0x12)
+                    .and_then(|code| raw_memory_type(*code)),
+                form_factor: record
+                    .formatted
+                    .get(0x0E)
+                    .and_then(|code| raw_memory_form_factor(*code)),
+                speed: raw_memory_speed(&record),
+                manufacturer: raw_smbios_string(&record, 0x17),
+                part_number: raw_smbios_string(&record, 0x1A),
+            })
+        })
+        .collect()
+}
+
+fn raw_power_supply_status(characteristics: u16) -> Option<String> {
+    let status = match (characteristics >> 7) & 0x7 {
+        0x01 => Some("Other"),
+        0x02 => Some("Unknown"),
+        0x03 => Some("OK"),
+        0x04 => Some("Non-critical"),
+        0x05 => Some("Critical"),
+        _ => None,
+    };
+    let present = characteristics & (1 << 1) != 0;
+
+    match (present, status) {
+        (true, Some(status)) => Some(format!("Present, {status}")),
+        (false, Some(status)) => Some(format!("Not Present, {status}")),
+        (true, None) => Some("Present".to_string()),
+        (false, None) => None,
+    }
+}
+
+fn raw_power_supply_type(characteristics: u16) -> Option<String> {
+    let value = match (characteristics >> 10) & 0xF {
+        0x01 => "Other",
+        0x02 => "Unknown",
+        0x03 => "Linear",
+        0x04 => "Switching",
+        0x05 => "Battery",
+        0x06 => "UPS",
+        0x07 => "Converter",
+        0x08 => "Regulator",
+        _ => return None,
+    };
+    Some(value.to_string())
+}
+
+fn parse_raw_power_supplies(table: &[u8]) -> Vec<PowerSupplyInfo> {
+    parse_raw_smbios_structures(table)
+        .into_iter()
+        .filter(|record| record.kind == 39)
+        .filter_map(|record| {
+            let max_power_watts = le_u16(&record.formatted, 0x0C)
+                .filter(|value| *value != 0 && *value != 0x8000)
+                .map(u32::from);
+            let characteristics = le_u16(&record.formatted, 0x0E);
+
+            let supply = PowerSupplyInfo {
+                name: raw_smbios_string(&record, 0x06),
+                manufacturer: raw_smbios_string(&record, 0x07),
+                model: raw_smbios_string(&record, 0x0A),
+                location: raw_smbios_string(&record, 0x05),
+                status: characteristics.and_then(raw_power_supply_status),
+                supply_type: characteristics.and_then(raw_power_supply_type),
+                max_power_watts,
+            };
+
+            (supply.name.is_some()
+                || supply.manufacturer.is_some()
+                || supply.model.is_some()
+                || supply.location.is_some()
+                || supply.status.is_some()
+                || supply.supply_type.is_some()
+                || supply.max_power_watts.is_some())
+            .then_some(supply)
+        })
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn read_raw_smbios_table() -> Option<Vec<u8>> {
+    let mut candidates = Vec::new();
+    if let Ok(path) = std::env::var("POWERWATCH_DMI_TABLE_PATH") {
+        candidates.push(PathBuf::from(path));
+    }
+    candidates.push(PathBuf::from(
+        "/host-sys-firmware/dmi/tables/DMI",
+    ));
+    candidates.push(PathBuf::from("/sys/firmware/dmi/tables/DMI"));
+
+    for path in candidates {
+        if let Ok(table) = std::fs::read(&path) {
+            if !table.is_empty() {
+                return Some(table);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+fn read_raw_smbios_table() -> Option<Vec<u8>> {
+    None
+}
+
 fn parse_memory_modules(output: &str) -> Vec<MemoryModuleInfo> {
     parse_dmi_sections(output, "Memory Device")
         .into_iter()
@@ -335,17 +613,37 @@ fn read_dmidecode_type(_dmi_type: &str) -> Option<String> {
 }
 
 fn read_hardware_info() -> HardwareInfo {
-    let memory_modules = read_dmidecode_type("17")
-        .map(|output| parse_memory_modules(&output))
-        .unwrap_or_default();
+    let raw_table = read_raw_smbios_table();
+
+    let (memory_modules, power_supplies, smbios_available) =
+        if let Some(table) = raw_table.as_deref() {
+            (
+                parse_raw_memory_modules(table),
+                parse_raw_power_supplies(table),
+                true,
+            )
+        } else {
+            let memory_output = read_dmidecode_type("17");
+            let power_output = read_dmidecode_type("39");
+            let smbios_available = memory_output.is_some() || power_output.is_some();
+            (
+                memory_output
+                    .as_deref()
+                    .map(parse_memory_modules)
+                    .unwrap_or_default(),
+                power_output
+                    .as_deref()
+                    .map(parse_power_supplies)
+                    .unwrap_or_default(),
+                smbios_available,
+            )
+        };
+
     let memory_installed_bytes = (!memory_modules.is_empty()).then(|| {
         memory_modules
             .iter()
             .fold(0u64, |total, module| total.saturating_add(module.size_bytes))
     });
-    let power_supplies = read_dmidecode_type("39")
-        .map(|output| parse_power_supplies(&output))
-        .unwrap_or_default();
 
     HardwareInfo {
         cpu_model: read_cpu_model(),
@@ -353,6 +651,7 @@ fn read_hardware_info() -> HardwareInfo {
         memory_installed_bytes,
         memory_modules,
         power_supplies,
+        smbios_available,
     }
 }
 
@@ -372,6 +671,7 @@ fn instance_info() -> InstanceInfo {
         memory_installed_bytes: hardware.memory_installed_bytes,
         memory_modules: hardware.memory_modules.clone(),
         power_supplies: hardware.power_supplies.clone(),
+        smbios_available: hardware.smbios_available,
     }
 }
 
@@ -849,6 +1149,78 @@ System Power Supply
         assert_eq!(supplies[0].max_power_watts, Some(750));
         assert_eq!(supplies[0].manufacturer.as_deref(), Some("ExampleCorp"));
         assert_eq!(supplies[0].model.as_deref(), Some("PX-750"));
+    }
+
+    fn smbios_record(kind: u8, length: usize, strings: &[&str]) -> Vec<u8> {
+        let mut record = vec![0u8; length];
+        record[0] = kind;
+        record[1] = length as u8;
+        for value in strings {
+            record.extend_from_slice(value.as_bytes());
+            record.push(0);
+        }
+        if strings.is_empty() {
+            record.push(0);
+        }
+        record.push(0);
+        record
+    }
+
+    #[test]
+    fn parses_raw_smbios_memory_device() {
+        let mut record = smbios_record(
+            17,
+            0x22,
+            &["DIMM_A1", "BANK 0", "Kingston", "KF432C16"],
+        );
+        record[0x0C..0x0E].copy_from_slice(&16384u16.to_le_bytes());
+        record[0x0E] = 0x09;
+        record[0x10] = 1;
+        record[0x11] = 2;
+        record[0x12] = 0x1A;
+        record[0x15..0x17].copy_from_slice(&3200u16.to_le_bytes());
+        record[0x17] = 3;
+        record[0x1A] = 4;
+        record[0x20..0x22].copy_from_slice(&3200u16.to_le_bytes());
+
+        let modules = parse_raw_memory_modules(&record);
+        assert_eq!(modules.len(), 1);
+        assert_eq!(modules[0].size_bytes, 16u64 << 30);
+        assert_eq!(modules[0].locator.as_deref(), Some("DIMM_A1"));
+        assert_eq!(modules[0].memory_type.as_deref(), Some("DDR4"));
+        assert_eq!(modules[0].form_factor.as_deref(), Some("DIMM"));
+        assert_eq!(modules[0].speed.as_deref(), Some("3200 MT/s"));
+        assert_eq!(modules[0].manufacturer.as_deref(), Some("Kingston"));
+    }
+
+    #[test]
+    fn ignores_empty_raw_smbios_memory_device() {
+        let record = smbios_record(17, 0x22, &["DIMM_A2"]);
+        assert!(parse_raw_memory_modules(&record).is_empty());
+    }
+
+    #[test]
+    fn parses_raw_smbios_power_supply() {
+        let mut record = smbios_record(
+            39,
+            0x10,
+            &["PSU Bay 1", "PSU 1", "ExampleCorp", "PX-750"],
+        );
+        record[0x05] = 1;
+        record[0x06] = 2;
+        record[0x07] = 3;
+        record[0x0A] = 4;
+        record[0x0C..0x0E].copy_from_slice(&750u16.to_le_bytes());
+        let characteristics = (4u16 << 10) | (3u16 << 7) | (1u16 << 1);
+        record[0x0E..0x10].copy_from_slice(&characteristics.to_le_bytes());
+
+        let supplies = parse_raw_power_supplies(&record);
+        assert_eq!(supplies.len(), 1);
+        assert_eq!(supplies[0].max_power_watts, Some(750));
+        assert_eq!(supplies[0].manufacturer.as_deref(), Some("ExampleCorp"));
+        assert_eq!(supplies[0].model.as_deref(), Some("PX-750"));
+        assert_eq!(supplies[0].supply_type.as_deref(), Some("Switching"));
+        assert_eq!(supplies[0].status.as_deref(), Some("Present, OK"));
     }
 
     #[test]
