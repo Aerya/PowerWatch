@@ -49,7 +49,7 @@ Ce fork est pensé en priorité pour les **serveurs, mini-PC, machines desktop L
 - Fallback **Intel RAPL `uncore`** pour certains iGPU sans compteur i915/xe hwmon.
 - Fallback CPU **RAPL via `/dev/cpu/0/msr`** lorsque le noyau n'expose pas `powercap` (notamment certains Synology DSM).
 - Suivi de tous les **disques physiques** sans double comptage RAID/LVM, avec affichage de leur capacité.
-- Affichage best-effort des **partitions, montages, systèmes de fichiers, mdraid, LVM et dm-crypt** liés aux disques.
+- Affichage best-effort des **partitions montées, systèmes de fichiers, mdraid, LVM et dm-crypt** liés aux disques, sans bruit provenant des partitions non montées.
 - CLI et TUI disponibles dans l'image Docker.
 - Images GHCR multi-architecture **amd64 / arm64**.
 - Interface Web **français / anglais**.
@@ -66,7 +66,7 @@ Ce fork est pensé en priorité pour les **serveurs, mini-PC, machines desktop L
 | GPU AMD | `amdgpu` hwmon | Mesurée |
 | GPU Intel | `i915` / `xe` hwmon ou RAPL `uncore` | Mesurée |
 | RAM | Heuristique | Estimée |
-| Disques | Activité + type de disque | Estimée |
+| Disques | Temps occupé (`/proc/diskstats`) + profil du média ; power states NVMe si disponibles | Estimée |
 | Total | Somme des capteurs disponibles | Mixte |
 
 Un capteur indisponible est simplement ignoré.
@@ -283,11 +283,9 @@ Sur Ubuntu/Debian, si `nvidia-container-toolkit` n'est pas encore disponible dan
 
 ## Disques, partitions et stockage
 
-PowerWatch crée un capteur électrique uniquement pour chaque **disque physique**.
+PowerWatch crée un capteur électrique uniquement pour chaque **disque physique**. Les couches comme mdraid, LVM et dm-crypt ne sont pas ajoutées comme faux disques et ne sont donc pas comptées une seconde fois.
 
-Les couches comme mdraid, LVM et dm-crypt ne sont pas ajoutées comme faux disques et ne sont donc pas comptées une seconde fois.
-
-Quand Linux permet de reconstruire la relation, l'affichage peut par exemple devenir :
+Quand Linux permet de reconstruire la relation, seules les chaînes qui aboutissent à un **montage réellement utile** sont affichées, par exemple :
 
 ```text
 disk (sda) — sda1 → md0 [RAID1] → vg-data/lv-media [LVM] → /mnt/data [ext4]
@@ -295,11 +293,26 @@ disk (sda) — sda1 → md0 [RAID1] → vg-data/lv-media [LVM] → /mnt/data [ex
 disk (nvme0n1) — nvme0n1p2 → cryptroot [dm-crypt] → / [ext4]
 ```
 
-Une partition non montée peut également apparaître avec `[unmounted]`.
+Les partitions non montées sont volontairement masquées. Si un disque n'a aucune partition montée, PowerWatch conserve simplement le disque, sa capacité et sa consommation estimée sans ajouter de liste `[unmounted]`. Si certaines partitions sont montées et d'autres non, seules les partitions montées apparaissent.
 
-La capacité de chaque disque physique est lue depuis sysfs (`/sys/class/block/<device>/size`) et affichée avec son libellé enrichi.
+La capacité de chaque disque physique est lue depuis sysfs (`/sys/class/block/<device>/size`) et affichée avec son libellé enrichi. Les identifiants internes restent stables (`disk:sda`, `disk:nvme0n1`, etc.) afin de ne pas casser l'historique ni les alertes.
 
-Les identifiants internes restent stables (`disk:sda`, `disk:nvme0n1`, etc.) afin de ne pas casser l'historique ni les alertes.
+### Estimation de la consommation des disques
+
+Les valeurs disque restent des **estimations**, pas des mesures électriques directes. Pour les profils génériques, PowerWatch utilise le temps pendant lequel le périphérique est occupé dans `/proc/diskstats` entre deux échantillons et interpole entre une valeur de repos et une valeur active :
+
+| Type détecté | Repos | Actif | Détection |
+|---|---:|---:|---|
+| HDD rotatif | 4 W | 8 W | `queue/rotational = 1` |
+| SSD non amovible | 0,5 W | 3 W | non rotatif et non amovible |
+| Flash basse consommation (clé USB amovible, eMMC/SD) | 0,2 W | 1,5 W | `removable = 1` ou périphérique `mmcblk*` |
+| NVMe, fallback générique | 1 W | 6 W | périphérique `nvme*` |
+
+Par exemple, un SSD occupé environ 50 % de l'intervalle est estimé à mi-chemin entre 0,5 W et 3 W au lieu de basculer immédiatement à la valeur active maximale dès la moindre I/O. Le ratio est borné entre 0 et 100 %.
+
+Pour les NVMe, PowerWatch essaie d'abord d'utiliser `nvme-cli` et le power state courant exposé par sysfs. Lorsque cette information est disponible, la valeur maximale annoncée par le constructeur pour le power state courant est utilisée. Si elle ne l'est pas, PowerWatch revient au profil générique NVMe ci-dessus.
+
+La détection des médias amovibles dépend des informations exposées par le noyau : un boîtier USB peut donc être classé comme HDD, SSD ou flash selon `rotational` et `removable`. La confiance reste dans tous les cas **Estimée**.
 
 ## WebUI
 

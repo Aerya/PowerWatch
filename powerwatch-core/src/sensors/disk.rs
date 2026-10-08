@@ -6,6 +6,7 @@ use std::time::Instant;
 pub enum DiskType {
     Hdd7200Rpm,
     SsdSata,
+    LowPowerFlash,
     Nvme,
 }
 
@@ -14,6 +15,7 @@ impl DiskType {
         match self {
             DiskType::Hdd7200Rpm => 4.0,
             DiskType::SsdSata => 0.5,
+            DiskType::LowPowerFlash => 0.2,
             DiskType::Nvme => 1.0,
         }
     }
@@ -22,8 +24,14 @@ impl DiskType {
         match self {
             DiskType::Hdd7200Rpm => 8.0,
             DiskType::SsdSata => 3.0,
+            DiskType::LowPowerFlash => 1.5,
             DiskType::Nvme => 6.0,
         }
+    }
+
+    pub fn estimated_watts(self, busy_ratio: f64) -> f64 {
+        let ratio = busy_ratio.clamp(0.0, 1.0);
+        self.idle_watts() + (self.active_watts() - self.idle_watts()) * ratio
     }
 }
 
@@ -49,11 +57,29 @@ pub fn read_io_count(contents: &str, device_name: &str) -> Result<u64, SensorErr
     )))
 }
 
+pub fn read_io_busy_ms(contents: &str, device_name: &str) -> Result<u64, SensorError> {
+    for line in contents.lines() {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.len() < 13 || fields[2] != device_name {
+            continue;
+        }
+
+        return fields[12]
+            .parse()
+            .map_err(|e| SensorError::ReadFailed(format!("invalid diskstats busy-time field: {e}")));
+    }
+
+    Err(SensorError::Unavailable(format!(
+        "device {device_name} not found in diskstats"
+    )))
+}
+
 pub struct DiskSensor {
     diskstats_path: PathBuf,
     device_name: String,
     disk_type: DiskType,
-    last_io_count: Option<u64>,
+    last_busy_ms: Option<u64>,
+    last_sample_at: Option<Instant>,
 }
 
 impl DiskSensor {
@@ -62,25 +88,36 @@ impl DiskSensor {
             diskstats_path,
             device_name,
             disk_type,
-            last_io_count: None,
+            last_busy_ms: None,
+            last_sample_at: None,
         }
     }
 
-    fn sample_at(&mut self, _now: Instant) -> Result<SensorReading, SensorError> {
+    fn sample_at(&mut self, now: Instant) -> Result<SensorReading, SensorError> {
         let contents = read_diskstats_file(&self.diskstats_path)?;
-        let io_count = read_io_count(&contents, &self.device_name)?;
-        let was_active = self.last_io_count.is_some_and(|last| io_count != last);
-        self.last_io_count = Some(io_count);
+        let busy_ms = read_io_busy_ms(&contents, &self.device_name)?;
 
-        let watts = if was_active {
-            self.disk_type.active_watts()
-        } else {
-            self.disk_type.idle_watts()
+        let busy_ratio = match (self.last_busy_ms, self.last_sample_at) {
+            (Some(previous_busy_ms), Some(previous_sample_at))
+                if busy_ms >= previous_busy_ms && now > previous_sample_at =>
+            {
+                let busy_delta_ms = (busy_ms - previous_busy_ms) as f64;
+                let elapsed_ms = now.duration_since(previous_sample_at).as_secs_f64() * 1000.0;
+                if elapsed_ms > 0.0 {
+                    (busy_delta_ms / elapsed_ms).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
+            }
+            _ => 0.0,
         };
+
+        self.last_busy_ms = Some(busy_ms);
+        self.last_sample_at = Some(now);
 
         Ok(SensorReading {
             component: Component::Disk(self.device_name.clone()),
-            watts,
+            watts: self.disk_type.estimated_watts(busy_ratio),
             confidence: Confidence::Estimated,
             timestamp: chrono::Utc::now(),
         })
@@ -106,17 +143,18 @@ fn read_diskstats_file(path: &Path) -> Result<String, SensorError> {
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::time::Duration;
 
-    fn sample_diskstats(sda_reads: u64, sda_writes: u64) -> String {
+    fn sample_diskstats(reads: u64, writes: u64, busy_ms: u64) -> String {
         format!(
             "   7       0 loop0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n\
-               8       0 sda {sda_reads} 0 234567 6789 {sda_writes} 0 123456 4567 0 3456 8901 0 0 0 0 0\n"
+               8       0 sda {reads} 0 234567 6789 {writes} 0 123456 4567 0 {busy_ms} 8901 0 0 0 0 0\n"
         )
     }
 
     #[test]
     fn sums_reads_and_writes_for_the_requested_device() {
-        let contents = sample_diskstats(100, 50);
+        let contents = sample_diskstats(100, 50, 250);
 
         let io_count = read_io_count(&contents, "sda").unwrap();
 
@@ -124,18 +162,27 @@ mod tests {
     }
 
     #[test]
-    fn reports_unavailable_for_a_device_not_in_diskstats() {
-        let contents = sample_diskstats(100, 50);
+    fn reads_busy_time_for_the_requested_device() {
+        let contents = sample_diskstats(100, 50, 250);
 
-        let error = read_io_count(&contents, "nvme0n1").unwrap_err();
+        let busy_ms = read_io_busy_ms(&contents, "sda").unwrap();
+
+        assert_eq!(busy_ms, 250);
+    }
+
+    #[test]
+    fn reports_unavailable_for_a_device_not_in_diskstats() {
+        let contents = sample_diskstats(100, 50, 250);
+
+        let error = read_io_busy_ms(&contents, "nvme0n1").unwrap_err();
 
         assert!(matches!(error, SensorError::Unavailable(_)));
     }
 
     #[test]
-    fn first_sample_assumes_idle_since_theres_nothing_to_compare_to() {
+    fn first_sample_uses_the_idle_baseline() {
         let mut file = tempfile::NamedTempFile::new().unwrap();
-        write!(file, "{}", sample_diskstats(100, 50)).unwrap();
+        write!(file, "{}", sample_diskstats(100, 50, 250)).unwrap();
         let mut sensor =
             DiskSensor::new(file.path().to_path_buf(), "sda".to_string(), DiskType::Nvme);
 
@@ -146,35 +193,61 @@ mod tests {
     }
 
     #[test]
-    fn reports_active_watts_when_io_counters_changed_between_samples() {
+    fn interpolates_between_idle_and_active_from_busy_time() {
         let mut file = tempfile::NamedTempFile::new().unwrap();
-        write!(file, "{}", sample_diskstats(100, 50)).unwrap();
+        write!(file, "{}", sample_diskstats(100, 50, 1000)).unwrap();
         let mut sensor = DiskSensor::new(
             file.path().to_path_buf(),
             "sda".to_string(),
             DiskType::SsdSata,
         );
-        sensor.sample_at(Instant::now()).unwrap();
+        let started = Instant::now();
+        sensor.sample_at(started).unwrap();
 
-        std::fs::write(file.path(), sample_diskstats(200, 90)).unwrap();
-        let reading = sensor.sample_at(Instant::now()).unwrap();
+        std::fs::write(file.path(), sample_diskstats(200, 90, 1500)).unwrap();
+        let reading = sensor.sample_at(started + Duration::from_secs(1)).unwrap();
 
-        assert_eq!(reading.watts, DiskType::SsdSata.active_watts());
+        assert!((reading.watts - 1.75).abs() < 0.0001);
     }
 
     #[test]
-    fn reports_idle_watts_when_io_counters_stayed_the_same() {
+    fn clamps_busy_time_to_the_active_ceiling() {
         let mut file = tempfile::NamedTempFile::new().unwrap();
-        write!(file, "{}", sample_diskstats(100, 50)).unwrap();
+        write!(file, "{}", sample_diskstats(100, 50, 1000)).unwrap();
         let mut sensor = DiskSensor::new(
             file.path().to_path_buf(),
             "sda".to_string(),
             DiskType::Hdd7200Rpm,
         );
-        sensor.sample_at(Instant::now()).unwrap();
+        let started = Instant::now();
+        sensor.sample_at(started).unwrap();
 
-        let reading = sensor.sample_at(Instant::now()).unwrap();
+        std::fs::write(file.path(), sample_diskstats(200, 90, 2500)).unwrap();
+        let reading = sensor.sample_at(started + Duration::from_secs(1)).unwrap();
 
-        assert_eq!(reading.watts, DiskType::Hdd7200Rpm.idle_watts());
+        assert_eq!(reading.watts, DiskType::Hdd7200Rpm.active_watts());
+    }
+
+    #[test]
+    fn keeps_idle_baseline_when_busy_counter_does_not_move() {
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        write!(file, "{}", sample_diskstats(100, 50, 1000)).unwrap();
+        let mut sensor = DiskSensor::new(
+            file.path().to_path_buf(),
+            "sda".to_string(),
+            DiskType::LowPowerFlash,
+        );
+        let started = Instant::now();
+        sensor.sample_at(started).unwrap();
+
+        let reading = sensor.sample_at(started + Duration::from_secs(1)).unwrap();
+
+        assert_eq!(reading.watts, DiskType::LowPowerFlash.idle_watts());
+    }
+
+    #[test]
+    fn low_power_flash_uses_a_lower_estimation_profile() {
+        assert_eq!(DiskType::LowPowerFlash.idle_watts(), 0.2);
+        assert_eq!(DiskType::LowPowerFlash.active_watts(), 1.5);
     }
 }
