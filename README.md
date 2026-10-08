@@ -86,15 +86,16 @@ Pour la **RAM** :
 
 - la mémoire totale utilisable est lue depuis `/proc/meminfo` ;
 - PowerWatch lit en priorité la table SMBIOS/DMI brute du noyau pour récupérer la capacité réellement installée et les périphériques mémoire occupés ;
-- chaque module peut afficher son emplacement, sa capacité, son type (DDR4/DDR5...), son format (DIMM/SODIMM/Row Of Chips), sa vitesse configurée, son fabricant et sa référence ;
+- l'interface **regroupe les modules identiques** en un résumé court (ex. `2 × 16 GiB · DDR4 · 3200 MT/s`) sans afficher les longues références constructeur ou les emplacements ; les métadonnées complètes restent disponibles dans l'API ;
 - le nombre affiché correspond aux **Memory Devices SMBIOS occupés**. Sur certaines machines, de la mémoire soudée peut donc apparaître comme un module même s'il ne s'agit pas physiquement d'une barrette amovible ;
 - si SMBIOS est inaccessible, PowerWatch affiche la mémoire **utilisable** vue par Linux et ne la présente plus comme de la « RAM installée ».
 
 Pour l'**alimentation** :
 
 - PowerWatch lit SMBIOS **Type 39 / System Power Supply** ;
-- lorsqu'il est renseigné par le constructeur, il peut afficher fabricant, modèle/référence, emplacement, type, état et **Max Power Capacity** ;
-- la valeur en watts est la **puissance nominale maximale déclarée par l'alimentation**, pas sa consommation électrique instantanée ;
+- les entrées génériques du firmware (`Default string`, `OEM Define`, états/types sans capacité ni identité crédible) sont masquées, ainsi que les baies explicitement absentes ;
+- la WebUI et le Hub n'affichent que la puissance nominale plausible déclarée et/ou une identification constructeur crédible, sous une forme condensée ;
+- la valeur en watts est une **capacité nominale maximale déclarée via SMBIOS, non vérifiée physiquement**, pas sa consommation électrique instantanée ;
 - cette puissance nominale n'est **jamais ajoutée** au total de consommation PowerWatch.
 
 Docker masque normalement `/sys/firmware` dans les conteneurs. Le Compose PowerWatch monte donc explicitement le firmware de l'hôte en lecture seule sous `/host-sys-firmware` et définit `POWERWATCH_DMI_TABLE_PATH=/host-sys-firmware/dmi/tables/DMI`. PowerWatch parse directement cette table : aucun mode `privileged` ni accès à `/dev/mem` n'est nécessaire.

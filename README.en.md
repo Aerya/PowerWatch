@@ -86,15 +86,16 @@ For **RAM**:
 
 - usable total memory is read from `/proc/meminfo`;
 - PowerWatch first reads the kernel's raw SMBIOS/DMI table to recover physically installed capacity and populated memory devices;
-- each populated device can expose its locator, capacity, type (DDR4/DDR5...), form factor (DIMM/SODIMM/Row Of Chips), configured speed, manufacturer, and part number;
+- the interface **groups identical populated devices** into a compact summary (e.g. `2 × 16 GiB · DDR4 · 3200 MT/s`), without displaying long vendor part numbers or slot locations; full metadata remains accessible in the API;
 - the displayed count is the number of populated **SMBIOS Memory Devices**. On some systems, soldered memory can therefore appear as a module even though it is not a removable DIMM;
 - if SMBIOS is unavailable, PowerWatch displays **usable** Linux memory and no longer labels that fallback value as “Installed RAM”.
 
 For the **power supply**:
 
 - PowerWatch reads SMBIOS **Type 39 / System Power Supply**;
-- when populated by the manufacturer, it can expose manufacturer, model/part number, location, type, status, and **Max Power Capacity**;
-- the watt value is the PSU's **reported nominal maximum capacity**, not live electrical consumption;
+- generic firmware entries (`Default string`, `OEM Define`, status/type alone without credible identity or capacity) and explicitly absent PSU bays are hidden;
+- the Web UI and Hub only present a plausible reported nominal capacity and/or meaningful manufacturer identity in a compact form;
+- the watt value is an **SMBIOS-reported nominal maximum capacity, not physically verified**, not live electrical consumption;
 - nominal PSU capacity is **never added** to the PowerWatch consumption total.
 
 Docker masks `/sys/firmware` inside containers by default. The PowerWatch Compose therefore mounts the host firmware read-only at `/host-sys-firmware` and sets `POWERWATCH_DMI_TABLE_PATH=/host-sys-firmware/dmi/tables/DMI`. PowerWatch parses that raw table directly, so neither `privileged` mode nor `/dev/mem` access is required.

@@ -746,18 +746,14 @@ function memorySummary(system = currentSystemInfo) {
 }
 
 function memoryModuleDetail(system = currentSystemInfo) {
-  return memoryModules(system).map((module) => {
-    const location = [module.locator, module.bank_locator].filter(Boolean).join(" / ");
-    const vendor = [module.manufacturer, module.part_number].filter(Boolean).join(" ");
-    return [
-      location,
-      formatMemoryBytes(module.size_bytes),
-      module.memory_type,
-      module.form_factor,
-      module.speed,
-      vendor,
-    ].filter(Boolean).join(" · ");
-  }).filter(Boolean).join(" ; ");
+  const groups = new Map();
+  for (const module of memoryModules(system)) {
+    const parts = [formatMemoryBytes(module.size_bytes), module.memory_type, module.speed].filter(Boolean);
+    if (!parts.length) continue;
+    const label = parts.join(" · ");
+    groups.set(label, (groups.get(label) || 0) + 1);
+  }
+  return [...groups].map(([label, count]) => `${count} × ${label}`).join(" ; ");
 }
 
 function powerSupplies(system = currentSystemInfo) {
@@ -773,29 +769,23 @@ function powerSupplySummary(system = currentSystemInfo) {
   }
 
   const first = supplies[0];
-  const model = [first.manufacturer, first.model || first.name].filter(Boolean).join(" ");
+  const model = [first.manufacturer, first.model].filter(Boolean).join(" ");
   const parts = [];
   if (supplies.length > 1) parts.push(`${supplies.length} PSU`);
   if (Number.isFinite(Number(first.max_power_watts)) && Number(first.max_power_watts) > 0) {
     parts.push(`${first.max_power_watts} W ${t("dashboard.nominal")}`);
   }
   if (model) parts.push(model);
-  return parts.join(" · ") || t("dashboard.reportedBySmbios");
+  parts.push("SMBIOS");
+  return parts.join(" · ");
 }
 
 function powerSupplyDetail(system = currentSystemInfo) {
-  return powerSupplies(system).map((supply, index) => {
-    const identity = [
-      supply.location || supply.name || `PSU ${index + 1}`,
-      [supply.manufacturer, supply.model].filter(Boolean).join(" "),
-      Number.isFinite(Number(supply.max_power_watts)) && Number(supply.max_power_watts) > 0
-        ? `${supply.max_power_watts} W ${t("dashboard.nominal")}`
-        : "",
-      supply.supply_type,
-      supply.status,
-    ].filter(Boolean);
-    return identity.join(" · ");
-  }).filter(Boolean).join(" ; ");
+  return powerSupplies(system).map((supply, index) => [
+    supply.manufacturer || supply.model || supply.name || `PSU ${index + 1}`,
+    Number.isFinite(Number(supply.max_power_watts)) && Number(supply.max_power_watts) > 0
+      ? `${supply.max_power_watts} W ${t("dashboard.nominal")}` : "",
+  ].filter(Boolean).join(" · ")).join(" ; ");
 }
 
 function renderHardwareSummary(system = currentSystemInfo) {

@@ -349,32 +349,31 @@ function memoryIdentity(node){
   return summary?`RAM · ${summary}`:"RAM";
 }
 function memoryModuleDetail(node){
-  return memoryModules(node).map(module=>{
-    const location=[module.locator,module.bank_locator].filter(Boolean).join(" / ");
-    const vendor=[module.manufacturer,module.part_number].filter(Boolean).join(" ");
-    return [location,formatMemoryBytes(module.size_bytes),module.memory_type,module.form_factor,module.speed,vendor].filter(Boolean).join(" · ");
-  }).filter(Boolean).join(" ; ");
+  const groups=new Map();
+  for(const module of memoryModules(node)){
+    const label=[formatMemoryBytes(module.size_bytes),module.memory_type,module.speed].filter(Boolean).join(" · ");
+    if(label)groups.set(label,(groups.get(label)||0)+1);
+  }
+  return [...groups].map(([label,count])=>`${count} × ${label}`).join(" ; ");
 }
 function powerSupplies(node){return Array.isArray(node?.power_supplies)?node.power_supplies:[];}
 function powerSupplySummary(node){
   const supplies=powerSupplies(node);
   if(!supplies.length)return node?.smbios_available?tr("psuNotReported"):tr("smbiosUnavailable");
   const first=supplies[0];
-  const model=[first.manufacturer,first.model||first.name].filter(Boolean).join(" ");
+  const model=[first.manufacturer,first.model].filter(Boolean).join(" ");
   const parts=[];
   if(supplies.length>1)parts.push(`${supplies.length} PSU`);
   if(Number.isFinite(Number(first.max_power_watts))&&Number(first.max_power_watts)>0)parts.push(`${first.max_power_watts} W ${tr("nominal")}`);
   if(model)parts.push(model);
-  return parts.join(" · ")||tr("reportedBySmbios");
+  parts.push("SMBIOS");
+  return parts.join(" · ");
 }
 function powerSupplyDetail(node){
   return powerSupplies(node).map((supply,index)=>[
-    supply.location||supply.name||`PSU ${index+1}`,
-    [supply.manufacturer,supply.model].filter(Boolean).join(" "),
-    Number.isFinite(Number(supply.max_power_watts))&&Number(supply.max_power_watts)>0?`${supply.max_power_watts} W ${tr("nominal")}`:"",
-    supply.supply_type,
-    supply.status
-  ].filter(Boolean).join(" · ")).filter(Boolean).join(" ; ");
+    supply.manufacturer||supply.model||supply.name||`PSU ${index+1}`,
+    Number.isFinite(Number(supply.max_power_watts))&&Number(supply.max_power_watts)>0?`${supply.max_power_watts} W ${tr("nominal")}`:""
+  ].filter(Boolean).join(" · ")).join(" ; ");
 }
 function sensorMainHtml(sensor,node){
   const label=splitSensorLabel(sensor);
