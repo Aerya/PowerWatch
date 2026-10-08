@@ -189,6 +189,13 @@ fn clean_dmi_value(value: &str) -> Option<String> {
     }
 
     let lower = value.to_ascii_lowercase();
+    // Ignore firmware placeholders. These are not real PSU or DIMM identities.
+    if lower.starts_with("oem define")
+        || lower.starts_with("default string")
+        || lower.starts_with("to be filled by")
+    {
+        return None;
+    }
     if matches!(
         lower.as_str(),
         "unknown"
@@ -198,6 +205,9 @@ fn clean_dmi_value(value: &str) -> Option<String> {
             | "no module installed"
             | "to be filled by o.e.m."
             | "to be filled by oem"
+            | "not applicable"
+            | "n/a"
+            | "oem"
     ) {
         return None;
     }
@@ -467,6 +477,23 @@ fn raw_power_supply_type(characteristics: u16) -> Option<String> {
     Some(value.to_string())
 }
 
+// SMBIOS Type 39 is optional and often filled with generic placeholders.
+// A status or supply type by itself does not identify an actual PSU.
+fn credible_power_supply(supply: &PowerSupplyInfo) -> bool {
+    if supply
+        .status
+        .as_deref()
+        .is_some_and(|status| status.starts_with("Not Present"))
+    {
+        return false;
+    }
+    let identified = supply.manufacturer.is_some() || supply.model.is_some();
+    let plausible_rating = supply
+        .max_power_watts
+        .is_some_and(|watts| (20..=3000).contains(&watts));
+    identified || plausible_rating
+}
+
 fn parse_raw_power_supplies(table: &[u8]) -> Vec<PowerSupplyInfo> {
     parse_raw_smbios_structures(table)
         .into_iter()
@@ -476,6 +503,10 @@ fn parse_raw_power_supplies(table: &[u8]) -> Vec<PowerSupplyInfo> {
                 .filter(|value| *value != 0 && *value != 0x8000)
                 .map(u32::from);
             let characteristics = le_u16(&record.formatted, 0x0E);
+            // Firmware may describe an unpopulated PSU bay: never count it.
+            if characteristics.is_some_and(|bits| bits & (1 << 1) == 0) {
+                return None;
+            }
 
             let supply = PowerSupplyInfo {
                 name: raw_smbios_string(&record, 0x06),
@@ -487,14 +518,7 @@ fn parse_raw_power_supplies(table: &[u8]) -> Vec<PowerSupplyInfo> {
                 max_power_watts,
             };
 
-            (supply.name.is_some()
-                || supply.manufacturer.is_some()
-                || supply.model.is_some()
-                || supply.location.is_some()
-                || supply.status.is_some()
-                || supply.supply_type.is_some()
-                || supply.max_power_watts.is_some())
-            .then_some(supply)
+            credible_power_supply(&supply).then_some(supply)
         })
         .collect()
 }
@@ -583,14 +607,7 @@ fn parse_power_supplies(output: &str) -> Vec<PowerSupplyInfo> {
                     .and_then(|value| parse_power_watts(value)),
             };
 
-            (supply.name.is_some()
-                || supply.manufacturer.is_some()
-                || supply.model.is_some()
-                || supply.location.is_some()
-                || supply.status.is_some()
-                || supply.supply_type.is_some()
-                || supply.max_power_watts.is_some())
-            .then_some(supply)
+            credible_power_supply(&supply).then_some(supply)
         })
         .collect()
 }
@@ -1221,6 +1238,45 @@ System Power Supply
         assert_eq!(supplies[0].model.as_deref(), Some("PX-750"));
         assert_eq!(supplies[0].supply_type.as_deref(), Some("Switching"));
         assert_eq!(supplies[0].status.as_deref(), Some("Present, OK"));
+    }
+
+    #[test]
+    fn ignores_generic_firmware_power_supply_entries() {
+        let mut record = smbios_record(
+            39,
+            0x10,
+            &["Default string", "OEM Define 2", "Default string"],
+        );
+        record[0x05] = 1;
+        record[0x06] = 2;
+        record[0x07] = 3;
+        let characteristics = (8u16 << 10) | (3u16 << 7) | (1u16 << 1);
+        record[0x0E..0x10].copy_from_slice(&characteristics.to_le_bytes());
+        assert!(parse_raw_power_supplies(&record).is_empty());
+
+        let fallback = "System Power Supply\n\tName: Default string\n\tManufacturer: OEM Define 2\n\tType: Regulator\n\tStatus: Present, OK\n\n";
+        assert!(parse_power_supplies(fallback).is_empty());
+    }
+
+    #[test]
+    fn keeps_plausible_psu_rating_without_manufacturer() {
+        let mut record = smbios_record(39, 0x10, &["OEM Define 1"]);
+        record[0x05] = 1;
+        record[0x0C..0x0E].copy_from_slice(&75u16.to_le_bytes());
+        record[0x0E..0x10].copy_from_slice(&((3u16 << 7) | (1u16 << 1)).to_le_bytes());
+        let supplies = parse_raw_power_supplies(&record);
+        assert_eq!(supplies.len(), 1);
+        assert_eq!(supplies[0].max_power_watts, Some(75));
+        assert!(supplies[0].location.is_none());
+    }
+
+    #[test]
+    fn excludes_unpopulated_psu_bays() {
+        let mut record = smbios_record(39, 0x10, &["RealVendor"]);
+        record[0x07] = 1;
+        record[0x0C..0x0E].copy_from_slice(&750u16.to_le_bytes());
+        // Present bit remains off: the bay is not populated.
+        assert!(parse_raw_power_supplies(&record).is_empty());
     }
 
     #[test]
