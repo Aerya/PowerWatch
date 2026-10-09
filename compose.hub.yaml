@@ -28,6 +28,12 @@ services:
     ports:
       - "${POWERWATCH_HUB_BIND_IP:-127.0.0.1}:${POWERWATCH_HUB_PORT:-3065}:3000"
 
+    environment:
+      # Optional protection for Hub administration endpoints. Leave empty to
+      # preserve the existing unauthenticated behavior. Use at least 24 random
+      # characters when enabled.
+      POWERWATCH_HUB_ADMIN_TOKEN: ${POWERWATCH_HUB_ADMIN_TOKEN:-}
+
     volumes:
       - ./hub-data:/data
 

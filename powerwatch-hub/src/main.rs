@@ -1,5 +1,6 @@
 use axum::extract::{Path, Query, State};
-use axum::http::{header, StatusCode};
+use axum::http::{header, HeaderMap, Request, StatusCode};
+use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -8,6 +9,7 @@ use clap::Parser;
 use reqwest::Client;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::net::IpAddr;
 use std::path::{Path as FsPath, PathBuf};
@@ -54,6 +56,8 @@ struct NodeConfig {
     enabled: bool,
     #[serde(default = "default_true")]
     include_in_total: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    api_token: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -64,6 +68,37 @@ fn default_true() -> bool {
 struct HubConfig {
     #[serde(default)]
     nodes: Vec<NodeConfig>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct NodeConfigView {
+    id: String,
+    name: String,
+    url: String,
+    enabled: bool,
+    include_in_total: bool,
+    has_api_token: bool,
+}
+
+impl From<&NodeConfig> for NodeConfigView {
+    fn from(node: &NodeConfig) -> Self {
+        Self {
+            id: node.id.clone(),
+            name: node.name.clone(),
+            url: node.url.clone(),
+            enabled: node.enabled,
+            include_in_total: node.include_in_total,
+            has_api_token: node
+                .api_token
+                .as_deref()
+                .is_some_and(|token| !token.is_empty()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct HubConfigView {
+    nodes: Vec<NodeConfigView>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -186,6 +221,7 @@ struct HubNodeView {
     url: String,
     enabled: bool,
     include_in_total: bool,
+    has_api_token: bool,
     status: NodeStatus,
     last_seen: Option<DateTime<Utc>>,
     last_error: Option<String>,
@@ -228,6 +264,8 @@ fn default_since() -> String {
 #[derive(Debug, Clone, Deserialize)]
 struct ProbeRequest {
     url: String,
+    #[serde(default)]
+    api_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -247,6 +285,87 @@ struct AppState {
     storage: Arc<Mutex<HubStorage>>,
     stale_after: Duration,
     client: Client,
+    admin_auth: HubAdminAuth,
+}
+
+#[derive(Clone)]
+struct HubAdminAuth {
+    token_hash: Option<[u8; 32]>,
+}
+
+#[derive(Serialize)]
+struct HubAdminStatus {
+    enabled: bool,
+}
+
+impl HubAdminAuth {
+    fn load() -> Result<Self, String> {
+        let token = if let Ok(path) = std::env::var("POWERWATCH_HUB_ADMIN_TOKEN_FILE") {
+            Some(
+                std::fs::read_to_string(path.trim())
+                    .map_err(|error| {
+                        format!("cannot read POWERWATCH_HUB_ADMIN_TOKEN_FILE: {error}")
+                    })?
+                    .trim()
+                    .to_string(),
+            )
+        } else {
+            std::env::var("POWERWATCH_HUB_ADMIN_TOKEN")
+                .ok()
+                .map(|token| token.trim().to_string())
+                .filter(|token| !token.is_empty())
+        };
+
+        if token.as_deref().is_some_and(|token| token.len() < 24) {
+            return Err(
+                "POWERWATCH_HUB_ADMIN_TOKEN must contain at least 24 characters".to_string(),
+            );
+        }
+
+        Ok(Self {
+            token_hash: token.as_deref().map(hash_secret),
+        })
+    }
+
+    #[cfg(test)]
+    fn with_token(token: Option<&str>) -> Self {
+        Self {
+            token_hash: token.map(hash_secret),
+        }
+    }
+
+    fn enabled(&self) -> bool {
+        self.token_hash.is_some()
+    }
+
+    fn authorizes(&self, headers: &HeaderMap) -> bool {
+        let Some(expected) = self.token_hash else {
+            return true;
+        };
+        let Some(token) = headers
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            return false;
+        };
+        constant_time_bytes_eq(&expected, &hash_secret(token))
+    }
+}
+
+fn hash_secret(secret: &str) -> [u8; 32] {
+    Sha256::digest(secret.as_bytes()).into()
+}
+
+fn constant_time_bytes_eq(left: &[u8], right: &[u8]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .fold(0u8, |difference, (a, b)| difference | (a ^ b))
+            == 0
 }
 
 struct HubStorage {
@@ -395,6 +514,23 @@ fn validate_node(node: &NodeConfig) -> Result<(), String> {
     Ok(())
 }
 
+fn preserve_or_clear_token_for_update(existing: &NodeConfig, requested: &mut NodeConfig) {
+    match requested.api_token.as_deref() {
+        None if normalize_url(&existing.url) == normalize_url(&requested.url) => {
+            requested.api_token = existing.api_token.clone();
+        }
+        None => {
+            // A stored credential is bound to its existing destination. Moving
+            // it to another URL requires the caller to submit it explicitly.
+            requested.api_token = None;
+        }
+        Some(token) if token.trim().is_empty() => {
+            requested.api_token = None;
+        }
+        Some(_) => {}
+    }
+}
+
 fn load_config(path: &FsPath) -> HubConfig {
     match std::fs::read_to_string(path) {
         Ok(contents) => serde_json::from_str(&contents).unwrap_or_else(|error| {
@@ -412,6 +548,12 @@ fn save_config(path: &FsPath, config: &HubConfig) -> Result<(), String> {
     let tmp = path.with_extension("json.tmp");
     let data = serde_json::to_vec_pretty(config).map_err(|error| error.to_string())?;
     std::fs::write(&tmp, data).map_err(|error| error.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))
+            .map_err(|error| error.to_string())?;
+    }
     std::fs::rename(&tmp, path).map_err(|error| error.to_string())
 }
 
@@ -421,9 +563,7 @@ fn parse_since(value: &str) -> Result<chrono::Duration, String> {
         return Err("invalid duration".to_string());
     }
     let (number, unit) = trimmed.split_at(trimmed.len() - 1);
-    let amount: i64 = number
-        .parse()
-        .map_err(|_| "invalid duration".to_string())?;
+    let amount: i64 = number.parse().map_err(|_| "invalid duration".to_string())?;
     if amount <= 0 {
         return Err("duration must be positive".to_string());
     }
@@ -440,10 +580,17 @@ fn is_total_component(component: &serde_json::Value) -> bool {
     component.as_str().is_some_and(|value| value == "Total")
 }
 
-async fn fetch_snapshot(client: &Client, base_url: &str) -> Result<RemoteSnapshot, String> {
+async fn fetch_snapshot(
+    client: &Client,
+    base_url: &str,
+    api_token: Option<&str>,
+) -> Result<RemoteSnapshot, String> {
     let url = format!("{}/api/snapshot", normalize_url(base_url));
-    let response = client
-        .get(url)
+    let mut request = client.get(url);
+    if let Some(token) = api_token.filter(|token| !token.trim().is_empty()) {
+        request = request.bearer_auth(token.trim());
+    }
+    let response = request
         .timeout(Duration::from_secs(4))
         .send()
         .await
@@ -460,10 +607,14 @@ async fn fetch_snapshot(client: &Client, base_url: &str) -> Result<RemoteSnapsho
 async fn fetch_historical_totals(
     client: &Client,
     base_url: &str,
+    api_token: Option<&str>,
 ) -> Result<Vec<(DateTime<Utc>, f64)>, String> {
     let url = format!("{}/api/history/range", normalize_url(base_url));
-    let response = client
-        .get(url)
+    let mut request = client.get(url);
+    if let Some(token) = api_token.filter(|token| !token.trim().is_empty()) {
+        request = request.bearer_auth(token.trim());
+    }
+    let response = request
         .query(&[
             ("amount", BACKFILL_DAYS.to_string()),
             ("unit", "days".to_string()),
@@ -496,10 +647,13 @@ async fn backfill_node(state: AppState, node: NodeConfig) {
         return;
     }
 
-    match fetch_historical_totals(&state.client, &node.url).await {
+    match fetch_historical_totals(&state.client, &node.url, node.api_token.as_deref()).await {
         Ok(points) => {
             if points.is_empty() {
-                eprintln!("hub history backfill {}: no historical total points available", node.id);
+                eprintln!(
+                    "hub history backfill {}: no historical total points available",
+                    node.id
+                );
                 return;
             }
 
@@ -536,7 +690,7 @@ async fn backfill_all(state: AppState) {
 
 async fn poll_node(client: Client, node: NodeConfig) -> (String, Result<RemoteSnapshot, String>) {
     let id = node.id.clone();
-    let result = fetch_snapshot(&client, &node.url).await;
+    let result = fetch_snapshot(&client, &node.url, node.api_token.as_deref()).await;
     (id, result)
 }
 
@@ -674,6 +828,10 @@ async fn snapshot(State(state): State<AppState>) -> Json<HubSnapshot> {
             .unwrap_or_default();
 
         nodes.push(HubNodeView {
+            has_api_token: node
+                .api_token
+                .as_deref()
+                .is_some_and(|token| !token.is_empty()),
             id: node.id,
             name: node.name,
             url: node.url,
@@ -705,14 +863,17 @@ async fn snapshot(State(state): State<AppState>) -> Json<HubSnapshot> {
     })
 }
 
-async fn list_nodes(State(state): State<AppState>) -> Json<HubConfig> {
-    Json(state.config.read().await.clone())
+async fn list_nodes(State(state): State<AppState>) -> Json<HubConfigView> {
+    let config = state.config.read().await;
+    Json(HubConfigView {
+        nodes: config.nodes.iter().map(NodeConfigView::from).collect(),
+    })
 }
 
 async fn add_node(
     State(state): State<AppState>,
     Json(mut node): Json<NodeConfig>,
-) -> Result<(StatusCode, Json<NodeConfig>), (StatusCode, String)> {
+) -> Result<(StatusCode, Json<NodeConfigView>), (StatusCode, String)> {
     node.id = node.id.trim().to_string();
     node.name = node.name.trim().to_string();
     node.url = normalize_url(&node.url);
@@ -731,14 +892,14 @@ async fn add_node(
 
     tokio::spawn(backfill_node(state.clone(), node.clone()));
 
-    Ok((StatusCode::CREATED, Json(node)))
+    Ok((StatusCode::CREATED, Json(NodeConfigView::from(&node))))
 }
 
 async fn update_node(
     Path(id): Path<String>,
     State(state): State<AppState>,
     Json(mut node): Json<NodeConfig>,
-) -> Result<Json<NodeConfig>, (StatusCode, String)> {
+) -> Result<Json<NodeConfigView>, (StatusCode, String)> {
     node.id = id.clone();
     node.name = node.name.trim().to_string();
     node.url = normalize_url(&node.url);
@@ -748,6 +909,7 @@ async fn update_node(
     let Some(existing) = config.nodes.iter_mut().find(|existing| existing.id == id) else {
         return Err((StatusCode::NOT_FOUND, "node not found".to_string()));
     };
+    preserve_or_clear_token_for_update(existing, &mut node);
     *existing = node.clone();
 
     save_config(&state.config_path, &config)
@@ -758,7 +920,7 @@ async fn update_node(
         tokio::spawn(backfill_node(state.clone(), node.clone()));
     }
 
-    Ok(Json(node))
+    Ok(Json(NodeConfigView::from(&node)))
 }
 
 async fn delete_node(
@@ -783,7 +945,7 @@ async fn probe_node(
     State(state): State<AppState>,
     Json(request): Json<ProbeRequest>,
 ) -> Json<ProbeResponse> {
-    match fetch_snapshot(&state.client, &request.url).await {
+    match fetch_snapshot(&state.client, &request.url, request.api_token.as_deref()).await {
         Ok(snapshot) => {
             let instance_name = snapshot
                 .system
@@ -816,8 +978,7 @@ async fn history(
     State(state): State<AppState>,
     Query(params): Query<HistoryParams>,
 ) -> Result<Json<Vec<HistoryPoint>>, (StatusCode, String)> {
-    let duration =
-        parse_since(&params.since).map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+    let duration = parse_since(&params.since).map_err(|error| (StatusCode::BAD_REQUEST, error))?;
     let cutoff = Utc::now() - duration;
 
     let included_nodes = state
@@ -830,10 +991,12 @@ async fn history(
         .map(|node| node.id.clone())
         .collect::<HashSet<_>>();
 
-    let storage = state
-        .storage
-        .lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "storage lock poisoned".to_string()))?;
+    let storage = state.storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "storage lock poisoned".to_string(),
+        )
+    })?;
     let rows = storage
         .history_since(cutoff, &included_nodes)
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -841,15 +1004,44 @@ async fn history(
     Ok(Json(rows))
 }
 
+async fn admin_status(State(state): State<AppState>) -> Json<HubAdminStatus> {
+    Json(HubAdminStatus {
+        enabled: state.admin_auth.enabled(),
+    })
+}
+
+async fn require_hub_admin(
+    State(state): State<AppState>,
+    request: Request<axum::body::Body>,
+    next: Next,
+) -> axum::response::Response {
+    if state.admin_auth.authorizes(request.headers()) {
+        return next.run(request).await;
+    }
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(serde_json::json!({ "error": "Hub administrator authentication required" })),
+    )
+        .into_response()
+}
+
 fn build_router(state: AppState) -> Router {
-    Router::new()
-        .route("/", get(index))
-        .route("/api/health", get(health))
-        .route("/api/hub/snapshot", get(snapshot))
-        .route("/api/hub/history", get(history))
+    let administration = Router::new()
         .route("/api/hub/nodes", get(list_nodes).post(add_node))
         .route("/api/hub/nodes/:id", post(update_node).delete(delete_node))
         .route("/api/hub/test", post(probe_node))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_hub_admin,
+        ));
+
+    Router::new()
+        .route("/", get(index))
+        .route("/api/health", get(health))
+        .route("/api/hub/auth/status", get(admin_status))
+        .route("/api/hub/snapshot", get(snapshot))
+        .route("/api/hub/history", get(history))
+        .merge(administration)
         .with_state(state)
         .layer(axum::extract::DefaultBodyLimit::max(64 * 1024))
 }
@@ -857,6 +1049,14 @@ fn build_router(state: AppState) -> Router {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
+
+    let admin_auth = match HubAdminAuth::load() {
+        Ok(auth) => auth,
+        Err(error) => {
+            eprintln!("failed to load Hub administrator authentication: {error}");
+            std::process::exit(1);
+        }
+    };
 
     let mut config = load_config(&args.config);
     for node in &mut config.nodes {
@@ -894,6 +1094,7 @@ async fn main() {
         storage: Arc::new(Mutex::new(storage)),
         stale_after: Duration::from_secs(args.stale_after.max(2)),
         client,
+        admin_auth,
     };
 
     tokio::spawn(poll_loop(
@@ -915,8 +1116,12 @@ async fn main() {
     };
 
     if !args.host.is_loopback() {
-        eprintln!("WARNING: PowerWatch Hub has no authentication.");
-        eprintln!("Expose it only on a trusted private LAN.");
+        if state.admin_auth.enabled() {
+            eprintln!("PowerWatch Hub administrator authentication is enabled.");
+        } else {
+            eprintln!("WARNING: PowerWatch Hub administrator authentication is disabled.");
+            eprintln!("Expose it only on a trusted private LAN.");
+        }
     }
 
     println!(
@@ -935,6 +1140,34 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::Body;
+    use tower::ServiceExt;
+
+    fn node_with_token(url: &str, token: Option<&str>) -> NodeConfig {
+        NodeConfig {
+            id: "node".into(),
+            name: "Node".into(),
+            url: url.into(),
+            enabled: true,
+            include_in_total: true,
+            api_token: token.map(str::to_string),
+        }
+    }
+
+    fn router_state(admin_auth: HubAdminAuth) -> (tempfile::TempDir, AppState) {
+        let directory = tempfile::tempdir().unwrap();
+        let storage = HubStorage::open(&directory.path().join("hub.db")).unwrap();
+        let state = AppState {
+            config: Arc::new(RwLock::new(HubConfig::default())),
+            runtime: Arc::new(RwLock::new(HashMap::new())),
+            config_path: directory.path().join("hub.json"),
+            storage: Arc::new(Mutex::new(storage)),
+            stale_after: Duration::from_secs(15),
+            client: Client::new(),
+            admin_auth,
+        };
+        (directory, state)
+    }
 
     #[test]
     fn validates_node_ids_and_urls() {
@@ -944,6 +1177,7 @@ mod tests {
             url: "http://192.168.0.196:3064".into(),
             enabled: true,
             include_in_total: true,
+            api_token: None,
         };
         assert!(validate_node(&good).is_ok());
 
@@ -958,10 +1192,7 @@ mod tests {
 
     #[test]
     fn parses_supported_history_ranges() {
-        assert_eq!(
-            parse_since("30m").unwrap(),
-            chrono::Duration::minutes(30)
-        );
+        assert_eq!(parse_since("30m").unwrap(), chrono::Duration::minutes(30));
         assert_eq!(parse_since("24h").unwrap(), chrono::Duration::hours(24));
         assert_eq!(parse_since("7d").unwrap(), chrono::Duration::days(7));
         assert!(parse_since("1y").is_err());
@@ -974,6 +1205,101 @@ mod tests {
     }
 
     #[test]
+    fn public_node_view_never_serializes_the_api_token() {
+        let node = NodeConfig {
+            id: "node".into(),
+            name: "Node".into(),
+            url: "http://node:3000".into(),
+            enabled: true,
+            include_in_total: true,
+            api_token: Some("pw_super_secret".into()),
+        };
+        let json = serde_json::to_string(&NodeConfigView::from(&node)).unwrap();
+        assert!(!json.contains("pw_super_secret"));
+        assert!(json.contains("\"has_api_token\":true"));
+    }
+
+    #[test]
+    fn changing_a_node_url_never_carries_the_stored_token_implicitly() {
+        let existing = node_with_token("http://old-node:3000", Some("pw_existing_secret"));
+
+        let mut same_url = node_with_token("http://old-node:3000/", None);
+        preserve_or_clear_token_for_update(&existing, &mut same_url);
+        assert_eq!(same_url.api_token.as_deref(), Some("pw_existing_secret"));
+
+        let mut changed_url = node_with_token("http://new-node:3000", None);
+        preserve_or_clear_token_for_update(&existing, &mut changed_url);
+        assert!(changed_url.api_token.is_none());
+
+        let mut explicit_transfer =
+            node_with_token("http://new-node:3000", Some("pw_explicit_secret"));
+        preserve_or_clear_token_for_update(&existing, &mut explicit_transfer);
+        assert_eq!(
+            explicit_transfer.api_token.as_deref(),
+            Some("pw_explicit_secret")
+        );
+    }
+
+    #[tokio::test]
+    async fn hub_administration_is_optional_and_protects_mutations_when_enabled() {
+        let (_directory, state) = router_state(HubAdminAuth::with_token(None));
+        let response = build_router(state)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/hub/test")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"url":"http://127.0.0.1:1"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let admin_token = "a-very-long-hub-administrator-token";
+        let (_directory, state) = router_state(HubAdminAuth::with_token(Some(admin_token)));
+        let app = build_router(state);
+        for (method, uri) in [
+            ("GET", "/api/hub/nodes"),
+            ("POST", "/api/hub/nodes"),
+            ("POST", "/api/hub/nodes/node"),
+            ("DELETE", "/api/hub/nodes/node"),
+            ("POST", "/api/hub/test"),
+        ] {
+            let unauthorized = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(uri)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED, "{uri}");
+        }
+
+        let authorized = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/hub/test")
+                    .header("content-type", "application/json")
+                    .header("authorization", format!("Bearer {admin_token}"))
+                    .body(Body::from(r#"{"url":"http://127.0.0.1:1"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(authorized.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(authorized.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(!String::from_utf8_lossy(&body).contains(admin_token));
+    }
+
+    #[test]
     fn stores_and_reads_federated_history_without_duplicates() {
         let tmp = tempfile::NamedTempFile::new().unwrap();
         let mut storage = HubStorage::open(tmp.path()).unwrap();
@@ -982,10 +1308,7 @@ mod tests {
         storage
             .write_totals(
                 now,
-                &[
-                    ("garuda".into(), 70.0),
-                    ("lincstation".into(), 20.0),
-                ],
+                &[("garuda".into(), 70.0), ("lincstation".into(), 20.0)],
             )
             .unwrap();
         storage

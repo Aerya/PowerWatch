@@ -10,6 +10,7 @@ pub struct AppState {
     pub storage: Arc<Mutex<Option<Storage>>>,
     pub suggestions: super::suggestions::SuggestionsState,
     pub alerts: super::alerts::AlertService,
+    pub auth: super::auth::AuthService,
 }
 
 pub fn start_sampling_loop(
@@ -31,6 +32,7 @@ pub fn start_sampling_loop(
         storage: storage.clone(),
         suggestions: suggestions.clone(),
         alerts,
+        auth: super::auth::AuthService::disabled(),
     };
 
     thread::spawn(move || {

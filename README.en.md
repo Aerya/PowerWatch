@@ -34,6 +34,7 @@
 - [Web UI](#web-ui)
 - [History](#history)
 - [Alerts and notifications](#alerts-and-notifications)
+- [Integrated authentication](#integrated-authentication)
 - [CLI and TUI in Docker](#cli-and-tui-in-docker)
 - [Check detected sensors](#check-detected-sensors)
 - [PowerWatch Hub](#powerwatch-hub--multiple-machines-one-dashboard)
@@ -46,7 +47,7 @@
 
 This fork is primarily designed for **servers, mini PCs, Linux desktop machines, and Docker hosts**. **Docker remains the recommended and best-controlled deployment method**; native compilation from source is also documented for advanced users.
 
-> **Security:** the Web UI has no built-in authentication. Use it only on a **trusted private LAN**. Do not expose it directly to the Internet.
+> **Security:** integrated authentication is optional and disabled by default. Without it, use the Web UI only on a **trusted private LAN**.
 
 ## Features
 
@@ -62,6 +63,7 @@ This fork is primarily designed for **servers, mini PCs, Linux desktop machines,
 - CLI and TUI available in the Docker image.
 - Multi-architecture **amd64 / arm64** GHCR images.
 - **French / English** Web UI.
+- Optional Web UI authentication with one administrator account, persistent sessions, and read-only API tokens.
 - Configurable PowerWatch instance name, automatically suggested when adding the instance to the Hub while keeping the Hub alias independent.
 - CPU model with a direct **CPU Benchmark / PassMark** search link and monochrome CPU/RAM/disk icons.
 - Best-effort RAM inventory: **installed capacity, populated memory-device count, and per-module details** through SMBIOS when available.
@@ -246,7 +248,7 @@ Local Web UI with history:
 ./target/release/powerwatch-web   --host 127.0.0.1   --port 3000   --log   --history-interval 60
 ```
 
-For a server/headless system, add `--nas-mode`. To listen on the LAN, use a private address or `0.0.0.0`, keeping in mind that PowerWatch **has no built-in authentication**.
+For a server/headless system, add `--nas-mode`. Optional authentication is enabled with `--auth` or `POWERWATCH_AUTH_ENABLED=true`; without it, restrict a LAN listener to a trusted private network.
 
 Hub with its configuration and history files stored in the current directory:
 
@@ -412,6 +414,69 @@ Available notification methods:
 
 Alert settings are stored in the persistent Docker volume together with history data.
 
+## Integrated authentication
+
+PowerWatch can protect its Web UI and APIs with native authentication, without an HTTP browser popup or an external service. It is **disabled by default** to preserve existing installations.
+
+For the first activation, add this to `.env`:
+
+```dotenv
+POWERWATCH_AUTH_ENABLED=true
+POWERWATCH_AUTH_SETUP_TOKEN=a-long-unique-random-secret
+```
+
+The setup token must contain at least 16 characters. Restart PowerWatch, open the Web UI, then enter this token on the account-creation screen. This prevents a visitor who discovers the URL before the administrator from claiming the single account.
+
+After creating the account, remove `POWERWATCH_AUTH_SETUP_TOKEN` from `.env` and recreate the container. The account, sessions, and integration tokens remain in `./data/auth.json` together with history and the other persistent data. Keep `POWERWATCH_AUTH_ENABLED=true` enabled.
+
+The **Security** page lets you:
+
+- change the password;
+- revoke every session;
+- create and revoke read-only Bearer API tokens;
+- sign out.
+
+Passwords are hashed with **Argon2id**. Sessions are stored server-side; the browser only receives an `HttpOnly`, `SameSite=Strict` cookie that is automatically marked `Secure` when the reverse proxy sends `X-Forwarded-Proto: https`. Session-authenticated actions also require a CSRF token.
+
+### API for PowerWatch Hub and Dockge-Enhanced
+
+Create a token from **Security**, copy it immediately — its full value will not be displayed again — then send it in the HTTP header:
+
+```http
+Authorization: Bearer pw_...
+```
+
+The token only grants read access to:
+
+- `GET /api/snapshot`;
+- `GET /api/history`;
+- `GET /api/history/range`;
+- `GET /api/instance`.
+
+Authentication endpoints are:
+
+- `GET /api/auth/status` — public status without secrets;
+- `POST /api/auth/setup` — initial creation with `username`, `password`, and `setup_token`;
+- `POST /api/auth/login` and `POST /api/auth/logout`;
+- `GET /api/auth/settings`;
+- `POST /api/auth/password`;
+- `POST /api/auth/sessions/revoke`;
+- `POST /api/auth/tokens` and `DELETE /api/auth/tokens/:id`.
+
+`GET /api/health` stays public. Other data and action APIs reject unauthenticated calls when authentication is enabled. PowerWatch Hub accepts the optional token in each instance form and never exposes it in its API responses.
+
+Hub administration operations can also be protected independently and optionally:
+
+```dotenv
+POWERWATCH_HUB_ADMIN_TOKEN=a-random-secret-with-at-least-24-characters
+```
+
+When this variable is set, adding, listing, changing, deleting, and testing instances requires `Authorization: Bearer <administrator token>`. The dashboard lets you enter this secret for the current tab; it is never returned by the API or added to URLs. `GET /api/hub/auth/status` only reports whether protection is enabled. Without the variable, the Hub keeps its historical behavior.
+
+An already stored instance token remains bound to its current URL. If the URL changes without explicitly supplying a new token in the same request, the stored secret is removed instead of being sent to the new destination. Updates that keep the same URL preserve the existing token.
+
+For an HTTPS reverse proxy, terminate TLS at the proxy, forward `X-Forwarded-Proto: https`, and replace any client-provided value instead of appending to it. PowerWatch does not terminate TLS itself.
+
 ## CLI and TUI in Docker
 
 The Web UI is the main service, but the image also includes the CLI and TUI.
@@ -543,7 +608,7 @@ The supplied Compose file notably uses:
 - a read-only container filesystem;
 - `no-new-privileges:true`.
 
-The Web UI currently has **no built-in authentication or HTTPS**. Do not expose it directly through a port forward, public tunnel, or Internet-facing reverse proxy without additional access protection.
+The Web UI provides optional integrated authentication but does not terminate HTTPS. For reverse-proxy exposure, enable authentication and use HTTPS; without authentication, restrict access to a trusted private LAN.
 
 ## Attribution
 

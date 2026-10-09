@@ -34,6 +34,7 @@
 - [WebUI](#webui)
 - [Historique](#historique)
 - [Alertes et notifications](#alertes-et-notifications)
+- [Authentification intégrée](#authentification-intégrée)
 - [CLI et TUI dans Docker](#cli-et-tui-dans-docker)
 - [Vérifier les capteurs détectés](#vérifier-les-capteurs-détectés)
 - [PowerWatch Hub](#powerwatch-hub--plusieurs-machines-un-seul-dashboard)
@@ -46,7 +47,7 @@
 
 Ce fork est pensé en priorité pour les **serveurs, mini-PC, machines desktop Linux et hôtes Docker**. **Docker reste la méthode de déploiement recommandée et la mieux maîtrisée** ; une compilation native depuis les sources est également documentée pour les utilisateurs avancés.
 
-> **Sécurité :** la WebUI n'a pas d'authentification intégrée. Utilisez-la uniquement sur un **LAN privé de confiance**. Ne l'exposez pas directement sur Internet.
+> **Sécurité :** l'authentification intégrée est facultative et désactivée par défaut. Sans elle, utilisez la WebUI uniquement sur un **LAN privé de confiance**.
 
 ## Fonctionnalités
 
@@ -62,6 +63,7 @@ Ce fork est pensé en priorité pour les **serveurs, mini-PC, machines desktop L
 - CLI et TUI disponibles dans l'image Docker.
 - Images GHCR multi-architecture **amd64 / arm64**.
 - Interface Web **français / anglais**.
+- Authentification WebUI facultative avec compte administrateur unique, sessions persistantes et jetons API en lecture seule.
 - Nom d'instance PowerWatch configurable dans la WebUI et proposé automatiquement lors de l'ajout dans le Hub, sans empêcher un alias Hub différent.
 - Modèle CPU affiché avec lien direct vers la recherche **CPU Benchmark / PassMark** et icônes monochromes CPU/RAM/disque.
 - Inventaire RAM best-effort : **capacité installée, nombre de modules occupés et détails de chaque module** via SMBIOS lorsque disponibles.
@@ -246,7 +248,7 @@ WebUI locale avec historique :
 ./target/release/powerwatch-web   --host 127.0.0.1   --port 3000   --log   --history-interval 60
 ```
 
-Pour un serveur/headless, ajoutez `--nas-mode`. Pour écouter sur le LAN, utilisez une adresse privée ou `0.0.0.0`, en gardant à l'esprit que PowerWatch **n'intègre pas d'authentification**.
+Pour un serveur/headless, ajoutez `--nas-mode`. L'authentification facultative s'active avec `--auth` ou `POWERWATCH_AUTH_ENABLED=true` ; sans elle, limitez une écoute LAN à un réseau privé de confiance.
 
 Hub avec ses fichiers de configuration et d'historique dans le répertoire courant :
 
@@ -412,6 +414,69 @@ Notifications disponibles :
 
 Les paramètres d'alertes sont conservés dans le volume persistant Docker avec l'historique.
 
+## Authentification intégrée
+
+PowerWatch peut protéger sa WebUI et ses API avec une authentification native, sans popup HTTP ni service externe. Elle est **désactivée par défaut** afin de préserver les installations existantes.
+
+Pour la première activation, ajoutez dans `.env` :
+
+```dotenv
+POWERWATCH_AUTH_ENABLED=true
+POWERWATCH_AUTH_SETUP_TOKEN=un-secret-aleatoire-long-et-unique
+```
+
+Le jeton d'initialisation doit contenir au moins 16 caractères. Redémarrez PowerWatch, ouvrez la WebUI puis saisissez ce jeton dans l'écran de création du compte. Il empêche un visiteur ayant découvert l'URL avant l'administrateur de s'approprier l'unique compte.
+
+Après la création du compte, supprimez `POWERWATCH_AUTH_SETUP_TOKEN` de `.env` et recréez le conteneur. Le compte, les sessions et les jetons d'intégration restent dans `./data/auth.json`, avec l'historique et les autres données persistantes. `POWERWATCH_AUTH_ENABLED=true` doit rester défini.
+
+La page **Sécurité** permet de :
+
+- changer le mot de passe ;
+- révoquer toutes les sessions ;
+- créer et révoquer des jetons API Bearer en lecture seule ;
+- se déconnecter.
+
+Les mots de passe sont hachés avec **Argon2id**. Les sessions sont conservées côté serveur ; le navigateur reçoit uniquement un cookie `HttpOnly`, `SameSite=Strict`, automatiquement marqué `Secure` lorsque le reverse proxy transmet `X-Forwarded-Proto: https`. Les actions par session exigent également un jeton CSRF.
+
+### API pour PowerWatch Hub et Dockge-Enhanced
+
+Créez un jeton depuis **Sécurité**, copiez-le immédiatement — sa valeur complète ne sera plus affichée — puis envoyez-le dans l'en-tête HTTP :
+
+```http
+Authorization: Bearer pw_...
+```
+
+Le jeton donne uniquement accès en lecture à :
+
+- `GET /api/snapshot` ;
+- `GET /api/history` ;
+- `GET /api/history/range` ;
+- `GET /api/instance`.
+
+Les endpoints d'authentification sont :
+
+- `GET /api/auth/status` — état public, sans secret ;
+- `POST /api/auth/setup` — création initiale avec `username`, `password` et `setup_token` ;
+- `POST /api/auth/login` et `POST /api/auth/logout` ;
+- `GET /api/auth/settings` ;
+- `POST /api/auth/password` ;
+- `POST /api/auth/sessions/revoke` ;
+- `POST /api/auth/tokens` et `DELETE /api/auth/tokens/:id`.
+
+`GET /api/health` reste public. Les autres API de données ou d'action refusent les appels non authentifiés lorsque l'option est active. PowerWatch Hub accepte le jeton facultatif dans le formulaire de chaque instance et ne l'expose jamais dans ses réponses API.
+
+Les opérations d'administration du Hub peuvent elles aussi être protégées, de manière facultative :
+
+```dotenv
+POWERWATCH_HUB_ADMIN_TOKEN=un-secret-aleatoire-d-au-moins-24-caracteres
+```
+
+Lorsque cette variable est définie, l'ajout, la liste, la modification, la suppression et le test des instances exigent `Authorization: Bearer <jeton administrateur>`. Le dashboard permet de saisir ce secret pour l'onglet courant ; il n'est ni renvoyé par l'API ni ajouté aux URLs. `GET /api/hub/auth/status` indique uniquement si cette protection est active. Sans variable, le comportement historique du Hub reste inchangé.
+
+Un jeton d'instance déjà enregistré reste associé à son URL actuelle. Si l'URL est modifiée sans fournir explicitement un nouveau jeton dans la même requête, le secret enregistré est supprimé au lieu d'être transmis à la nouvelle destination. Les modifications qui conservent la même URL préservent le jeton existant.
+
+Pour un reverse proxy HTTPS, terminez TLS sur le proxy, transmettez `X-Forwarded-Proto: https` et remplacez toute valeur fournie par le client au lieu de la concaténer. PowerWatch n'embarque pas lui-même de certificat TLS.
+
 ## CLI et TUI dans Docker
 
 La WebUI est le service principal, mais l'image contient également la CLI et la TUI.
@@ -544,7 +609,7 @@ Le Compose fourni utilise notamment :
 - un système de fichiers conteneur en lecture seule ;
 - `no-new-privileges:true`.
 
-La WebUI ne possède actuellement **ni authentification ni HTTPS intégré**. Ne la publiez pas directement derrière un port-forward, un tunnel public ou un reverse proxy exposé à Internet sans protection d'accès supplémentaire.
+La WebUI propose une authentification intégrée facultative, mais pas de terminaison HTTPS. Pour une exposition via reverse proxy, activez l'authentification et utilisez HTTPS ; sans authentification, limitez l'accès à un LAN privé de confiance.
 
 
 ## Attribution

@@ -52,6 +52,23 @@ services:
       - ./data:/data/.local/share/powerwatch
 
     environment:
+      # ---------------------------------------------------------------------
+      # AUTHENTIFICATION WEB INTÉGRÉE - FACULTATIVE / OPTIONAL WEB AUTH
+      # ---------------------------------------------------------------------
+      # Désactivée par défaut. Pour la première activation, définissez aussi
+      # POWERWATCH_AUTH_SETUP_TOKEN avec un secret aléatoire d'au moins
+      # 16 caractères. Après création du compte unique dans la WebUI, retirez
+      # ce secret de .env puis recréez le conteneur : le compte persiste dans
+      # ./data/auth.json.
+      #
+      # Disabled by default. On first activation, also set
+      # POWERWATCH_AUTH_SETUP_TOKEN to a random secret of at least 16
+      # characters. After creating the single account in the Web UI, remove
+      # that secret from .env and recreate the container: the account remains
+      # persisted in ./data/auth.json.
+      POWERWATCH_AUTH_ENABLED: ${POWERWATCH_AUTH_ENABLED:-false}
+      POWERWATCH_AUTH_SETUP_TOKEN: ${POWERWATCH_AUTH_SETUP_TOKEN:-}
+
       # FR : chemin RAPL dédié. Si powercap n'est pas disponible,
       # PowerWatch tente automatiquement le fallback /dev/cpu/0/msr lorsque
       # le device ET CAP_SYS_RAWIO ont été exposés via les blocs ci-dessus.

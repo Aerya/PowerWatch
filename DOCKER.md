@@ -1,6 +1,6 @@
 # PowerWatch Docker deployment
 
-PowerWatch has no authentication. Keep it on a trusted private LAN only; do not expose it through a public reverse proxy, tunnel, or router port-forwarding.
+PowerWatch authentication is optional and disabled by default. Keep an unauthenticated instance on a trusted private LAN only. See **Integrated authentication / Authentification intégrée** below before using a reverse proxy.
 
 ## Quick start / Démarrage rapide
 
@@ -21,6 +21,31 @@ The image defaults already enable:
 ```
 
 The container mounts host `/sys` read-only for general hardware discovery and also mounts `/sys/devices/virtual` at `/host-sys-virtual` so CPU RAPL remains visible inside Docker. It uses the host PID namespace and persists SQLite history and alert configuration in `./data`.
+
+## Integrated authentication / Authentification intégrée
+
+First authenticated start / Premier démarrage authentifié:
+
+```dotenv
+POWERWATCH_AUTH_ENABLED=true
+POWERWATCH_AUTH_SETUP_TOKEN=a-long-random-secret-at-least-16-characters
+```
+
+Run `docker compose up -d`, open the Web UI, and create the single administrator account with the setup token. Then remove `POWERWATCH_AUTH_SETUP_TOKEN` and recreate the container. Keep `POWERWATCH_AUTH_ENABLED=true`.
+
+The persistent bind mount stores `auth.json` under `./data`; Docker recreation therefore preserves the account, server-side sessions, and hashed integration tokens. The clear API token is only returned once when it is created.
+
+For PowerWatch Hub, enter a read-only token from the PowerWatch **Security** page in the instance's optional API-token field. Dockge-Enhanced must send the same kind of token as `Authorization: Bearer <token>`.
+
+Hub administration can be protected separately with:
+
+```dotenv
+POWERWATCH_HUB_ADMIN_TOKEN=a-random-secret-with-at-least-24-characters
+```
+
+When configured, use this Bearer token for `/api/hub/nodes`, `/api/hub/nodes/:id`, and `/api/hub/test`. The Hub dashboard keeps it only for the current browser tab. A stored instance token is preserved for same-URL updates, but it is cleared on a URL change unless a token is explicitly supplied for the new destination.
+
+Behind HTTPS, the proxy must overwrite and send `X-Forwarded-Proto: https`; this makes PowerWatch set the session cookie's `Secure` attribute. Health remains public at `/api/health`.
 
 ## SMBIOS / RAM / PSU
 

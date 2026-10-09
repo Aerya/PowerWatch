@@ -2,8 +2,9 @@ use crate::state::AppState;
 use crate::suggestions::{ApplyRequest, ApplyResponse, Proposal};
 use axum::extract::{Query, State};
 use axum::http::{header, StatusCode};
+use axum::middleware;
 use axum::response::{Html, IntoResponse};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use powerwatch_core::json_snapshot::{build_json_snapshot, JsonSnapshot};
 use powerwatch_core::model::{Component, SensorReading};
@@ -41,6 +42,8 @@ fn convert_rss_to_mb(output: &str) -> String {
 
 const INDEX_HTML: &str = include_str!("../static/index.html");
 const I18N_JS: &str = include_str!("../static/i18n.js");
+const AUTH_JS: &str = include_str!("../static/auth.js");
+const SECURITY_HTML: &str = include_str!("../static/security.html");
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 struct InstanceSettings {
@@ -156,8 +159,7 @@ fn parse_cpu_model(cpuinfo: &str) -> Option<String> {
             return None;
         }
         let value = value.trim();
-        (!value.is_empty() && !value.chars().all(|c| c.is_ascii_digit()))
-            .then(|| value.to_string())
+        (!value.is_empty() && !value.chars().all(|c| c.is_ascii_digit())).then(|| value.to_string())
     })
 }
 
@@ -341,9 +343,7 @@ fn raw_memory_size_bytes(record: &RawSmbiosStructure) -> Option<u64> {
         0x7FFF => le_u32(&record.formatted, 0x1C)
             .filter(|value| *value > 0)
             .map(|value| u64::from(value) << 20),
-        value if value & 0x8000 != 0 => {
-            Some(u64::from(value & 0x7FFF) << 10)
-        }
+        value if value & 0x8000 != 0 => Some(u64::from(value & 0x7FFF) << 10),
         value => Some(u64::from(value) << 20),
     }
 }
@@ -529,9 +529,7 @@ fn read_raw_smbios_table() -> Option<Vec<u8>> {
     if let Ok(path) = std::env::var("POWERWATCH_DMI_TABLE_PATH") {
         candidates.push(PathBuf::from(path));
     }
-    candidates.push(PathBuf::from(
-        "/host-sys-firmware/dmi/tables/DMI",
-    ));
+    candidates.push(PathBuf::from("/host-sys-firmware/dmi/tables/DMI"));
     candidates.push(PathBuf::from("/sys/firmware/dmi/tables/DMI"));
 
     for path in candidates {
@@ -564,7 +562,9 @@ fn parse_memory_modules(output: &str) -> Vec<MemoryModuleInfo> {
                 .and_then(|value| clean_dmi_value(value));
 
             Some(MemoryModuleInfo {
-                locator: fields.get("Locator").and_then(|value| clean_dmi_value(value)),
+                locator: fields
+                    .get("Locator")
+                    .and_then(|value| clean_dmi_value(value)),
                 bank_locator: fields
                     .get("Bank Locator")
                     .and_then(|value| clean_dmi_value(value)),
@@ -600,7 +600,9 @@ fn parse_power_supplies(output: &str) -> Vec<PowerSupplyInfo> {
                 location: fields
                     .get("Location")
                     .and_then(|value| clean_dmi_value(value)),
-                status: fields.get("Status").and_then(|value| clean_dmi_value(value)),
+                status: fields
+                    .get("Status")
+                    .and_then(|value| clean_dmi_value(value)),
                 supply_type: fields.get("Type").and_then(|value| clean_dmi_value(value)),
                 max_power_watts: fields
                     .get("Max Power Capacity")
@@ -657,9 +659,9 @@ fn read_hardware_info() -> HardwareInfo {
         };
 
     let memory_installed_bytes = (!memory_modules.is_empty()).then(|| {
-        memory_modules
-            .iter()
-            .fold(0u64, |total, module| total.saturating_add(module.size_bytes))
+        memory_modules.iter().fold(0u64, |total, module| {
+            total.saturating_add(module.size_bytes)
+        })
     });
 
     HardwareInfo {
@@ -693,13 +695,12 @@ fn instance_info() -> InstanceInfo {
 }
 
 pub fn build_router(state: AppState) -> Router {
-    Router::new()
-        .route("/", get(index))
-        .route("/static/i18n.js", get(i18n_js))
-        .route("/alerts", get(crate::alerts::page))
-        .route("/api/alerts", get(crate::alerts::overview).put(crate::alerts::update))
+    let protected = Router::new()
+        .route(
+            "/api/alerts",
+            get(crate::alerts::overview).put(crate::alerts::update),
+        )
         .route("/api/alerts/test", post(crate::alerts::test_notification))
-        .route("/api/health", get(health))
         .route("/api/instance", get(instance).put(update_instance))
         .route("/api/snapshot", get(snapshot))
         .route("/api/history", get(history))
@@ -707,6 +708,34 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/suggestions", get(suggestions_list))
         .route("/api/suggestions/apply", post(suggestions_apply))
         .route("/api/processes/top", get(top_processes))
+        .route("/api/auth/logout", post(crate::auth::logout))
+        .route("/api/auth/settings", get(crate::auth::security_settings))
+        .route("/api/auth/password", post(crate::auth::change_password))
+        .route(
+            "/api/auth/sessions/revoke",
+            post(crate::auth::revoke_sessions),
+        )
+        .route("/api/auth/tokens", post(crate::auth::create_api_token))
+        .route(
+            "/api/auth/tokens/:id",
+            delete(crate::auth::revoke_api_token),
+        )
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::auth::require_auth,
+        ));
+
+    Router::new()
+        .route("/", get(index))
+        .route("/static/i18n.js", get(i18n_js))
+        .route("/static/auth.js", get(auth_js))
+        .route("/alerts", get(crate::alerts::page))
+        .route("/security", get(security_page))
+        .route("/api/health", get(health))
+        .route("/api/auth/status", get(crate::auth::status))
+        .route("/api/auth/setup", post(crate::auth::setup))
+        .route("/api/auth/login", post(crate::auth::login))
+        .merge(protected)
         .with_state(state)
         .layer(axum::extract::DefaultBodyLimit::max(64 * 1024))
 }
@@ -720,8 +749,28 @@ async fn index() -> impl IntoResponse {
 
 async fn i18n_js() -> impl IntoResponse {
     (
-        [(header::CONTENT_TYPE, "application/javascript; charset=utf-8")],
+        [(
+            header::CONTENT_TYPE,
+            "application/javascript; charset=utf-8",
+        )],
         I18N_JS,
+    )
+}
+
+async fn auth_js() -> impl IntoResponse {
+    (
+        [(
+            header::CONTENT_TYPE,
+            "application/javascript; charset=utf-8",
+        )],
+        AUTH_JS,
+    )
+}
+
+async fn security_page() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        Html(SECURITY_HTML),
     )
 }
 
@@ -736,8 +785,8 @@ async fn instance() -> Json<InstanceInfo> {
 async fn update_instance(
     Json(request): Json<InstanceUpdate>,
 ) -> Result<Json<InstanceInfo>, (StatusCode, String)> {
-    let name = normalize_instance_name(&request.name)
-        .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+    let name =
+        normalize_instance_name(&request.name).map_err(|error| (StatusCode::BAD_REQUEST, error))?;
     save_instance_settings(&InstanceSettings { name })
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
     Ok(Json(instance_info()))
@@ -782,7 +831,6 @@ async fn history(
 
     Ok(Json(readings))
 }
-
 
 #[derive(Deserialize)]
 struct RangeHistoryParams {
@@ -843,21 +891,8 @@ fn choose_bucket_seconds(range_seconds: u64, max_points: u32) -> u64 {
     let max_points = max_points.clamp(100, 5_000) as u64;
     let target = range_seconds.div_ceil(max_points).max(60);
     const BUCKETS: &[u64] = &[
-        60,
-        120,
-        300,
-        600,
-        900,
-        1_800,
-        3_600,
-        7_200,
-        10_800,
-        21_600,
-        43_200,
-        86_400,
-        172_800,
-        604_800,
-        2_592_000,
+        60, 120, 300, 600, 900, 1_800, 3_600, 7_200, 10_800, 21_600, 43_200, 86_400, 172_800,
+        604_800, 2_592_000,
     ];
 
     BUCKETS
@@ -867,10 +902,7 @@ fn choose_bucket_seconds(range_seconds: u64, max_points: u32) -> u64 {
         .unwrap_or(target)
 }
 
-fn summarize_history(
-    points: &[AggregatedReading],
-    bucket_seconds: u64,
-) -> Option<HistorySummary> {
+fn summarize_history(points: &[AggregatedReading], bucket_seconds: u64) -> Option<HistorySummary> {
     let totals: Vec<_> = points
         .iter()
         .filter(|point| point.component == Component::Total)
@@ -906,7 +938,9 @@ fn summarize_history(
         let previous = pair[0];
         let next = pair[1];
         let delta_seconds = (next.timestamp - previous.timestamp).num_seconds();
-        if delta_seconds <= 0 { continue; }
+        if delta_seconds <= 0 {
+            continue;
+        }
         let covered_seconds = (delta_seconds as u64).min(bucket_seconds);
         let average_watts = (previous.avg_watts + next.avg_watts) / 2.0;
         energy_kwh += average_watts * covered_seconds as f64 / 3_600_000.0;
@@ -1076,6 +1110,7 @@ mod tests {
             storage: Arc::new(Mutex::new(None)),
             suggestions: crate::suggestions::SuggestionsState::new(),
             alerts: crate::alerts::AlertService::memory(),
+            auth: crate::auth::AuthService::disabled(),
         }
     }
 
@@ -1085,6 +1120,7 @@ mod tests {
             storage: Arc::new(Mutex::new(Some(storage))),
             suggestions: crate::suggestions::SuggestionsState::new(),
             alerts: crate::alerts::AlertService::memory(),
+            auth: crate::auth::AuthService::disabled(),
         }
     }
 
@@ -1185,11 +1221,7 @@ System Power Supply
 
     #[test]
     fn parses_raw_smbios_memory_device() {
-        let mut record = smbios_record(
-            17,
-            0x22,
-            &["DIMM_A1", "BANK 0", "Kingston", "KF432C16"],
-        );
+        let mut record = smbios_record(17, 0x22, &["DIMM_A1", "BANK 0", "Kingston", "KF432C16"]);
         record[0x0C..0x0E].copy_from_slice(&16384u16.to_le_bytes());
         record[0x0E] = 0x09;
         record[0x10] = 1;
@@ -1218,11 +1250,7 @@ System Power Supply
 
     #[test]
     fn parses_raw_smbios_power_supply() {
-        let mut record = smbios_record(
-            39,
-            0x10,
-            &["PSU Bay 1", "PSU 1", "ExampleCorp", "PX-750"],
-        );
+        let mut record = smbios_record(39, 0x10, &["PSU Bay 1", "PSU 1", "ExampleCorp", "PX-750"]);
         record[0x05] = 1;
         record[0x06] = 2;
         record[0x07] = 3;
@@ -1281,7 +1309,10 @@ System Power Supply
 
     #[test]
     fn validates_instance_name_length_and_control_characters() {
-        assert_eq!(normalize_instance_name("  DockerLab  ").unwrap(), "DockerLab");
+        assert_eq!(
+            normalize_instance_name("  DockerLab  ").unwrap(),
+            "DockerLab"
+        );
         assert!(normalize_instance_name(&"x".repeat(81)).is_err());
         assert!(normalize_instance_name("bad\nname").is_err());
     }
@@ -1526,5 +1557,317 @@ System Power Supply
             .unwrap();
 
         assert_eq!(response.status(), 400);
+    }
+
+    fn authenticated_test_state(path: PathBuf) -> AppState {
+        let mut state = test_state_with(Snapshot {
+            timestamp: chrono::Utc::now(),
+            results: vec![("cpu".to_string(), Ok(reading(12.5)))],
+        });
+        state.auth = crate::auth::AuthService::load_with_setup_secret(
+            true,
+            path,
+            Some("bootstrap-secret-123".to_string()),
+        )
+        .unwrap();
+        state
+    }
+
+    async fn json_request(
+        app: Router,
+        method: &str,
+        uri: &str,
+        body: &str,
+        cookie: Option<&str>,
+        csrf: Option<&str>,
+        bearer: Option<&str>,
+    ) -> (StatusCode, axum::http::HeaderMap, serde_json::Value) {
+        let mut builder = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("content-type", "application/json");
+        if let Some(cookie) = cookie {
+            builder = builder.header("cookie", cookie);
+        }
+        if let Some(csrf) = csrf {
+            builder = builder.header("x-csrf-token", csrf);
+        }
+        if let Some(token) = bearer {
+            builder = builder.header("authorization", format!("Bearer {token}"));
+        }
+        let response = app
+            .oneshot(builder.body(Body::from(body.to_string())).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let headers = response.headers().clone();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+        (status, headers, json)
+    }
+
+    fn cookie_from(headers: &axum::http::HeaderMap) -> String {
+        headers
+            .get(axum::http::header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string()
+    }
+
+    #[tokio::test]
+    async fn complete_authentication_and_api_token_flow() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auth.json");
+        let state = authenticated_test_state(path);
+
+        let (status, _, body) = json_request(
+            build_router(state.clone()),
+            "GET",
+            "/api/auth/status",
+            "",
+            None,
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["setup_required"], true);
+
+        let (status, _, _) = json_request(
+            build_router(state.clone()),
+            "GET",
+            "/api/snapshot",
+            "",
+            None,
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        let wrong_setup = r#"{"username":"admin","password":"correct horse battery","setup_token":"wrong-bootstrap-token"}"#;
+        let (status, _, _) = json_request(
+            build_router(state.clone()),
+            "POST",
+            "/api/auth/setup",
+            wrong_setup,
+            None,
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        let setup = r#"{"username":"admin","password":"correct horse battery","setup_token":"bootstrap-secret-123"}"#;
+        let (status, headers, body) = json_request(
+            build_router(state.clone()),
+            "POST",
+            "/api/auth/setup",
+            setup,
+            None,
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let cookie = cookie_from(&headers);
+        let csrf = body["csrf_token"].as_str().unwrap().to_string();
+
+        let (status, _, _) = json_request(
+            build_router(state.clone()),
+            "GET",
+            "/api/snapshot",
+            "",
+            Some(&cookie),
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, _, _) = json_request(
+            build_router(state.clone()),
+            "POST",
+            "/api/auth/tokens",
+            r#"{"name":"Hub"}"#,
+            Some(&cookie),
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        let (status, _, body) = json_request(
+            build_router(state.clone()),
+            "POST",
+            "/api/auth/tokens",
+            r#"{"name":"Hub"}"#,
+            Some(&cookie),
+            Some(&csrf),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let api_token = body["token"].as_str().unwrap().to_string();
+
+        let (status, _, _) = json_request(
+            build_router(state.clone()),
+            "GET",
+            "/api/snapshot",
+            "",
+            None,
+            None,
+            Some(&api_token),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _, _) = json_request(
+            build_router(state.clone()),
+            "GET",
+            "/api/snapshot",
+            "",
+            None,
+            None,
+            Some("pw_invalid"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let (status, _, _) = json_request(
+            build_router(state.clone()),
+            "POST",
+            "/api/suggestions/apply",
+            r#"{"token":"value"}"#,
+            None,
+            None,
+            Some(&api_token),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        let (status, _, _) = json_request(
+            build_router(state.clone()),
+            "POST",
+            "/api/auth/logout",
+            "{}",
+            Some(&cookie),
+            Some(&csrf),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (status, _, _) = json_request(
+            build_router(state.clone()),
+            "GET",
+            "/api/snapshot",
+            "",
+            Some(&cookie),
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        let wrong_login = r#"{"username":"admin","password":"wrong password value"}"#;
+        let (status, _, _) = json_request(
+            build_router(state.clone()),
+            "POST",
+            "/api/auth/login",
+            wrong_login,
+            None,
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let login = r#"{"username":"admin","password":"correct horse battery"}"#;
+        let (status, headers, body) = json_request(
+            build_router(state.clone()),
+            "POST",
+            "/api/auth/login",
+            login,
+            None,
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let new_cookie = cookie_from(&headers);
+        let new_csrf = body["csrf_token"].as_str().unwrap();
+
+        let (status, _, _) = json_request(
+            build_router(state.clone()),
+            "POST",
+            "/api/auth/password",
+            r#"{"current_password":"correct horse battery","new_password":"new correct horse battery"}"#,
+            Some(&new_cookie),
+            Some(new_csrf),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        let (status, _, _) = json_request(
+            build_router(state.clone()),
+            "POST",
+            "/api/auth/login",
+            login,
+            None,
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let new_login = r#"{"username":"admin","password":"new correct horse battery"}"#;
+        let (status, _, _) = json_request(
+            build_router(state),
+            "POST",
+            "/api/auth/login",
+            new_login,
+            None,
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn persisted_session_is_valid_after_service_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auth.json");
+        let state = authenticated_test_state(path.clone());
+        let setup = r#"{"username":"admin","password":"correct horse battery","setup_token":"bootstrap-secret-123"}"#;
+        let (_, headers, _) = json_request(
+            build_router(state),
+            "POST",
+            "/api/auth/setup",
+            setup,
+            None,
+            None,
+            None,
+        )
+        .await;
+        let cookie = cookie_from(&headers);
+
+        let mut restarted = test_state_with(empty_snapshot());
+        restarted.auth =
+            crate::auth::AuthService::load_with_setup_secret(true, path, None).unwrap();
+        let (status, _, _) = json_request(
+            build_router(restarted),
+            "GET",
+            "/api/snapshot",
+            "",
+            Some(&cookie),
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
     }
 }
