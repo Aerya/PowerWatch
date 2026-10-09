@@ -548,6 +548,38 @@ function renderLegend(series){
 function varColor(name,fallback){
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim()||fallback;
 }
+function historyRangeSeconds(){
+  const value=document.getElementById("history-range").value;
+  const amount=Number.parseInt(value,10);
+  return value.endsWith("h")?amount*3600:amount*86400;
+}
+function formatAxisTime(timestamp){
+  const date=new Date(timestamp);
+  const seconds=historyRangeSeconds();
+  if(seconds>=180*86400)return date.toLocaleDateString(lang==="fr"?"fr-FR":"en-US",{year:"2-digit",month:"short"});
+  if(seconds>=7*86400)return date.toLocaleDateString(lang==="fr"?"fr-FR":"en-US",{day:"2-digit",month:"short"});
+  if(seconds>=86400)return date.toLocaleString(lang==="fr"?"fr-FR":"en-US",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
+  return date.toLocaleTimeString(lang==="fr"?"fr-FR":"en-US",{hour:"2-digit",minute:"2-digit"});
+}
+function timeAxisTicks(minTime,maxTime,plotWidth){
+  const rangeSeconds=historyRangeSeconds();
+  if(maxTime<=minTime)return [minTime];
+  if(rangeSeconds<=3600)return [minTime,maxTime];
+  const targetTicks=Math.max(3,Math.min(6,Math.floor(plotWidth/170)));
+  const span=maxTime-minTime;
+  const intervals=[
+    15*60_000,30*60_000,60*60_000,2*60*60_000,3*60*60_000,6*60*60_000,12*60*60_000,
+    24*60*60_000,2*24*60*60_000,3*24*60*60_000,7*24*60*60_000,14*24*60*60_000,
+    30*24*60*60_000,60*24*60*60_000,90*24*60*60_000
+  ];
+  const step=intervals.find(interval=>span/interval<=targetTicks)||intervals.at(-1);
+  const ticks=[minTime];
+  for(let timestamp=Math.ceil(minTime/step)*step;timestamp<maxTime;timestamp+=step){
+    if(timestamp-ticks.at(-1)>step/10)ticks.push(timestamp);
+  }
+  if(maxTime-ticks.at(-1)>step/10)ticks.push(maxTime);
+  return ticks;
+}
 function drawHistory(points,{updateLegend=true}={}){
   lastHistory=points||[];
   const canvas=document.getElementById("history");
@@ -576,7 +608,7 @@ function drawHistory(points,{updateLegend=true}={}){
     if(Number.isFinite(value))values.push(value);
   }));
 
-  const pad={l:44,r:12,t:12,b:22};
+  const pad={l:44,r:12,t:12,b:32};
   const minT=new Date(lastHistory[0].timestamp).getTime();
   const maxT=new Date(lastHistory[lastHistory.length-1].timestamp).getTime();
   const maxW=Math.max(1,...values);
@@ -592,6 +624,17 @@ function drawHistory(points,{updateLegend=true}={}){
     ctx.beginPath();ctx.moveTo(pad.l,py);ctx.lineTo(w-pad.r,py);ctx.stroke();
     ctx.fillText(v.toFixed(0),4,py+3);
   }
+
+  const axisTicks=timeAxisTicks(minT,maxT,w-pad.l-pad.r);
+  axisTicks.forEach((timestamp,index)=>{
+    const px=x(timestamp);
+    ctx.strokeStyle=varColor("--border","#30363d");
+    ctx.beginPath();ctx.moveTo(px,pad.t);ctx.lineTo(px,h-pad.b);ctx.stroke();
+    ctx.fillStyle=varColor("--muted","#8b949e");
+    ctx.textAlign=index===0?"left":index===axisTicks.length-1?"right":"center";
+    ctx.fillText(formatAxisTime(timestamp),px,h-7);
+  });
+  ctx.textAlign="left";
 
   visible.forEach(key=>{
     ctx.strokeStyle=seriesColor(key);
