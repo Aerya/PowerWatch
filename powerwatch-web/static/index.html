@@ -1476,6 +1476,28 @@ function formatAxisTime(ms) {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+function timeAxisTicks(minTime, maxTime, rangeSeconds, plotWidth) {
+  if (maxTime <= minTime) return [minTime];
+  if (rangeSeconds <= 3600) return [minTime, maxTime];
+
+  const targetTicks = Math.max(3, Math.min(6, Math.floor(plotWidth / 170)));
+  const span = maxTime - minTime;
+  const intervals = [
+    15 * 60_000, 30 * 60_000, 60 * 60_000, 2 * 60 * 60_000,
+    3 * 60 * 60_000, 6 * 60 * 60_000, 12 * 60 * 60_000,
+    24 * 60 * 60_000, 2 * 24 * 60 * 60_000, 3 * 24 * 60 * 60_000,
+    7 * 24 * 60 * 60_000, 14 * 24 * 60 * 60_000, 30 * 24 * 60 * 60_000,
+    60 * 24 * 60 * 60_000, 90 * 24 * 60 * 60_000,
+  ];
+  const step = intervals.find((interval) => span / interval <= targetTicks) || intervals.at(-1);
+  const ticks = [minTime];
+  for (let timestamp = Math.ceil(minTime / step) * step; timestamp < maxTime; timestamp += step) {
+    if (timestamp - ticks.at(-1) > step / 10) ticks.push(timestamp);
+  }
+  if (maxTime - ticks.at(-1) > step / 10) ticks.push(maxTime);
+  return ticks;
+}
+
 function nearestPoints(series, targetTime) {
   const result = new Map();
   for (const [key, points] of series) {
@@ -1543,7 +1565,7 @@ function renderChart() {
   const maxTime = Math.max(...allTimes);
   const maxWatts = Math.max(...visibleReadings.map((r) => r.watts), 1);
 
-  const padding = { top: 12, right: 12, bottom: 20, left: 48 };
+  const padding = { top: 12, right: 12, bottom: 32, left: 48 };
   const w = width - padding.left - padding.right;
   const h = height - padding.top - padding.bottom;
   const x = (t) => padding.left + ((t - minTime) / Math.max(maxTime - minTime, 1)) * w;
@@ -1564,10 +1586,18 @@ function renderChart() {
     ctx.fillText(watts.toFixed(1), padding.left - 6, py + 3);
   }
 
-  ctx.textAlign = "left";
-  ctx.fillText(formatAxisTime(minTime), padding.left, height - 4);
-  ctx.textAlign = "right";
-  ctx.fillText(formatAxisTime(maxTime), padding.left + w, height - 4);
+  const axisTicks = timeAxisTicks(minTime, maxTime, historyMeta.rangeSeconds || 600, w);
+  axisTicks.forEach((timestamp, index) => {
+    const px = x(timestamp);
+    ctx.strokeStyle = "#21262d";
+    ctx.beginPath();
+    ctx.moveTo(px, padding.top);
+    ctx.lineTo(px, padding.top + h);
+    ctx.stroke();
+    ctx.fillStyle = "#8b949e";
+    ctx.textAlign = index === 0 ? "left" : index === axisTicks.length - 1 ? "right" : "center";
+    ctx.fillText(formatAxisTime(timestamp), px, height - 7);
+  });
   ctx.textAlign = "left";
 
   const colorFor = (key) => {
