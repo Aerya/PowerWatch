@@ -1,5 +1,6 @@
 mod alerts;
 mod app;
+mod auth;
 mod state;
 mod suggestions;
 
@@ -33,11 +34,29 @@ struct Args {
     /// NAS/headless mode: disable desktop-oriented energy suggestions and actions.
     #[arg(long)]
     nas_mode: bool,
+
+    /// Enable the integrated single-user authentication screen.
+    #[arg(long)]
+    auth: bool,
 }
 
 fn history_db_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     Path::new(&home).join(".local/share/powerwatch/history.db")
+}
+
+fn auth_enabled(cli_enabled: bool) -> bool {
+    if cli_enabled {
+        return true;
+    }
+    std::env::var("POWERWATCH_AUTH_ENABLED")
+        .ok()
+        .is_some_and(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
 }
 
 #[tokio::main]
@@ -63,7 +82,7 @@ async fn main() {
     }
 
     let history_interval = Duration::from_secs(args.history_interval.max(1));
-    let app_state = state::start_sampling_loop(
+    let mut app_state = state::start_sampling_loop(
         sampler,
         SAMPLE_INTERVAL,
         storage,
@@ -71,12 +90,22 @@ async fn main() {
         history_interval,
         !args.nas_mode,
     );
+    let authentication_enabled = auth_enabled(args.auth);
+    app_state.auth =
+        match auth::AuthService::load(authentication_enabled, auth::default_auth_path()) {
+            Ok(auth) => auth,
+            Err(error) => {
+                eprintln!("failed to load authentication settings: {error}");
+                std::process::exit(1);
+            }
+        };
 
+    let setup_required = app_state.auth.setup_required();
     let router = app::build_router(app_state);
     let addr = (args.host, args.port);
 
-    if !args.host.is_loopback() {
-        eprintln!("WARNING: PowerWatch has no authentication.");
+    if !args.host.is_loopback() && !authentication_enabled {
+        eprintln!("WARNING: PowerWatch authentication is disabled.");
         eprintln!("Expose this listener only on a trusted LAN.");
         eprintln!("Do NOT publish it through a public reverse proxy or the Internet.");
     }
@@ -102,6 +131,12 @@ async fn main() {
     }
     if args.nas_mode {
         println!("NAS mode enabled: desktop energy suggestions are disabled");
+    }
+    if authentication_enabled {
+        println!("integrated authentication enabled");
+        if setup_required {
+            println!("open the Web UI to create the single PowerWatch account");
+        }
     }
 
     if let Err(e) = axum::serve(listener, router).await {

@@ -54,6 +54,8 @@ struct NodeConfig {
     enabled: bool,
     #[serde(default = "default_true")]
     include_in_total: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    api_token: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -64,6 +66,37 @@ fn default_true() -> bool {
 struct HubConfig {
     #[serde(default)]
     nodes: Vec<NodeConfig>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct NodeConfigView {
+    id: String,
+    name: String,
+    url: String,
+    enabled: bool,
+    include_in_total: bool,
+    has_api_token: bool,
+}
+
+impl From<&NodeConfig> for NodeConfigView {
+    fn from(node: &NodeConfig) -> Self {
+        Self {
+            id: node.id.clone(),
+            name: node.name.clone(),
+            url: node.url.clone(),
+            enabled: node.enabled,
+            include_in_total: node.include_in_total,
+            has_api_token: node
+                .api_token
+                .as_deref()
+                .is_some_and(|token| !token.is_empty()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct HubConfigView {
+    nodes: Vec<NodeConfigView>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -186,6 +219,7 @@ struct HubNodeView {
     url: String,
     enabled: bool,
     include_in_total: bool,
+    has_api_token: bool,
     status: NodeStatus,
     last_seen: Option<DateTime<Utc>>,
     last_error: Option<String>,
@@ -228,6 +262,8 @@ fn default_since() -> String {
 #[derive(Debug, Clone, Deserialize)]
 struct ProbeRequest {
     url: String,
+    #[serde(default)]
+    api_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -412,6 +448,12 @@ fn save_config(path: &FsPath, config: &HubConfig) -> Result<(), String> {
     let tmp = path.with_extension("json.tmp");
     let data = serde_json::to_vec_pretty(config).map_err(|error| error.to_string())?;
     std::fs::write(&tmp, data).map_err(|error| error.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))
+            .map_err(|error| error.to_string())?;
+    }
     std::fs::rename(&tmp, path).map_err(|error| error.to_string())
 }
 
@@ -421,9 +463,7 @@ fn parse_since(value: &str) -> Result<chrono::Duration, String> {
         return Err("invalid duration".to_string());
     }
     let (number, unit) = trimmed.split_at(trimmed.len() - 1);
-    let amount: i64 = number
-        .parse()
-        .map_err(|_| "invalid duration".to_string())?;
+    let amount: i64 = number.parse().map_err(|_| "invalid duration".to_string())?;
     if amount <= 0 {
         return Err("duration must be positive".to_string());
     }
@@ -440,10 +480,17 @@ fn is_total_component(component: &serde_json::Value) -> bool {
     component.as_str().is_some_and(|value| value == "Total")
 }
 
-async fn fetch_snapshot(client: &Client, base_url: &str) -> Result<RemoteSnapshot, String> {
+async fn fetch_snapshot(
+    client: &Client,
+    base_url: &str,
+    api_token: Option<&str>,
+) -> Result<RemoteSnapshot, String> {
     let url = format!("{}/api/snapshot", normalize_url(base_url));
-    let response = client
-        .get(url)
+    let mut request = client.get(url);
+    if let Some(token) = api_token.filter(|token| !token.trim().is_empty()) {
+        request = request.bearer_auth(token.trim());
+    }
+    let response = request
         .timeout(Duration::from_secs(4))
         .send()
         .await
@@ -460,10 +507,14 @@ async fn fetch_snapshot(client: &Client, base_url: &str) -> Result<RemoteSnapsho
 async fn fetch_historical_totals(
     client: &Client,
     base_url: &str,
+    api_token: Option<&str>,
 ) -> Result<Vec<(DateTime<Utc>, f64)>, String> {
     let url = format!("{}/api/history/range", normalize_url(base_url));
-    let response = client
-        .get(url)
+    let mut request = client.get(url);
+    if let Some(token) = api_token.filter(|token| !token.trim().is_empty()) {
+        request = request.bearer_auth(token.trim());
+    }
+    let response = request
         .query(&[
             ("amount", BACKFILL_DAYS.to_string()),
             ("unit", "days".to_string()),
@@ -496,10 +547,13 @@ async fn backfill_node(state: AppState, node: NodeConfig) {
         return;
     }
 
-    match fetch_historical_totals(&state.client, &node.url).await {
+    match fetch_historical_totals(&state.client, &node.url, node.api_token.as_deref()).await {
         Ok(points) => {
             if points.is_empty() {
-                eprintln!("hub history backfill {}: no historical total points available", node.id);
+                eprintln!(
+                    "hub history backfill {}: no historical total points available",
+                    node.id
+                );
                 return;
             }
 
@@ -536,7 +590,7 @@ async fn backfill_all(state: AppState) {
 
 async fn poll_node(client: Client, node: NodeConfig) -> (String, Result<RemoteSnapshot, String>) {
     let id = node.id.clone();
-    let result = fetch_snapshot(&client, &node.url).await;
+    let result = fetch_snapshot(&client, &node.url, node.api_token.as_deref()).await;
     (id, result)
 }
 
@@ -674,6 +728,10 @@ async fn snapshot(State(state): State<AppState>) -> Json<HubSnapshot> {
             .unwrap_or_default();
 
         nodes.push(HubNodeView {
+            has_api_token: node
+                .api_token
+                .as_deref()
+                .is_some_and(|token| !token.is_empty()),
             id: node.id,
             name: node.name,
             url: node.url,
@@ -705,14 +763,17 @@ async fn snapshot(State(state): State<AppState>) -> Json<HubSnapshot> {
     })
 }
 
-async fn list_nodes(State(state): State<AppState>) -> Json<HubConfig> {
-    Json(state.config.read().await.clone())
+async fn list_nodes(State(state): State<AppState>) -> Json<HubConfigView> {
+    let config = state.config.read().await;
+    Json(HubConfigView {
+        nodes: config.nodes.iter().map(NodeConfigView::from).collect(),
+    })
 }
 
 async fn add_node(
     State(state): State<AppState>,
     Json(mut node): Json<NodeConfig>,
-) -> Result<(StatusCode, Json<NodeConfig>), (StatusCode, String)> {
+) -> Result<(StatusCode, Json<NodeConfigView>), (StatusCode, String)> {
     node.id = node.id.trim().to_string();
     node.name = node.name.trim().to_string();
     node.url = normalize_url(&node.url);
@@ -731,14 +792,14 @@ async fn add_node(
 
     tokio::spawn(backfill_node(state.clone(), node.clone()));
 
-    Ok((StatusCode::CREATED, Json(node)))
+    Ok((StatusCode::CREATED, Json(NodeConfigView::from(&node))))
 }
 
 async fn update_node(
     Path(id): Path<String>,
     State(state): State<AppState>,
     Json(mut node): Json<NodeConfig>,
-) -> Result<Json<NodeConfig>, (StatusCode, String)> {
+) -> Result<Json<NodeConfigView>, (StatusCode, String)> {
     node.id = id.clone();
     node.name = node.name.trim().to_string();
     node.url = normalize_url(&node.url);
@@ -748,6 +809,15 @@ async fn update_node(
     let Some(existing) = config.nodes.iter_mut().find(|existing| existing.id == id) else {
         return Err((StatusCode::NOT_FOUND, "node not found".to_string()));
     };
+    if node.api_token.is_none() {
+        node.api_token = existing.api_token.clone();
+    } else if node
+        .api_token
+        .as_deref()
+        .is_some_and(|token| token.trim().is_empty())
+    {
+        node.api_token = None;
+    }
     *existing = node.clone();
 
     save_config(&state.config_path, &config)
@@ -758,7 +828,7 @@ async fn update_node(
         tokio::spawn(backfill_node(state.clone(), node.clone()));
     }
 
-    Ok(Json(node))
+    Ok(Json(NodeConfigView::from(&node)))
 }
 
 async fn delete_node(
@@ -783,7 +853,7 @@ async fn probe_node(
     State(state): State<AppState>,
     Json(request): Json<ProbeRequest>,
 ) -> Json<ProbeResponse> {
-    match fetch_snapshot(&state.client, &request.url).await {
+    match fetch_snapshot(&state.client, &request.url, request.api_token.as_deref()).await {
         Ok(snapshot) => {
             let instance_name = snapshot
                 .system
@@ -816,8 +886,7 @@ async fn history(
     State(state): State<AppState>,
     Query(params): Query<HistoryParams>,
 ) -> Result<Json<Vec<HistoryPoint>>, (StatusCode, String)> {
-    let duration =
-        parse_since(&params.since).map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+    let duration = parse_since(&params.since).map_err(|error| (StatusCode::BAD_REQUEST, error))?;
     let cutoff = Utc::now() - duration;
 
     let included_nodes = state
@@ -830,10 +899,12 @@ async fn history(
         .map(|node| node.id.clone())
         .collect::<HashSet<_>>();
 
-    let storage = state
-        .storage
-        .lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "storage lock poisoned".to_string()))?;
+    let storage = state.storage.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "storage lock poisoned".to_string(),
+        )
+    })?;
     let rows = storage
         .history_since(cutoff, &included_nodes)
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -944,6 +1015,7 @@ mod tests {
             url: "http://192.168.0.196:3064".into(),
             enabled: true,
             include_in_total: true,
+            api_token: None,
         };
         assert!(validate_node(&good).is_ok());
 
@@ -958,10 +1030,7 @@ mod tests {
 
     #[test]
     fn parses_supported_history_ranges() {
-        assert_eq!(
-            parse_since("30m").unwrap(),
-            chrono::Duration::minutes(30)
-        );
+        assert_eq!(parse_since("30m").unwrap(), chrono::Duration::minutes(30));
         assert_eq!(parse_since("24h").unwrap(), chrono::Duration::hours(24));
         assert_eq!(parse_since("7d").unwrap(), chrono::Duration::days(7));
         assert!(parse_since("1y").is_err());
@@ -974,6 +1043,21 @@ mod tests {
     }
 
     #[test]
+    fn public_node_view_never_serializes_the_api_token() {
+        let node = NodeConfig {
+            id: "node".into(),
+            name: "Node".into(),
+            url: "http://node:3000".into(),
+            enabled: true,
+            include_in_total: true,
+            api_token: Some("pw_super_secret".into()),
+        };
+        let json = serde_json::to_string(&NodeConfigView::from(&node)).unwrap();
+        assert!(!json.contains("pw_super_secret"));
+        assert!(json.contains("\"has_api_token\":true"));
+    }
+
+    #[test]
     fn stores_and_reads_federated_history_without_duplicates() {
         let tmp = tempfile::NamedTempFile::new().unwrap();
         let mut storage = HubStorage::open(tmp.path()).unwrap();
@@ -982,10 +1066,7 @@ mod tests {
         storage
             .write_totals(
                 now,
-                &[
-                    ("garuda".into(), 70.0),
-                    ("lincstation".into(), 20.0),
-                ],
+                &[("garuda".into(), 70.0), ("lincstation".into(), 20.0)],
             )
             .unwrap();
         storage

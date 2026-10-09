@@ -104,7 +104,7 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 .management > summary::marker { color:var(--muted); }
 .manage-count { color:var(--muted); font-weight:normal; font-size:.75rem; }
 .management-body { border-top:1px solid var(--border); padding:8px 10px; }
-.management-grid { display:grid; grid-template-columns:minmax(140px,.7fr) minmax(260px,1.5fr) auto auto; gap:7px; align-items:end; }
+.management-grid { display:grid; grid-template-columns:minmax(140px,.7fr) minmax(240px,1.3fr) minmax(180px,1fr) auto auto; gap:7px; align-items:end; }
 .management label { display:grid; gap:3px; color:var(--muted); font-size:.72rem; }
 .notice { color:var(--muted); font-size:.74rem; margin:0 0 7px; }
 #probe-result { font-size:.75rem; margin-top:6px; min-height:1em; }
@@ -247,6 +247,7 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
     <div class="management-grid">
       <label><span data-i18n="name">Nom</span><input id="node-name" placeholder="LincStation"></label>
       <label><span>URL PowerWatch</span><input id="node-url" placeholder="http://192.168.0.196:3064"></label>
+      <label><span data-i18n="apiToken">Jeton API (facultatif)</span><input id="node-token" type="password" autocomplete="off" placeholder="pw_..."></label>
       <button class="action-btn" id="probe" data-i18n="test">Tester</button>
       <button class="action-btn" id="add" data-i18n="add">Ajouter</button>
     </div>
@@ -266,8 +267,8 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 
 <script>
 const I18N={
-  fr:{subtitle:"Dashboard fédéré multi-machines",globalTotal:"TOTAL INFRASTRUCTURE",totalMixed:"Mesures + estimations",history:"Historique fédéré",manage:"Machines / instances",security:"Les URLs doivent rester privées et être accessibles depuis le conteneur Hub. Le Hub n'a pas d'authentification intégrée.",name:"Nom",test:"Tester",add:"Ajouter",online:"en ligne",stale:"stale",offline:"hors ligne",disabled:"désactivé",included:"compter dans le total",enabled:"activé",remove:"supprimer",open:"ouvrir l'instance",nodes:"machines en ligne",configured:"configurées",noNodes:"Aucune instance configurée. Ajoute ton premier PowerWatch ci-dessus.",lastSeen:"vu",never:"jamais",disks:"Disques",psu:"Alimentation",module:"module",modules:"modules",nominal:"nominale",psuUnverified:"SMBIOS non vérifié",usable:"utilisables",smbiosUnavailable:"SMBIOS inaccessible",psuNotReported:"non fournie par le firmware SMBIOS",notReportedSmbios:"non reportée par SMBIOS",reportedBySmbios:"reportée par SMBIOS",measured:"Mesurée",estimated:"Estimée",global:"Total global",noHistory:"Pas encore d'historique",footerBasedOn:"Basé sur",footerThanks:"merci pour le projet d’origine."},
-  en:{subtitle:"Federated multi-machine dashboard",globalTotal:"INFRASTRUCTURE TOTAL",totalMixed:"Measured + estimated",history:"Federated history",manage:"Machines / instances",security:"URLs must stay private and be reachable from the Hub container. The Hub has no built-in authentication.",name:"Name",test:"Test",add:"Add",online:"online",stale:"stale",offline:"offline",disabled:"disabled",included:"include in total",enabled:"enabled",remove:"remove",open:"open instance",nodes:"nodes online",configured:"configured",noNodes:"No instance configured. Add your first PowerWatch above.",lastSeen:"seen",never:"never",disks:"Disks",psu:"Power supply",module:"module",modules:"modules",nominal:"nominal",psuUnverified:"SMBIOS unverified",usable:"usable",smbiosUnavailable:"SMBIOS unavailable",psuNotReported:"not exposed by SMBIOS firmware",notReportedSmbios:"not reported by SMBIOS",reportedBySmbios:"reported by SMBIOS",measured:"Measured",estimated:"Estimated",global:"Global total",noHistory:"No history yet",footerBasedOn:"Based on",footerThanks:"thank you for the original project."}
+  fr:{subtitle:"Dashboard fédéré multi-machines",globalTotal:"TOTAL INFRASTRUCTURE",totalMixed:"Mesures + estimations",history:"Historique fédéré",manage:"Machines / instances",security:"Les URLs doivent rester privées et accessibles depuis le conteneur Hub. Utilisez un jeton API en lecture seule si l'authentification PowerWatch est activée.",name:"Nom",apiToken:"Jeton API (facultatif)",saveToken:"Enregistrer le jeton",tokenConfigured:"jeton configuré",test:"Tester",add:"Ajouter",online:"en ligne",stale:"stale",offline:"hors ligne",disabled:"désactivé",included:"compter dans le total",enabled:"activé",remove:"supprimer",open:"ouvrir l'instance",nodes:"machines en ligne",configured:"configurées",noNodes:"Aucune instance configurée. Ajoute ton premier PowerWatch ci-dessus.",lastSeen:"vu",never:"jamais",disks:"Disques",psu:"Alimentation",module:"module",modules:"modules",nominal:"nominale",psuUnverified:"SMBIOS non vérifié",usable:"utilisables",smbiosUnavailable:"SMBIOS inaccessible",psuNotReported:"non fournie par le firmware SMBIOS",notReportedSmbios:"non reportée par SMBIOS",reportedBySmbios:"reportée par SMBIOS",measured:"Mesurée",estimated:"Estimée",global:"Total global",noHistory:"Pas encore d'historique",footerBasedOn:"Basé sur",footerThanks:"merci pour le projet d’origine."},
+  en:{subtitle:"Federated multi-machine dashboard",globalTotal:"INFRASTRUCTURE TOTAL",totalMixed:"Measured + estimated",history:"Federated history",manage:"Machines / instances",security:"URLs must stay private and reachable from the Hub container. Use a read-only API token when PowerWatch authentication is enabled.",name:"Name",apiToken:"API token (optional)",saveToken:"Save token",tokenConfigured:"token configured",test:"Test",add:"Add",online:"online",stale:"stale",offline:"offline",disabled:"disabled",included:"include in total",enabled:"enabled",remove:"remove",open:"open instance",nodes:"nodes online",configured:"configured",noNodes:"No instance configured. Add your first PowerWatch above.",lastSeen:"seen",never:"never",disks:"Disks",psu:"Power supply",module:"module",modules:"modules",nominal:"nominal",psuUnverified:"SMBIOS unverified",usable:"usable",smbiosUnavailable:"SMBIOS unavailable",psuNotReported:"not exposed by SMBIOS firmware",notReportedSmbios:"not reported by SMBIOS",reportedBySmbios:"reported by SMBIOS",measured:"Measured",estimated:"Estimated",global:"Global total",noHistory:"No history yet",footerBasedOn:"Based on",footerThanks:"thank you for the original project."}
 };
 const GLOBAL_COLOR="#ffd166";
 const NODE_COLORS=[
@@ -453,6 +454,8 @@ function renderSnapshot(data){
           <span class="muted">${esc(tr("lastSeen"))}: ${esc(fmtSeen(node.last_seen))}</span>
           <label><input type="checkbox" class="toggle-enabled" ${node.enabled?"checked":""}> ${esc(tr("enabled"))}</label>
           <label><input type="checkbox" class="toggle-total" ${node.include_in_total?"checked":""}> ${esc(tr("included"))}</label>
+          <input type="password" class="node-token" autocomplete="off" placeholder="${esc(node.has_api_token?tr("tokenConfigured"):"pw_...")}">
+          <button class="action-btn save-token">${esc(tr("saveToken"))}</button>
           <button class="action-btn danger remove">${esc(tr("remove"))}</button>
         </div>
         ${node.last_error?`<div class="error-text" style="font-size:.72rem;margin-bottom:5px">${esc(node.last_error)}</div>`:""}
@@ -470,16 +473,18 @@ function bindNodeActions(){
     const node=snapshot.nodes.find(n=>n.id===id);
     card.querySelector(".toggle-enabled").addEventListener("change",async e=>{await api(`/api/hub/nodes/${encodeURIComponent(id)}`,{method:"POST",body:JSON.stringify(nodePayload(node,{enabled:e.target.checked}))});await refreshSnapshot();await refreshHistory();});
     card.querySelector(".toggle-total").addEventListener("change",async e=>{await api(`/api/hub/nodes/${encodeURIComponent(id)}`,{method:"POST",body:JSON.stringify(nodePayload(node,{include_in_total:e.target.checked}))});await refreshSnapshot();await refreshHistory();});
+    card.querySelector(".save-token").addEventListener("click",async()=>{const input=card.querySelector(".node-token");await api(`/api/hub/nodes/${encodeURIComponent(id)}`,{method:"POST",body:JSON.stringify(nodePayload(node,{api_token:input.value.trim()}))});input.value="";await refreshSnapshot();await refreshHistory();});
     card.querySelector(".remove").addEventListener("click",async()=>{await api(`/api/hub/nodes/${encodeURIComponent(id)}`,{method:"DELETE"});await refreshSnapshot();await refreshHistory();});
   });
 }
 async function refreshSnapshot(){try{renderSnapshot(await api("/api/hub/snapshot"));}catch(e){console.error(e);}}
 async function probe(){
   const url=document.getElementById("node-url").value.trim();
+  const api_token=document.getElementById("node-token").value.trim();
   const result=document.getElementById("probe-result");
   result.textContent="…";
 try{
-  const data=await api("/api/hub/test",{method:"POST",body:JSON.stringify({url})});
+  const data=await api("/api/hub/test",{method:"POST",body:JSON.stringify({url,api_token:api_token||null})});
   result.className=data.ok?"measured":"error-text";
   result.textContent=data.ok?`${data.message}${data.total_watts==null?"":` — ${data.total_watts.toFixed(1)} W`}`:data.message;
   const nameInput=document.getElementById("node-name");
@@ -489,11 +494,13 @@ try{
 async function addNode(){
   const name=document.getElementById("node-name").value.trim();
   const url=document.getElementById("node-url").value.trim();
+  const api_token=document.getElementById("node-token").value.trim();
   const id=slugify(name);
   if(!name||!url||!id)return;
-  await api("/api/hub/nodes",{method:"POST",body:JSON.stringify({id,name,url,enabled:true,include_in_total:true})});
+  await api("/api/hub/nodes",{method:"POST",body:JSON.stringify({id,name,url,api_token:api_token||null,enabled:true,include_in_total:true})});
   document.getElementById("node-name").value="";
   document.getElementById("node-url").value="";
+  document.getElementById("node-token").value="";
   document.getElementById("probe-result").textContent="";
   await refreshSnapshot();await refreshHistory();
 }

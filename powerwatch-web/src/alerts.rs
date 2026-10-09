@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Instant};
+use std::time::Instant;
 
 const ALERTS_HTML: &str = include_str!("../static/alerts.html");
 const MAX_EVENTS: usize = 50;
@@ -170,9 +170,13 @@ fn normalize_settings(mut settings: AlertSettings) -> Result<AlertSettings, Stri
     }
     validate_notifications(&settings.notifications)?;
 
-    settings.notifications.discord_webhook = settings.notifications.discord_webhook.trim().to_string();
-    settings.notifications.apprise_endpoint = settings.notifications.apprise_endpoint.trim().to_string();
-    settings.notifications.apprise_urls = settings.notifications.apprise_urls
+    settings.notifications.discord_webhook =
+        settings.notifications.discord_webhook.trim().to_string();
+    settings.notifications.apprise_endpoint =
+        settings.notifications.apprise_endpoint.trim().to_string();
+    settings.notifications.apprise_urls = settings
+        .notifications
+        .apprise_urls
         .into_iter()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
@@ -190,13 +194,22 @@ fn normalize_settings(mut settings: AlertSettings) -> Result<AlertSettings, Stri
             return Err(format!("alert '{}' has no component", rule.name));
         }
         if !rule.threshold_watts.is_finite() || rule.threshold_watts < 0.0 {
-            return Err(format!("alert '{}' threshold must be a non-negative number", rule.name));
+            return Err(format!(
+                "alert '{}' threshold must be a non-negative number",
+                rule.name
+            ));
         }
         if rule.threshold_watts > 100_000.0 {
-            return Err(format!("alert '{}' threshold is unreasonably high", rule.name));
+            return Err(format!(
+                "alert '{}' threshold is unreasonably high",
+                rule.name
+            ));
         }
         if rule.sustained_seconds > 7 * 24 * 60 * 60 {
-            return Err(format!("alert '{}' sustained duration cannot exceed 7 days", rule.name));
+            return Err(format!(
+                "alert '{}' sustained duration cannot exceed 7 days",
+                rule.name
+            ));
         }
 
         if rule.id.trim().is_empty() || ids.contains(rule.id.trim()) {
@@ -235,7 +248,10 @@ impl AlertService {
         match Self::load(path.clone()) {
             Ok(service) => service,
             Err(e) => {
-                eprintln!("warning: failed to load alert settings from {}: {e}", path.display());
+                eprintln!(
+                    "warning: failed to load alert settings from {}: {e}",
+                    path.display()
+                );
                 Self::memory()
             }
         }
@@ -275,18 +291,23 @@ impl AlertService {
 
     pub(crate) fn overview(&self) -> AlertOverview {
         let state = self.inner.lock().unwrap();
-        let statuses = state.settings.rules.iter().map(|rule| {
-            let runtime = state.runtime.get(&rule.id);
-            AlertStatus {
-                id: rule.id.clone(),
-                active: runtime.is_some_and(|runtime| runtime.active),
-                last_watts: runtime.and_then(|runtime| runtime.last_watts),
-                above_for_seconds: runtime
-                    .and_then(|runtime| runtime.above_since)
-                    .map(|since| since.elapsed().as_secs())
-                    .unwrap_or(0),
-            }
-        }).collect();
+        let statuses = state
+            .settings
+            .rules
+            .iter()
+            .map(|rule| {
+                let runtime = state.runtime.get(&rule.id);
+                AlertStatus {
+                    id: rule.id.clone(),
+                    active: runtime.is_some_and(|runtime| runtime.active),
+                    last_watts: runtime.and_then(|runtime| runtime.last_watts),
+                    above_for_seconds: runtime
+                        .and_then(|runtime| runtime.above_since)
+                        .map(|since| since.elapsed().as_secs())
+                        .unwrap_or(0),
+                }
+            })
+            .collect();
 
         AlertOverview {
             settings: state.settings.clone(),
@@ -330,7 +351,9 @@ impl AlertService {
                     } else if let Some(watts) = watts {
                         if watts > rule.threshold_watts {
                             let since = *runtime.above_since.get_or_insert(now);
-                            if !runtime.active && now.duration_since(since).as_secs() >= rule.sustained_seconds {
+                            if !runtime.active
+                                && now.duration_since(since).as_secs() >= rule.sustained_seconds
+                            {
                                 runtime.active = true;
                                 Some(AlertEvent {
                                     timestamp: chrono::Utc::now(),
@@ -343,7 +366,11 @@ impl AlertService {
                                     sustained_seconds: rule.sustained_seconds,
                                     message: format!(
                                         "{}: {} is {:.1} W (threshold {:.1} W for {}s)",
-                                        rule.name, rule.component, watts, rule.threshold_watts, rule.sustained_seconds
+                                        rule.name,
+                                        rule.component,
+                                        watts,
+                                        rule.threshold_watts,
+                                        rule.sustained_seconds
                                     ),
                                 })
                             } else {
@@ -432,21 +459,31 @@ fn watts_for(snapshot: &Snapshot, component: &str) -> Option<f64> {
         return found.then_some(watts);
     }
 
-    snapshot.results.iter()
+    snapshot
+        .results
+        .iter()
         .find(|(name, _)| name.eq_ignore_ascii_case(component))
         .and_then(|(_, result)| result.as_ref().ok())
         .map(|reading| reading.watts)
 }
 
 fn send_json(url: &str, payload: &serde_json::Value) -> Result<(), String> {
-    let body = serde_json::to_vec(payload)
-        .map_err(|e| format!("failed to encode notification: {e}"))?;
+    let body =
+        serde_json::to_vec(payload).map_err(|e| format!("failed to encode notification: {e}"))?;
 
     let mut child = Command::new("curl")
         .args([
-            "-fsS", "--connect-timeout", "3", "--max-time", "8",
-            "-H", "Content-Type: application/json", "-X", "POST",
-            "--data-binary", "@-",
+            "-fsS",
+            "--connect-timeout",
+            "3",
+            "--max-time",
+            "8",
+            "-H",
+            "Content-Type: application/json",
+            "-X",
+            "POST",
+            "--data-binary",
+            "@-",
         ])
         .arg(url)
         .stdin(Stdio::piped())
@@ -456,11 +493,13 @@ fn send_json(url: &str, payload: &serde_json::Value) -> Result<(), String> {
         .map_err(|e| format!("failed to start curl: {e}"))?;
 
     if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(&body)
+        stdin
+            .write_all(&body)
             .map_err(|e| format!("failed to write notification body: {e}"))?;
     }
 
-    let output = child.wait_with_output()
+    let output = child
+        .wait_with_output()
         .map_err(|e| format!("failed to wait for curl: {e}"))?;
     if output.status.success() {
         Ok(())
@@ -491,12 +530,25 @@ fn send_discord(config: &NotificationConfig, title: &str, body: &str) -> Notific
     });
 
     match send_json(url, &payload) {
-        Ok(()) => NotificationResult { channel: "discord".to_string(), ok: true, error: None },
-        Err(error) => NotificationResult { channel: "discord".to_string(), ok: false, error: Some(error) },
+        Ok(()) => NotificationResult {
+            channel: "discord".to_string(),
+            ok: true,
+            error: None,
+        },
+        Err(error) => NotificationResult {
+            channel: "discord".to_string(),
+            ok: false,
+            error: Some(error),
+        },
     }
 }
 
-fn send_apprise(config: &NotificationConfig, title: &str, body: &str, notification_type: &str) -> NotificationResult {
+fn send_apprise(
+    config: &NotificationConfig,
+    title: &str,
+    body: &str,
+    notification_type: &str,
+) -> NotificationResult {
     let endpoint = config.apprise_endpoint.trim();
     if endpoint.is_empty() {
         return NotificationResult {
@@ -517,8 +569,16 @@ fn send_apprise(config: &NotificationConfig, title: &str, body: &str, notificati
     }
 
     match send_json(endpoint, &payload) {
-        Ok(()) => NotificationResult { channel: "apprise".to_string(), ok: true, error: None },
-        Err(error) => NotificationResult { channel: "apprise".to_string(), ok: false, error: Some(error) },
+        Ok(()) => NotificationResult {
+            channel: "apprise".to_string(),
+            ok: true,
+            error: None,
+        },
+        Err(error) => NotificationResult {
+            channel: "apprise".to_string(),
+            ok: false,
+            error: Some(error),
+        },
     }
 }
 
@@ -534,12 +594,20 @@ fn notify_for_event(config: &NotificationConfig, event: &AlertEvent) -> Vec<Noti
         results.push(send_discord(config, title, &event.message));
     }
     if !config.apprise_endpoint.trim().is_empty() {
-        results.push(send_apprise(config, title, &event.message, notification_type));
+        results.push(send_apprise(
+            config,
+            title,
+            &event.message,
+            notification_type,
+        ));
     }
     results
 }
 
-fn test_channels(config: &NotificationConfig, channel: &str) -> Result<TestNotificationResponse, String> {
+fn test_channels(
+    config: &NotificationConfig,
+    channel: &str,
+) -> Result<TestNotificationResponse, String> {
     validate_notifications(config)?;
     let title = "PowerWatch notification test";
     let body = "PowerWatch notifications are configured correctly.";
@@ -580,7 +648,9 @@ pub(crate) async fn update(
     State(state): State<AppState>,
     Json(settings): Json<AlertSettings>,
 ) -> Result<Json<AlertOverview>, (StatusCode, String)> {
-    state.alerts.update(settings)
+    state
+        .alerts
+        .update(settings)
         .map(Json)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))
 }
@@ -589,9 +659,14 @@ pub(crate) async fn test_notification(
     State(state): State<AppState>,
     Json(request): Json<TestNotificationRequest>,
 ) -> Result<Json<TestNotificationResponse>, (StatusCode, String)> {
-    let config = request.notifications
+    let config = request
+        .notifications
         .unwrap_or_else(|| state.alerts.overview().settings.notifications);
-    let channel = request.channel.as_deref().unwrap_or("all").to_ascii_lowercase();
+    let channel = request
+        .channel
+        .as_deref()
+        .unwrap_or("all")
+        .to_ascii_lowercase();
 
     test_channels(&config, &channel)
         .map(Json)
