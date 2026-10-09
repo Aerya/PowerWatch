@@ -8,6 +8,14 @@
   <a href="README.md">Français</a> · <strong>English</strong>
 </p>
 
+<p align="center">
+  <img src="docs/images/PowerWatch-Hub-Overview.png" alt="PowerWatch Hub overview with three federated machines" width="1200">
+</p>
+
+<p align="center">
+  <em>PowerWatch Hub centralizes the power usage of multiple machines in one dashboard.</em>
+</p>
+
 ## Contents
 
 - [Features](#features)
@@ -345,7 +353,7 @@ Removable-media detection depends on what the kernel exposes, so a USB enclosure
 ## Web UI
 
 <p align="center">
-  <img src="docs/images/Image_WEB.png" alt="PowerWatch Web UI">
+  <img src="docs/images/PowerWatch-WebUI.png" alt="PowerWatch Web UI: sensors, total power usage, and history">
 </p>
 
 The main page displays:
@@ -466,7 +474,11 @@ docker exec powerwatch sh -c \
 PowerWatch can also run in **Hub** mode. Each machine keeps its local PowerWatch instance and hardware collection; the Hub simply queries their HTTP APIs and groups them into a single Web UI.
 
 <p align="center">
-  <img src="docs/images/Image_HUB.png" alt="PowerWatch Hub">
+  <img src="docs/images/PowerWatch-Hub-Overview.png" alt="PowerWatch Hub: detailed view of federated instances">
+</p>
+
+<p align="center">
+  <img src="docs/images/PowerWatch-Hub.png" alt="PowerWatch Hub: wide view of the total and federated history">
 </p>
 
 The Hub provides:

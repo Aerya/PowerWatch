@@ -8,6 +8,14 @@
   <strong>Français</strong> · <a href="README.en.md">English</a>
 </p>
 
+<p align="center">
+  <img src="docs/images/PowerWatch-Hub-Overview.png" alt="Aperçu de PowerWatch Hub avec trois machines fédérées" width="1200">
+</p>
+
+<p align="center">
+  <em>PowerWatch Hub centralise la consommation de plusieurs machines dans un seul dashboard.</em>
+</p>
+
 ## Sommaire
 
 - [Fonctionnalités](#fonctionnalités)
@@ -345,7 +353,7 @@ La détection des médias amovibles dépend des informations exposées par le no
 ## WebUI
 
 <p align="center">
-  <img src="docs/images/Image_WEB.png" alt="PowerWatch WebUI">
+  <img src="docs/images/PowerWatch-WebUI.png" alt="WebUI PowerWatch : capteurs, consommation totale et historique">
 </p>
 
 La page principale affiche :
@@ -467,7 +475,11 @@ docker exec powerwatch sh -c \
 PowerWatch peut également fonctionner en mode **Hub**. Chaque machine conserve son instance PowerWatch locale et sa collecte matérielle ; le Hub interroge simplement leurs API HTTP et les regroupe dans une seule WebUI.
 
 <p align="center">
-  <img src="docs/images/Image_HUB.png" alt="PowerWatch Hub">
+  <img src="docs/images/PowerWatch-Hub-Overview.png" alt="PowerWatch Hub : vue détaillée des instances fédérées">
+</p>
+
+<p align="center">
+  <img src="docs/images/PowerWatch-Hub.png" alt="PowerWatch Hub : vue large du total et de l'historique fédéré">
 </p>
 
 Le Hub fournit :
