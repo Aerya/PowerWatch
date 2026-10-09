@@ -1,5 +1,6 @@
 use axum::extract::{Path, Query, State};
-use axum::http::{header, StatusCode};
+use axum::http::{header, HeaderMap, Request, StatusCode};
+use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -8,6 +9,7 @@ use clap::Parser;
 use reqwest::Client;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::net::IpAddr;
 use std::path::{Path as FsPath, PathBuf};
@@ -283,6 +285,87 @@ struct AppState {
     storage: Arc<Mutex<HubStorage>>,
     stale_after: Duration,
     client: Client,
+    admin_auth: HubAdminAuth,
+}
+
+#[derive(Clone)]
+struct HubAdminAuth {
+    token_hash: Option<[u8; 32]>,
+}
+
+#[derive(Serialize)]
+struct HubAdminStatus {
+    enabled: bool,
+}
+
+impl HubAdminAuth {
+    fn load() -> Result<Self, String> {
+        let token = if let Ok(path) = std::env::var("POWERWATCH_HUB_ADMIN_TOKEN_FILE") {
+            Some(
+                std::fs::read_to_string(path.trim())
+                    .map_err(|error| {
+                        format!("cannot read POWERWATCH_HUB_ADMIN_TOKEN_FILE: {error}")
+                    })?
+                    .trim()
+                    .to_string(),
+            )
+        } else {
+            std::env::var("POWERWATCH_HUB_ADMIN_TOKEN")
+                .ok()
+                .map(|token| token.trim().to_string())
+                .filter(|token| !token.is_empty())
+        };
+
+        if token.as_deref().is_some_and(|token| token.len() < 24) {
+            return Err(
+                "POWERWATCH_HUB_ADMIN_TOKEN must contain at least 24 characters".to_string(),
+            );
+        }
+
+        Ok(Self {
+            token_hash: token.as_deref().map(hash_secret),
+        })
+    }
+
+    #[cfg(test)]
+    fn with_token(token: Option<&str>) -> Self {
+        Self {
+            token_hash: token.map(hash_secret),
+        }
+    }
+
+    fn enabled(&self) -> bool {
+        self.token_hash.is_some()
+    }
+
+    fn authorizes(&self, headers: &HeaderMap) -> bool {
+        let Some(expected) = self.token_hash else {
+            return true;
+        };
+        let Some(token) = headers
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            return false;
+        };
+        constant_time_bytes_eq(&expected, &hash_secret(token))
+    }
+}
+
+fn hash_secret(secret: &str) -> [u8; 32] {
+    Sha256::digest(secret.as_bytes()).into()
+}
+
+fn constant_time_bytes_eq(left: &[u8], right: &[u8]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .fold(0u8, |difference, (a, b)| difference | (a ^ b))
+            == 0
 }
 
 struct HubStorage {
@@ -429,6 +512,23 @@ fn validate_node(node: &NodeConfig) -> Result<(), String> {
         return Err("url must start with http:// or https://".to_string());
     }
     Ok(())
+}
+
+fn preserve_or_clear_token_for_update(existing: &NodeConfig, requested: &mut NodeConfig) {
+    match requested.api_token.as_deref() {
+        None if normalize_url(&existing.url) == normalize_url(&requested.url) => {
+            requested.api_token = existing.api_token.clone();
+        }
+        None => {
+            // A stored credential is bound to its existing destination. Moving
+            // it to another URL requires the caller to submit it explicitly.
+            requested.api_token = None;
+        }
+        Some(token) if token.trim().is_empty() => {
+            requested.api_token = None;
+        }
+        Some(_) => {}
+    }
 }
 
 fn load_config(path: &FsPath) -> HubConfig {
@@ -809,15 +909,7 @@ async fn update_node(
     let Some(existing) = config.nodes.iter_mut().find(|existing| existing.id == id) else {
         return Err((StatusCode::NOT_FOUND, "node not found".to_string()));
     };
-    if node.api_token.is_none() {
-        node.api_token = existing.api_token.clone();
-    } else if node
-        .api_token
-        .as_deref()
-        .is_some_and(|token| token.trim().is_empty())
-    {
-        node.api_token = None;
-    }
+    preserve_or_clear_token_for_update(existing, &mut node);
     *existing = node.clone();
 
     save_config(&state.config_path, &config)
@@ -912,15 +1004,44 @@ async fn history(
     Ok(Json(rows))
 }
 
+async fn admin_status(State(state): State<AppState>) -> Json<HubAdminStatus> {
+    Json(HubAdminStatus {
+        enabled: state.admin_auth.enabled(),
+    })
+}
+
+async fn require_hub_admin(
+    State(state): State<AppState>,
+    request: Request<axum::body::Body>,
+    next: Next,
+) -> axum::response::Response {
+    if state.admin_auth.authorizes(request.headers()) {
+        return next.run(request).await;
+    }
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(serde_json::json!({ "error": "Hub administrator authentication required" })),
+    )
+        .into_response()
+}
+
 fn build_router(state: AppState) -> Router {
-    Router::new()
-        .route("/", get(index))
-        .route("/api/health", get(health))
-        .route("/api/hub/snapshot", get(snapshot))
-        .route("/api/hub/history", get(history))
+    let administration = Router::new()
         .route("/api/hub/nodes", get(list_nodes).post(add_node))
         .route("/api/hub/nodes/:id", post(update_node).delete(delete_node))
         .route("/api/hub/test", post(probe_node))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_hub_admin,
+        ));
+
+    Router::new()
+        .route("/", get(index))
+        .route("/api/health", get(health))
+        .route("/api/hub/auth/status", get(admin_status))
+        .route("/api/hub/snapshot", get(snapshot))
+        .route("/api/hub/history", get(history))
+        .merge(administration)
         .with_state(state)
         .layer(axum::extract::DefaultBodyLimit::max(64 * 1024))
 }
@@ -928,6 +1049,14 @@ fn build_router(state: AppState) -> Router {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
+
+    let admin_auth = match HubAdminAuth::load() {
+        Ok(auth) => auth,
+        Err(error) => {
+            eprintln!("failed to load Hub administrator authentication: {error}");
+            std::process::exit(1);
+        }
+    };
 
     let mut config = load_config(&args.config);
     for node in &mut config.nodes {
@@ -965,6 +1094,7 @@ async fn main() {
         storage: Arc::new(Mutex::new(storage)),
         stale_after: Duration::from_secs(args.stale_after.max(2)),
         client,
+        admin_auth,
     };
 
     tokio::spawn(poll_loop(
@@ -986,8 +1116,12 @@ async fn main() {
     };
 
     if !args.host.is_loopback() {
-        eprintln!("WARNING: PowerWatch Hub has no authentication.");
-        eprintln!("Expose it only on a trusted private LAN.");
+        if state.admin_auth.enabled() {
+            eprintln!("PowerWatch Hub administrator authentication is enabled.");
+        } else {
+            eprintln!("WARNING: PowerWatch Hub administrator authentication is disabled.");
+            eprintln!("Expose it only on a trusted private LAN.");
+        }
     }
 
     println!(
@@ -1006,6 +1140,34 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::Body;
+    use tower::ServiceExt;
+
+    fn node_with_token(url: &str, token: Option<&str>) -> NodeConfig {
+        NodeConfig {
+            id: "node".into(),
+            name: "Node".into(),
+            url: url.into(),
+            enabled: true,
+            include_in_total: true,
+            api_token: token.map(str::to_string),
+        }
+    }
+
+    fn router_state(admin_auth: HubAdminAuth) -> (tempfile::TempDir, AppState) {
+        let directory = tempfile::tempdir().unwrap();
+        let storage = HubStorage::open(&directory.path().join("hub.db")).unwrap();
+        let state = AppState {
+            config: Arc::new(RwLock::new(HubConfig::default())),
+            runtime: Arc::new(RwLock::new(HashMap::new())),
+            config_path: directory.path().join("hub.json"),
+            storage: Arc::new(Mutex::new(storage)),
+            stale_after: Duration::from_secs(15),
+            client: Client::new(),
+            admin_auth,
+        };
+        (directory, state)
+    }
 
     #[test]
     fn validates_node_ids_and_urls() {
@@ -1055,6 +1217,86 @@ mod tests {
         let json = serde_json::to_string(&NodeConfigView::from(&node)).unwrap();
         assert!(!json.contains("pw_super_secret"));
         assert!(json.contains("\"has_api_token\":true"));
+    }
+
+    #[test]
+    fn changing_a_node_url_never_carries_the_stored_token_implicitly() {
+        let existing = node_with_token("http://old-node:3000", Some("pw_existing_secret"));
+
+        let mut same_url = node_with_token("http://old-node:3000/", None);
+        preserve_or_clear_token_for_update(&existing, &mut same_url);
+        assert_eq!(same_url.api_token.as_deref(), Some("pw_existing_secret"));
+
+        let mut changed_url = node_with_token("http://new-node:3000", None);
+        preserve_or_clear_token_for_update(&existing, &mut changed_url);
+        assert!(changed_url.api_token.is_none());
+
+        let mut explicit_transfer =
+            node_with_token("http://new-node:3000", Some("pw_explicit_secret"));
+        preserve_or_clear_token_for_update(&existing, &mut explicit_transfer);
+        assert_eq!(
+            explicit_transfer.api_token.as_deref(),
+            Some("pw_explicit_secret")
+        );
+    }
+
+    #[tokio::test]
+    async fn hub_administration_is_optional_and_protects_mutations_when_enabled() {
+        let (_directory, state) = router_state(HubAdminAuth::with_token(None));
+        let response = build_router(state)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/hub/test")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"url":"http://127.0.0.1:1"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let admin_token = "a-very-long-hub-administrator-token";
+        let (_directory, state) = router_state(HubAdminAuth::with_token(Some(admin_token)));
+        let app = build_router(state);
+        for (method, uri) in [
+            ("GET", "/api/hub/nodes"),
+            ("POST", "/api/hub/nodes"),
+            ("POST", "/api/hub/nodes/node"),
+            ("DELETE", "/api/hub/nodes/node"),
+            ("POST", "/api/hub/test"),
+        ] {
+            let unauthorized = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(uri)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED, "{uri}");
+        }
+
+        let authorized = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/hub/test")
+                    .header("content-type", "application/json")
+                    .header("authorization", format!("Bearer {admin_token}"))
+                    .body(Body::from(r#"{"url":"http://127.0.0.1:1"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(authorized.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(authorized.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(!String::from_utf8_lossy(&body).contains(admin_token));
     }
 
     #[test]

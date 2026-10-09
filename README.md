@@ -465,6 +465,16 @@ Les endpoints d'authentification sont :
 
 `GET /api/health` reste public. Les autres API de données ou d'action refusent les appels non authentifiés lorsque l'option est active. PowerWatch Hub accepte le jeton facultatif dans le formulaire de chaque instance et ne l'expose jamais dans ses réponses API.
 
+Les opérations d'administration du Hub peuvent elles aussi être protégées, de manière facultative :
+
+```dotenv
+POWERWATCH_HUB_ADMIN_TOKEN=un-secret-aleatoire-d-au-moins-24-caracteres
+```
+
+Lorsque cette variable est définie, l'ajout, la liste, la modification, la suppression et le test des instances exigent `Authorization: Bearer <jeton administrateur>`. Le dashboard permet de saisir ce secret pour l'onglet courant ; il n'est ni renvoyé par l'API ni ajouté aux URLs. `GET /api/hub/auth/status` indique uniquement si cette protection est active. Sans variable, le comportement historique du Hub reste inchangé.
+
+Un jeton d'instance déjà enregistré reste associé à son URL actuelle. Si l'URL est modifiée sans fournir explicitement un nouveau jeton dans la même requête, le secret enregistré est supprimé au lieu d'être transmis à la nouvelle destination. Les modifications qui conservent la même URL préservent le jeton existant.
+
 Pour un reverse proxy HTTPS, terminez TLS sur le proxy, transmettez `X-Forwarded-Proto: https` et remplacez toute valeur fournie par le client au lieu de la concaténer. PowerWatch n'embarque pas lui-même de certificat TLS.
 
 ## CLI et TUI dans Docker

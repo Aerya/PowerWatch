@@ -107,6 +107,9 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 .management-grid { display:grid; grid-template-columns:minmax(140px,.7fr) minmax(240px,1.3fr) minmax(180px,1fr) auto auto; gap:7px; align-items:end; }
 .management label { display:grid; gap:3px; color:var(--muted); font-size:.72rem; }
 .notice { color:var(--muted); font-size:.74rem; margin:0 0 7px; }
+.hub-admin { display:flex; gap:7px; align-items:end; flex-wrap:wrap; margin:0 0 9px; }
+.hub-admin label { min-width:min(360px,100%); }
+.hub-admin-status { color:var(--muted); font-size:.72rem; padding-bottom:7px; }
 #probe-result { font-size:.75rem; margin-top:6px; min-height:1em; }
 .nodes { display:grid; grid-template-columns:repeat(auto-fit,minmax(420px,1fr)); gap:8px; }
 .node-card { overflow:hidden; border-top:3px solid var(--node-color,var(--border)); min-width:0; }
@@ -244,6 +247,11 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
   <summary><strong data-i18n="manage">Machines / instances</strong><span class="manage-count" id="manage-count"></span></summary>
   <div class="management-body">
     <p class="notice" data-i18n="security">Les URLs doivent rester privées et être accessibles depuis le conteneur Hub. Le Hub n'a pas d'authentification intégrée.</p>
+    <div class="hub-admin" id="hub-admin" hidden>
+      <label><span data-i18n="hubAdminToken">Jeton administrateur du Hub</span><input id="hub-admin-token" type="password" autocomplete="off" placeholder="••••••••"></label>
+      <button class="action-btn" id="save-hub-admin-token" data-i18n="useForSession">Utiliser pour cet onglet</button>
+      <span class="hub-admin-status" id="hub-admin-status"></span>
+    </div>
     <div class="management-grid">
       <label><span data-i18n="name">Nom</span><input id="node-name" placeholder="LincStation"></label>
       <label><span>URL PowerWatch</span><input id="node-url" placeholder="http://192.168.0.196:3064"></label>
@@ -267,8 +275,8 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 
 <script>
 const I18N={
-  fr:{subtitle:"Dashboard fédéré multi-machines",globalTotal:"TOTAL INFRASTRUCTURE",totalMixed:"Mesures + estimations",history:"Historique fédéré",manage:"Machines / instances",security:"Les URLs doivent rester privées et accessibles depuis le conteneur Hub. Utilisez un jeton API en lecture seule si l'authentification PowerWatch est activée.",name:"Nom",apiToken:"Jeton API (facultatif)",saveToken:"Enregistrer le jeton",tokenConfigured:"jeton configuré",test:"Tester",add:"Ajouter",online:"en ligne",stale:"stale",offline:"hors ligne",disabled:"désactivé",included:"compter dans le total",enabled:"activé",remove:"supprimer",open:"ouvrir l'instance",nodes:"machines en ligne",configured:"configurées",noNodes:"Aucune instance configurée. Ajoute ton premier PowerWatch ci-dessus.",lastSeen:"vu",never:"jamais",disks:"Disques",psu:"Alimentation",module:"module",modules:"modules",nominal:"nominale",psuUnverified:"SMBIOS non vérifié",usable:"utilisables",smbiosUnavailable:"SMBIOS inaccessible",psuNotReported:"non fournie par le firmware SMBIOS",notReportedSmbios:"non reportée par SMBIOS",reportedBySmbios:"reportée par SMBIOS",measured:"Mesurée",estimated:"Estimée",global:"Total global",noHistory:"Pas encore d'historique",footerBasedOn:"Basé sur",footerThanks:"merci pour le projet d’origine."},
-  en:{subtitle:"Federated multi-machine dashboard",globalTotal:"INFRASTRUCTURE TOTAL",totalMixed:"Measured + estimated",history:"Federated history",manage:"Machines / instances",security:"URLs must stay private and reachable from the Hub container. Use a read-only API token when PowerWatch authentication is enabled.",name:"Name",apiToken:"API token (optional)",saveToken:"Save token",tokenConfigured:"token configured",test:"Test",add:"Add",online:"online",stale:"stale",offline:"offline",disabled:"disabled",included:"include in total",enabled:"enabled",remove:"remove",open:"open instance",nodes:"nodes online",configured:"configured",noNodes:"No instance configured. Add your first PowerWatch above.",lastSeen:"seen",never:"never",disks:"Disks",psu:"Power supply",module:"module",modules:"modules",nominal:"nominal",psuUnverified:"SMBIOS unverified",usable:"usable",smbiosUnavailable:"SMBIOS unavailable",psuNotReported:"not exposed by SMBIOS firmware",notReportedSmbios:"not reported by SMBIOS",reportedBySmbios:"reported by SMBIOS",measured:"Measured",estimated:"Estimated",global:"Global total",noHistory:"No history yet",footerBasedOn:"Based on",footerThanks:"thank you for the original project."}
+  fr:{subtitle:"Dashboard fédéré multi-machines",globalTotal:"TOTAL INFRASTRUCTURE",totalMixed:"Mesures + estimations",history:"Historique fédéré",manage:"Machines / instances",security:"Les URLs doivent rester privées et accessibles depuis le conteneur Hub. Utilisez un jeton API en lecture seule si l'authentification PowerWatch est activée.",hubAdminToken:"Jeton administrateur du Hub",useForSession:"Utiliser pour cet onglet",adminReady:"authentification prête",adminMissing:"jeton administrateur requis",name:"Nom",apiToken:"Jeton API (facultatif)",saveToken:"Enregistrer le jeton",tokenConfigured:"jeton configuré",test:"Tester",add:"Ajouter",online:"en ligne",stale:"stale",offline:"hors ligne",disabled:"désactivé",included:"compter dans le total",enabled:"activé",remove:"supprimer",open:"ouvrir l'instance",nodes:"machines en ligne",configured:"configurées",noNodes:"Aucune instance configurée. Ajoute ton premier PowerWatch ci-dessus.",lastSeen:"vu",never:"jamais",disks:"Disques",psu:"Alimentation",module:"module",modules:"modules",nominal:"nominale",psuUnverified:"SMBIOS non vérifié",usable:"utilisables",smbiosUnavailable:"SMBIOS inaccessible",psuNotReported:"non fournie par le firmware SMBIOS",notReportedSmbios:"non reportée par SMBIOS",reportedBySmbios:"reportée par SMBIOS",measured:"Mesurée",estimated:"Estimée",global:"Total global",noHistory:"Pas encore d'historique",footerBasedOn:"Basé sur",footerThanks:"merci pour le projet d’origine."},
+  en:{subtitle:"Federated multi-machine dashboard",globalTotal:"INFRASTRUCTURE TOTAL",totalMixed:"Measured + estimated",history:"Federated history",manage:"Machines / instances",security:"URLs must stay private and reachable from the Hub container. Use a read-only API token when PowerWatch authentication is enabled.",hubAdminToken:"Hub administrator token",useForSession:"Use for this tab",adminReady:"authentication ready",adminMissing:"administrator token required",name:"Name",apiToken:"API token (optional)",saveToken:"Save token",tokenConfigured:"token configured",test:"Test",add:"Add",online:"online",stale:"stale",offline:"offline",disabled:"disabled",included:"include in total",enabled:"enabled",remove:"remove",open:"open instance",nodes:"nodes online",configured:"configured",noNodes:"No instance configured. Add your first PowerWatch above.",lastSeen:"seen",never:"never",disks:"Disks",psu:"Power supply",module:"module",modules:"modules",nominal:"nominal",psuUnverified:"SMBIOS unverified",usable:"usable",smbiosUnavailable:"SMBIOS unavailable",psuNotReported:"not exposed by SMBIOS firmware",notReportedSmbios:"not reported by SMBIOS",reportedBySmbios:"reported by SMBIOS",measured:"Measured",estimated:"Estimated",global:"Global total",noHistory:"No history yet",footerBasedOn:"Based on",footerThanks:"thank you for the original project."}
 };
 const GLOBAL_COLOR="#ffd166";
 const NODE_COLORS=[
@@ -290,6 +298,8 @@ const SENSOR_ICONS={
 };
 let lang=localStorage.getItem("powerwatchHubLang")||"fr";
 let snapshot=null;
+let hubAdminEnabled=false;
+let hubAdminToken=sessionStorage.getItem("powerwatchHubAdminToken")||"";
 let lastHistory=[];
 let historyHover=null;
 const hiddenSeries=new Set();
@@ -315,10 +325,28 @@ function applyLanguage(){
 function slugify(value){return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,48);}
 function fmtSeen(value){if(!value)return tr("never");return new Date(value).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"});}
 async function api(url,options={}){
-  const res=await fetch(url,{headers:{"Content-Type":"application/json"},...options});
+  const method=String(options.method||"GET").toUpperCase();
+  const path=new URL(url,location.href).pathname;
+  const administrative=path==="/api/hub/test"||path==="/api/hub/nodes"||path.startsWith("/api/hub/nodes/");
+  const headers=new Headers(options.headers||{});
+  if(options.body)headers.set("Content-Type","application/json");
+  if(hubAdminEnabled&&administrative){
+    if(!hubAdminToken)throw new Error(tr("adminMissing"));
+    headers.set("Authorization",`Bearer ${hubAdminToken}`);
+  }
+  const res=await fetch(url,{...options,method,headers});
   if(!res.ok){const text=await res.text();throw new Error(text||`HTTP ${res.status}`);}
   if(res.status===204)return null;
   return res.json();
+}
+async function initHubAdmin(){
+  try{
+    const response=await fetch("/api/hub/auth/status",{cache:"no-store"});
+    if(!response.ok)return;
+    const status=await response.json();hubAdminEnabled=Boolean(status.enabled);
+    const panel=document.getElementById("hub-admin");panel.hidden=!hubAdminEnabled;
+    if(hubAdminEnabled&&hubAdminToken)document.getElementById("hub-admin-status").textContent=tr("adminReady");
+  }catch(_){}
 }
 function cpuBenchmarkUrl(model){return `https://www.cpubenchmark.net/cpu.php?cpu=${encodeURIComponent(model)}`;}
 function cpuModelLink(model){return model?`<a class="cpu-benchmark" href="${cpuBenchmarkUrl(model)}" target="_blank" rel="noopener noreferrer" title="CPU Benchmark">${esc(model)} ↗</a>`:"";}
@@ -660,6 +688,7 @@ document.getElementById("lang-fr").onclick=()=>{lang="fr";localStorage.setItem("
 document.getElementById("lang-en").onclick=()=>{lang="en";localStorage.setItem("powerwatchHubLang",lang);applyLanguage();};
 document.getElementById("probe").onclick=probe;
 document.getElementById("add").onclick=addNode;
+document.getElementById("save-hub-admin-token").onclick=()=>{const input=document.getElementById("hub-admin-token");hubAdminToken=input.value.trim();input.value="";if(hubAdminToken)sessionStorage.setItem("powerwatchHubAdminToken",hubAdminToken);else sessionStorage.removeItem("powerwatchHubAdminToken");document.getElementById("hub-admin-status").textContent=hubAdminToken?tr("adminReady"):tr("adminMissing");};
 document.getElementById("history-range").onchange=()=>{historyHover=null;refreshHistory();};
 const historyCanvas=document.getElementById("history");
 historyCanvas.addEventListener("mousemove",event=>{
@@ -676,7 +705,7 @@ historyCanvas.addEventListener("mouseleave",()=>{
   drawHistory(lastHistory,{updateLegend:false});
 });
 window.addEventListener("resize",()=>drawHistory(lastHistory));
-applyLanguage();refreshSnapshot().then(refreshHistory);setInterval(refreshSnapshot,2000);setInterval(refreshHistory,60000);
+async function boot(){await initHubAdmin();applyLanguage();await refreshSnapshot();await refreshHistory();setInterval(refreshSnapshot,2000);setInterval(refreshHistory,60000);}boot();
 </script>
 </body>
 </html>

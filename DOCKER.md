@@ -37,6 +37,14 @@ The persistent bind mount stores `auth.json` under `./data`; Docker recreation t
 
 For PowerWatch Hub, enter a read-only token from the PowerWatch **Security** page in the instance's optional API-token field. Dockge-Enhanced must send the same kind of token as `Authorization: Bearer <token>`.
 
+Hub administration can be protected separately with:
+
+```dotenv
+POWERWATCH_HUB_ADMIN_TOKEN=a-random-secret-with-at-least-24-characters
+```
+
+When configured, use this Bearer token for `/api/hub/nodes`, `/api/hub/nodes/:id`, and `/api/hub/test`. The Hub dashboard keeps it only for the current browser tab. A stored instance token is preserved for same-URL updates, but it is cleared on a URL change unless a token is explicitly supplied for the new destination.
+
 Behind HTTPS, the proxy must overwrite and send `X-Forwarded-Proto: https`; this makes PowerWatch set the session cookie's `Secure` attribute. Health remains public at `/api/health`.
 
 ## SMBIOS / RAM / PSU

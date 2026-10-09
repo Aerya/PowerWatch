@@ -16,11 +16,17 @@ use std::collections::{HashMap, VecDeque};
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
+use tokio::sync::Semaphore;
 
 const SESSION_COOKIE: &str = "powerwatch_session";
 const SESSION_LIFETIME_SECONDS: i64 = 30 * 24 * 60 * 60;
 const LOGIN_WINDOW: Duration = Duration::from_secs(5 * 60);
 const LOGIN_MAX_FAILURES: usize = 5;
+const LOGIN_GLOBAL_MAX_FAILURES: usize = 20;
+const MAX_CONCURRENT_PASSWORD_CHECKS: usize = 2;
+const FAILURE_ACCOUNT: &str = "account";
+const FAILURE_UNKNOWN: &str = "unknown";
+const FAILURE_SETUP: &str = "setup";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Account {
@@ -67,7 +73,52 @@ struct AuthInner {
     path: Option<PathBuf>,
     setup_secret: Option<String>,
     store: RwLock<AuthStore>,
-    failures: Mutex<HashMap<String, VecDeque<Instant>>>,
+    failures: Mutex<LoginFailures>,
+    password_checks: Semaphore,
+}
+
+#[derive(Default)]
+struct LoginFailures {
+    by_subject: HashMap<&'static str, VecDeque<Instant>>,
+    global: VecDeque<Instant>,
+}
+
+impl LoginFailures {
+    fn prune(&mut self, now: Instant) {
+        let expired = |instant: &Instant| now.duration_since(*instant) > LOGIN_WINDOW;
+        self.global.retain(|instant| !expired(instant));
+        self.by_subject.retain(|_, attempts| {
+            attempts.retain(|instant| !expired(instant));
+            !attempts.is_empty()
+        });
+    }
+
+    fn rate_limited(&mut self, subject: &'static str, now: Instant) -> bool {
+        self.prune(now);
+        self.global.len() >= LOGIN_GLOBAL_MAX_FAILURES
+            || self
+                .by_subject
+                .get(subject)
+                .is_some_and(|attempts| attempts.len() >= LOGIN_MAX_FAILURES)
+    }
+
+    fn record(&mut self, subject: &'static str, now: Instant) {
+        self.prune(now);
+        self.global.push_back(now);
+        while self.global.len() > LOGIN_GLOBAL_MAX_FAILURES {
+            self.global.pop_front();
+        }
+        let attempts = self.by_subject.entry(subject).or_default();
+        attempts.push_back(now);
+        while attempts.len() > LOGIN_MAX_FAILURES {
+            attempts.pop_front();
+        }
+    }
+
+    fn clear_subject(&mut self, subject: &'static str, now: Instant) {
+        self.prune(now);
+        self.by_subject.remove(subject);
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -158,7 +209,8 @@ impl AuthService {
                 path: None,
                 setup_secret: None,
                 store: RwLock::new(AuthStore::default()),
-                failures: Mutex::new(HashMap::new()),
+                failures: Mutex::new(LoginFailures::default()),
+                password_checks: Semaphore::new(MAX_CONCURRENT_PASSWORD_CHECKS),
             }),
         }
     }
@@ -192,7 +244,8 @@ impl AuthService {
                 path: Some(path),
                 setup_secret,
                 store: RwLock::new(store),
-                failures: Mutex::new(HashMap::new()),
+                failures: Mutex::new(LoginFailures::default()),
+                password_checks: Semaphore::new(MAX_CONCURRENT_PASSWORD_CHECKS),
             }),
         })
     }
@@ -226,7 +279,8 @@ impl AuthService {
                 path: Some(path),
                 setup_secret,
                 store: RwLock::new(store),
-                failures: Mutex::new(HashMap::new()),
+                failures: Mutex::new(LoginFailures::default()),
+                password_checks: Semaphore::new(MAX_CONCURRENT_PASSWORD_CHECKS),
             }),
         })
     }
@@ -338,31 +392,61 @@ impl AuthService {
             .unwrap_or(Authentication::Missing)
     }
 
-    fn rate_limited(&self, key: &str) -> bool {
-        let now = Instant::now();
-        let mut failures = self.inner.failures.lock().unwrap();
-        let values = failures.entry(key.to_string()).or_default();
-        while values
-            .front()
-            .is_some_and(|instant| now.duration_since(*instant) > LOGIN_WINDOW)
+    fn login_subject(&self, username: &str) -> &'static str {
+        let store = self.inner.store.read().unwrap();
+        if store
+            .account
+            .as_ref()
+            .is_some_and(|account| constant_time_eq(&account.username, username.trim()))
         {
-            values.pop_front();
+            FAILURE_ACCOUNT
+        } else {
+            FAILURE_UNKNOWN
         }
-        values.len() >= LOGIN_MAX_FAILURES
     }
 
-    fn record_failure(&self, key: &str) {
+    fn rate_limited(&self, subject: &'static str) -> bool {
+        let now = Instant::now();
         self.inner
             .failures
             .lock()
             .unwrap()
-            .entry(key.to_string())
-            .or_default()
-            .push_back(Instant::now());
+            .rate_limited(subject, now)
     }
 
-    fn clear_failures(&self, key: &str) {
-        self.inner.failures.lock().unwrap().remove(key);
+    fn record_failure(&self, subject: &'static str) {
+        self.inner
+            .failures
+            .lock()
+            .unwrap()
+            .record(subject, Instant::now());
+    }
+
+    fn clear_failures(&self, subject: &'static str) {
+        self.inner
+            .failures
+            .lock()
+            .unwrap()
+            .clear_subject(subject, Instant::now());
+    }
+
+    async fn verify_password_limited(
+        &self,
+        subject: &'static str,
+        password: String,
+        encoded: String,
+    ) -> Result<bool, ()> {
+        let Ok(_permit) = self.inner.password_checks.acquire().await else {
+            return Ok(false);
+        };
+        if self.rate_limited(subject) {
+            return Err(());
+        }
+        Ok(
+            tokio::task::spawn_blocking(move || verify_password(&password, &encoded))
+                .await
+                .unwrap_or(false),
+        )
     }
 }
 
@@ -512,8 +596,7 @@ pub async fn setup(
     if !state.auth.enabled() {
         return json_error(StatusCode::NOT_FOUND, "authentication is disabled");
     }
-    let key = "setup";
-    if state.auth.rate_limited(key) {
+    if state.auth.rate_limited(FAILURE_SETUP) {
         return json_error(
             StatusCode::TOO_MANY_REQUESTS,
             "too many attempts; try again later",
@@ -521,7 +604,7 @@ pub async fn setup(
     }
     let expected = state.auth.inner.setup_secret.as_deref().unwrap_or_default();
     if !constant_time_eq(request.setup_token.trim(), expected) {
-        state.auth.record_failure(key);
+        state.auth.record_failure(FAILURE_SETUP);
         return json_error(StatusCode::UNAUTHORIZED, "invalid setup token");
     }
     let username = match validate_username(&request.username) {
@@ -553,7 +636,7 @@ pub async fn setup(
         }
         session
     };
-    state.auth.clear_failures(key);
+    state.auth.clear_failures(FAILURE_SETUP);
     response_with_cookie(
         AuthStatus {
             enabled: true,
@@ -580,23 +663,37 @@ pub async fn login(
             "the administrator account must be created first",
         );
     }
-    let key = request.username.trim().to_ascii_lowercase();
-    if state.auth.rate_limited(&key) {
+    let subject = state.auth.login_subject(&request.username);
+    if state.auth.rate_limited(subject) {
         return json_error(
             StatusCode::TOO_MANY_REQUESTS,
             "too many attempts; try again later",
         );
     }
-    let valid = {
+    let (username_matches, encoded_hash) = {
         let store = state.auth.inner.store.read().unwrap();
-        store.account.as_ref().is_some_and(|account| {
-            let username_matches = constant_time_eq(&account.username, request.username.trim());
-            let password_matches = verify_password(&request.password, &account.password_hash);
-            username_matches && password_matches
-        })
+        let account = store.account.as_ref().expect("account checked above");
+        (
+            constant_time_eq(&account.username, request.username.trim()),
+            account.password_hash.clone(),
+        )
     };
+    let password_matches = match state
+        .auth
+        .verify_password_limited(subject, request.password, encoded_hash)
+        .await
+    {
+        Ok(matches) => matches,
+        Err(()) => {
+            return json_error(
+                StatusCode::TOO_MANY_REQUESTS,
+                "too many attempts; try again later",
+            )
+        }
+    };
+    let valid = username_matches && password_matches;
     if !valid {
-        state.auth.record_failure(&key);
+        state.auth.record_failure(subject);
         return json_error(StatusCode::UNAUTHORIZED, "invalid username or password");
     }
     let (raw_token, csrf_token, username) = {
@@ -608,7 +705,7 @@ pub async fn login(
         }
         (session.0, session.1, username)
     };
-    state.auth.clear_failures(&key);
+    state.auth.clear_failures(FAILURE_ACCOUNT);
     response_with_cookie(
         AuthStatus {
             enabled: true,
@@ -892,11 +989,68 @@ mod tests {
     fn rate_limit_stops_repeated_failures() {
         let service = AuthService::disabled();
         for _ in 0..LOGIN_MAX_FAILURES {
-            service.record_failure("admin");
+            service.record_failure(FAILURE_ACCOUNT);
         }
-        assert!(service.rate_limited("admin"));
-        service.clear_failures("admin");
-        assert!(!service.rate_limited("admin"));
+        assert!(service.rate_limited(FAILURE_ACCOUNT));
+        service.clear_failures(FAILURE_ACCOUNT);
+        assert!(!service.rate_limited(FAILURE_ACCOUNT));
+    }
+
+    #[test]
+    fn failure_tracker_is_bounded_and_globally_limited() {
+        let mut failures = LoginFailures::default();
+        let now = Instant::now();
+        for _ in 0..LOGIN_GLOBAL_MAX_FAILURES {
+            failures.record(FAILURE_UNKNOWN, now);
+        }
+
+        assert_eq!(failures.by_subject.len(), 1);
+        assert!(failures.rate_limited(FAILURE_UNKNOWN, now));
+        assert!(failures.rate_limited(FAILURE_ACCOUNT, now));
+    }
+
+    #[test]
+    fn failure_tracker_expires_old_attempts_and_removes_empty_entries() {
+        let mut failures = LoginFailures::default();
+        let now = Instant::now();
+        failures.record(FAILURE_UNKNOWN, now - LOGIN_WINDOW - Duration::from_secs(1));
+
+        assert!(!failures.rate_limited(FAILURE_UNKNOWN, now));
+        assert!(failures.by_subject.is_empty());
+        assert!(failures.global.is_empty());
+    }
+
+    #[test]
+    fn unknown_usernames_share_one_failure_bucket() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auth.json");
+        let service =
+            AuthService::load_with_setup_secret(true, path, Some("bootstrap-secret-123".into()))
+                .unwrap();
+        service.inner.store.write().unwrap().account = Some(Account {
+            username: "admin".into(),
+            password_hash: hash_password("a strong password").unwrap(),
+        });
+
+        for username in ["unknown-1", "unknown-2", "unknown-3"] {
+            assert_eq!(service.login_subject(username), FAILURE_UNKNOWN);
+            service.record_failure(service.login_subject(username));
+        }
+        let failures = service.inner.failures.lock().unwrap();
+        assert_eq!(failures.by_subject.len(), 1);
+        assert_eq!(failures.by_subject[FAILURE_UNKNOWN].len(), 3);
+    }
+
+    #[tokio::test]
+    async fn argon2_concurrency_is_limited() {
+        let service = AuthService::disabled();
+        let first = service.inner.password_checks.acquire().await.unwrap();
+        let second = service.inner.password_checks.acquire().await.unwrap();
+        assert!(service.inner.password_checks.try_acquire().is_err());
+
+        drop(first);
+        assert!(service.inner.password_checks.try_acquire().is_ok());
+        drop(second);
     }
 
     #[test]

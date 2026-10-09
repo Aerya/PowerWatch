@@ -465,6 +465,16 @@ Authentication endpoints are:
 
 `GET /api/health` stays public. Other data and action APIs reject unauthenticated calls when authentication is enabled. PowerWatch Hub accepts the optional token in each instance form and never exposes it in its API responses.
 
+Hub administration operations can also be protected independently and optionally:
+
+```dotenv
+POWERWATCH_HUB_ADMIN_TOKEN=a-random-secret-with-at-least-24-characters
+```
+
+When this variable is set, adding, listing, changing, deleting, and testing instances requires `Authorization: Bearer <administrator token>`. The dashboard lets you enter this secret for the current tab; it is never returned by the API or added to URLs. `GET /api/hub/auth/status` only reports whether protection is enabled. Without the variable, the Hub keeps its historical behavior.
+
+An already stored instance token remains bound to its current URL. If the URL changes without explicitly supplying a new token in the same request, the stored secret is removed instead of being sent to the new destination. Updates that keep the same URL preserve the existing token.
+
 For an HTTPS reverse proxy, terminate TLS at the proxy, forward `X-Forwarded-Proto: https`, and replace any client-provided value instead of appending to it. PowerWatch does not terminate TLS itself.
 
 ## CLI and TUI in Docker
