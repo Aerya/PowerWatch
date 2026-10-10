@@ -102,6 +102,7 @@ async fn main() {
 
     // Prices are refreshed on the server only when the beta is enabled.
     tokio::spawn(app::tariff_fr_refresh_background(app_state.clone()));
+    tokio::spawn(app::market_fr_refresh_background(app_state.clone()));
     let setup_required = app_state.auth.setup_required();
     let router = app::build_router(app_state);
     let addr = (args.host, args.port);

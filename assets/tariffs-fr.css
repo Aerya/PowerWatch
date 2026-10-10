@@ -17,3 +17,7 @@
 #tariffs-fr-app input[type=checkbox]{accent-color:var(--measured)}
 #tariffs-fr-app ul{padding-left:18px}
 @media(max-width:650px){#tariffs-fr-app .tf-grid{grid-template-columns:1fr}}
+
+#tariffs-fr-app #tf-market-offer{min-width:min(460px,85vw);max-width:100%;}
+#tariffs-fr-app #tf-market-status{overflow-wrap:anywhere;}
+#tariffs-fr-app #tf-market-import:disabled{opacity:.4;cursor:not-allowed;}
