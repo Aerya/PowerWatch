@@ -94,6 +94,9 @@ impl Storage {
             .map_err(|e| StorageError::QueryFailed(e.to_string()))
     }
 
+    /// Connection accessor for the opt-in French tariff SQLite module.
+    pub fn tariff_connection(&self) -> &Connection { &self.conn }
+
     pub fn energy_stats(&self, from: Option<i64>, to: i64) -> Result<EnergyStats,StorageError> {
         energy::stats(&self.conn,"local",from,to)
             .map_err(|e| StorageError::QueryFailed(e.to_string()))

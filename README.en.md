@@ -373,13 +373,27 @@ The main page displays:
 
 The Docker image automatically starts PowerWatch with history enabled and NAS/headless mode.
 
+### French electricity tariffs — beta (optional)
+
+**Beta: prices may be incomplete, stale or inaccurate. Costs are estimates, not meter readings or invoices.** Disabled by default. SQLite keeps every contract and manual override on the server.
+
+- Dated contracts, multiple suppliers across distinct time ranges, independent electric sites and Hub node assignments.
+- Editable price revisions for Base, HP/HC (custom time windows), Tempo (six rates), and custom offers; edited values override external imports.
+- Optional automatic/daily and on-demand sync of **EDF regulated Tarif Bleu** data from CRE CSV, selected by subscribed kVA; confirmed Tempo colors from independent calendrier-tempo.fr API (CC BY 4.0, not an EDF/RTE API).
+- Other French suppliers work through manual entry / JSON import-export until a trustworthy licenced source is available; no fictitious rates.
+- Europe/Paris local time, DST, Tempo 06:00-to-06:00 day. 15-minute lifetime archives for newly compacted energy; legacy hourly energy is still supported and its price breakdown is flagged approximate.
+- Optional prorated subscription billed **once per electric site**, not per node. Missing rates, missing Tempo days and unmonitored time are never costed with a guessed number.
+- Endpoints `/api/tariffs-fr` and `/api/hub/tariffs-fr` (plus `/sync` and `/cost`); writes require the existing WebUI/Hub admin protection when enabled.
+
+Sources: https://www.cre.fr/documents/open-data/historique-des-tarifs-reglementes-de-vente-delectricite-pour-les-consommateurs-residentiels.html and https://www.calendrier-tempo.fr/api-tempo.
+
 ## Persistent energy consumption (kWh)
 
 PowerWatch and PowerWatch Hub show **24 h, 7 d, 30 d, lifetime** and a custom start/end date-time. Hub also displays **per-node** kWh.
 
 Energy is integrated between consecutive power readings only across sufficiently short sampling gaps. Downtime and missing telemetry **are not filled with invented electricity usage**; the observed coverage is displayed (in node-hours for Hub). As RAM/disk data may be estimated and PSU inefficiency is not monitored, **kWh are not a substitute for a plug-in power meter**.
 
-The energy ledger is stored in SQLite independently of the Watts-history retention. Detailed intervals remain available for 45 days; older data are consolidated into permanent hourly rollups. First migration recovers only actual, sufficiently close raw historical observations; unrecorded periods cannot be reconstructed.
+The energy ledger is stored in SQLite independently of the Watts-history retention. Detailed intervals remain available for 45 days; new archives are consolidated into permanent 15-minute buckets; legacy hourly archives remain readable. First migration recovers only actual, sufficiently close raw historical observations; unrecorded periods cannot be reconstructed.
 
 - Local API: `GET /api/energy?from=<ISO8601>&to=<ISO8601>` (optional parameters).
 - Hub API: `GET /api/hub/energy?from=<ISO8601>&to=<ISO8601>` (global and per-node periods).
