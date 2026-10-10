@@ -373,6 +373,18 @@ The main page displays:
 
 The Docker image automatically starts PowerWatch with history enabled and NAS/headless mode.
 
+## Persistent energy consumption (kWh)
+
+PowerWatch and PowerWatch Hub show **24 h, 7 d, 30 d, lifetime** and a custom start/end date-time. Hub also displays **per-node** kWh.
+
+Energy is integrated between consecutive power readings only across sufficiently short sampling gaps. Downtime and missing telemetry **are not filled with invented electricity usage**; the observed coverage is displayed (in node-hours for Hub). As RAM/disk data may be estimated and PSU inefficiency is not monitored, **kWh are not a substitute for a plug-in power meter**.
+
+The energy ledger is stored in SQLite independently of the Watts-history retention. Detailed intervals remain available for 45 days; older data are consolidated into permanent hourly rollups. First migration recovers only actual, sufficiently close raw historical observations; unrecorded periods cannot be reconstructed.
+
+- Local API: `GET /api/energy?from=<ISO8601>&to=<ISO8601>` (optional parameters).
+- Hub API: `GET /api/hub/energy?from=<ISO8601>&to=<ISO8601>` (global and per-node periods).
+- The existing local History energy card remains separate from the new cumulative counters.
+
 ## History
 
 Data is stored in SQLite in the persistent `./data` volume.

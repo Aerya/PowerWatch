@@ -514,6 +514,25 @@
     max-height: 200px;
     overflow-y: auto;
   }
+
+/* Durable kWh accounting: independent of the live Watts display. */
+.energy-panel {margin:14px 0 18px;padding:14px;border:1px solid var(--border);border-radius:8px;background:var(--card,var(--surface,var(--bg)));}
+.energy-heading {display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;}
+.energy-heading h2 {font-size:1rem;margin:0;color:var(--text);}
+.energy-grid {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;}
+.energy-tile {padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;min-width:0;}
+.energy-tile-label {color:var(--muted);font-size:.77rem;display:block;margin-bottom:5px;}
+.energy-tile-value {font-size:1.3rem;font-weight:700;display:block;color:var(--text);overflow-wrap:anywhere;}
+.energy-tile-note {color:var(--muted);font-size:.8rem;display:block;margin-top:3px;}
+.energy-controls {display:flex;align-items:end;gap:9px;flex-wrap:wrap;margin-top:12px;}
+.energy-controls label {color:var(--muted);font-size:.74rem;display:grid;gap:4px;}
+.energy-controls input {padding:6px 7px;max-width:210px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;}
+.energy-controls button {padding:7px 12px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer;}
+.energy-detail {margin-top:10px;color:var(--muted);font-size:.8rem;line-height:1.6;}
+.energy-node-row {font-size:.73rem;color:var(--muted);display:flex;flex-wrap:wrap;gap:7px;margin-bottom:7px;}
+.energy-node-row strong {color:var(--text);font-weight:600;}
+@media(max-width:730px){.energy-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+
 </style>
 </head>
 <body data-page="dashboard">
@@ -531,6 +550,26 @@
     <a href="/alerts" data-i18n="nav.alerts" style="color:var(--text);text-decoration:none;border-bottom:1px dotted var(--muted);">Alerts</a>
   </div>
   <div class="total" id="total" data-i18n="common.loading">Loading...</div>
+
+  <section class="energy-panel" aria-labelledby="energy-heading">
+    <div class="energy-heading"><h2 id="energy-heading" data-i18n="energy.title">Consommation énergétique cumulée</h2>
+      <span id="energy-estimate" data-i18n="energy.estimate">Estimation partielle, non mesurée à la prise</span>
+    </div>
+    <div class="energy-grid">
+      <div class="energy-tile"><span class="energy-tile-label" data-i18n="energy.24h">24 dernières heures</span><strong id="energy-24h" class="energy-tile-value">—</strong><span id="energy-coverage-24h" class="energy-tile-note"></span></div>
+      <div class="energy-tile"><span class="energy-tile-label" data-i18n="energy.7d">7 derniers jours</span><strong id="energy-7d" class="energy-tile-value">—</strong><span id="energy-coverage-7d" class="energy-tile-note"></span></div>
+      <div class="energy-tile"><span class="energy-tile-label" data-i18n="energy.30d">30 derniers jours</span><strong id="energy-30d" class="energy-tile-value">—</strong><span id="energy-coverage-30d" class="energy-tile-note"></span></div>
+      <div class="energy-tile"><span class="energy-tile-label" data-i18n="energy.all">Depuis le premier relevé</span><strong id="energy-all" class="energy-tile-value">—</strong><span id="energy-coverage-all" class="energy-tile-note"></span></div>
+    </div>
+    <div class="energy-controls">
+      <label><span data-i18n="energy.from">Du</span><input id="energy-from" type="datetime-local"></label>
+      <label><span data-i18n="energy.to">Au</span><input id="energy-to" type="datetime-local"></label>
+      <button id="energy-apply" type="button" data-i18n="energy.apply">Afficher la période</button>
+      <button id="energy-reset" type="button" data-i18n="energy.reset">Effacer les dates</button>
+    </div>
+    <div id="energy-details" class="energy-detail" aria-live="polite">—</div>
+  </section>
+
   <div id="alerts-summary" style="margin:-6px 0 16px;color:var(--muted);font-size:.82rem;"></div>
 
   <div class="hardware-summary" id="hardware-summary">
@@ -1691,6 +1730,59 @@ window.addEventListener("powerwatch:languagechange", () => {
   refreshSuggestions();
   renderChart();
 });
+
+
+// Cumulative energy and measurement coverage are persisted server-side.
+let powerwatchEnergy = null;
+function pwEnergyText(key) { return t("energy." + key); }
+function pwEnergyFormat(entry) {
+  if (!entry || entry.first_seen_epoch == null) return "—";
+  const v = entry.energy_kwh;
+  return `${v.toLocaleString(PWI18n.language === "en" ? "en-US" : "fr-FR", {maximumFractionDigits:v < 1 ? 4 : 2})} kWh`;
+}
+function pwEnergyRender() {
+  if (!powerwatchEnergy) return;
+  for (const id of ["24h","7d","30d","all"]) {
+    const entry = powerwatchEnergy.windows[id];
+    document.getElementById("energy-" + id).textContent = pwEnergyFormat(entry);
+    document.getElementById("energy-coverage-" + id).textContent = entry?.first_seen_epoch == null ? "" :
+      `${pwEnergyText("coverage")}: ${(entry.coverage_seconds/3600).toFixed(1)} h`;
+  }
+  const selected = powerwatchEnergy.selected;
+  const since = powerwatchEnergy.windows.all?.first_seen_epoch;
+  const covered = (selected.coverage_seconds/3600).toLocaleString(undefined,{maximumFractionDigits:2});
+  const part = selected.first_seen_epoch == null ? pwEnergyText("noData") :
+    `${pwEnergyText("selected")}: ${pwEnergyFormat(selected)} · ${pwEnergyText("coverage")}: ${covered} h`;
+  document.getElementById("energy-details").textContent = `${part} · ${pwEnergyText("since")}: ${since == null ? "—" : new Date(since*1000).toLocaleString()} · ${pwEnergyText("estimate")}`;
+}
+async function pwEnergyRefresh() {
+  const from = document.getElementById("energy-from").value;
+  const to = document.getElementById("energy-to").value;
+  const params = new URLSearchParams();
+  if (from && to && new Date(from) >= new Date(to)) {
+    document.getElementById("energy-details").textContent = pwEnergyText("invalidDates");
+    return;
+  }
+  if (from) params.set("from",new Date(from).toISOString());
+  if (to) params.set("to",new Date(to).toISOString());
+  try {
+    const response = await fetch("/api/energy?"+params,{cache:"no-store"});
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    powerwatchEnergy = await response.json();
+    pwEnergyRender();
+  } catch (error) {
+    document.getElementById("energy-details").textContent = `${pwEnergyText("loadError")}: ${error.message}`;
+  }
+}
+document.getElementById("energy-apply").addEventListener("click",pwEnergyRefresh);
+document.getElementById("energy-reset").addEventListener("click",()=>{
+  document.getElementById("energy-from").value="";
+  document.getElementById("energy-to").value="";
+  pwEnergyRefresh();
+});
+window.addEventListener("powerwatch:languagechange",pwEnergyRender);
+pwEnergyRefresh();
+setInterval(pwEnergyRefresh,60000);
 
 setupChartInteractions();
 setupHistoryControls();

@@ -3,6 +3,7 @@ pub mod alerts;
 pub mod discovery;
 pub mod disk_topology;
 pub mod duration;
+pub mod energy;
 pub mod hook;
 pub mod json_snapshot;
 pub mod model;

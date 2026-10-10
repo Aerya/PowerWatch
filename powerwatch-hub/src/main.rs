@@ -5,6 +5,7 @@ use axum::response::{Html, IntoResponse};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
+use powerwatch_core::energy;
 use clap::Parser;
 use reqwest::Client;
 use rusqlite::{params, Connection};
@@ -14,7 +15,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::net::IpAddr;
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tokio::task::JoinSet;
 
@@ -400,7 +401,30 @@ impl HubStorage {
                 ON node_totals(timestamp, node_id);
             ",
         )?;
-        Ok(Self { conn })
+        let mut storage=Self { conn };
+        energy::init(&storage.conn)?;
+        // Upgrade pre-existing Hub history, with no duplicate kWh on restarts.
+        let migration_needed:bool=storage.conn.query_row(
+            "SELECT NOT EXISTS(SELECT 1 FROM energy_last LIMIT 1)",[],|r|r.get(0))?;
+        if migration_needed {
+            let mut by_node:BTreeMap<String,Vec<(i64,f64,bool)>>=BTreeMap::new();
+            {
+                let mut stmt=storage.conn.prepare(
+                    "SELECT node_id,CAST(strftime('%s',timestamp) AS INTEGER),watts
+                     FROM node_totals ORDER BY node_id,timestamp")?;
+                let rows=stmt.query_map([],|r|Ok((r.get::<_,String>(0)?,
+                    r.get::<_,i64>(1)?,r.get::<_,f64>(2)?)))?;
+                for row in rows {
+                    let (node,epoch,watts)=row?;
+                    by_node.entry(node).or_default().push((epoch,watts,true));
+                }
+            }
+            for (node,points) in by_node {
+                energy::import_samples(&mut storage.conn,&node,&points,600)?;
+            }
+            energy::compact(&mut storage.conn,Utc::now().timestamp())?;
+        }
+        Ok(storage)
     }
 
     fn write_totals(
@@ -423,7 +447,11 @@ impl HubStorage {
             "DELETE FROM node_totals WHERE timestamp < ?1",
             params![cutoff.to_rfc3339()],
         )?;
-        tx.commit()
+        tx.commit()?;
+        for (node,watts) in totals {
+            energy::record(&mut self.conn,node,timestamp.timestamp(),*watts,true,180)?;
+        }
+        Ok(())
     }
 
     fn write_history_points(
@@ -442,6 +470,9 @@ impl HubStorage {
             }
         }
         tx.commit()?;
+        let samples=points.iter().map(|(at,watts)|(at.timestamp(),*watts,true))
+            .collect::<Vec<_>>();
+        energy::import_samples(&mut self.conn,node_id,&samples,180)?;
         Ok(changed)
     }
 
@@ -731,6 +762,7 @@ async fn poll_loop(state: AppState, refresh_interval: Duration) {
 }
 
 async fn history_loop(state: AppState, history_interval: Duration) {
+    let mut last_energy_compaction = Instant::now() - Duration::from_secs(3600);
     let mut ticker = tokio::time::interval(history_interval);
     ticker.tick().await;
 
@@ -765,6 +797,13 @@ async fn history_loop(state: AppState, history_interval: Duration) {
         if let Ok(mut storage) = state.storage.lock() {
             if let Err(error) = storage.write_totals(now, &totals) {
                 eprintln!("warning: failed to persist hub history: {error}");
+            }
+            if last_energy_compaction.elapsed() >= Duration::from_secs(3600) {
+                if let Err(error) = energy::compact(&mut storage.conn,now.timestamp()) {
+                    eprintln!("warning: energy archive maintenance failed: {error}");
+                } else {
+                    last_energy_compaction=Instant::now();
+                }
             }
         }
     }
@@ -1004,6 +1043,76 @@ async fn history(
     Ok(Json(rows))
 }
 
+
+#[derive(Deserialize)]
+struct EnergyQuery {
+    from: Option<DateTime<Utc>>,
+    to: Option<DateTime<Utc>>,
+}
+
+#[derive(Serialize, Default)]
+struct HubEnergyGroup {
+    windows: BTreeMap<&'static str,powerwatch_core::energy::EnergyStats>,
+    selected: powerwatch_core::energy::EnergyStats,
+}
+
+#[derive(Serialize)]
+struct HubEnergyResponse {
+    global: HubEnergyGroup,
+    nodes: BTreeMap<String,HubEnergyGroup>,
+}
+
+fn add_energy(dst: &mut powerwatch_core::energy::EnergyStats,
+    src: &powerwatch_core::energy::EnergyStats) {
+    dst.energy_kwh+=src.energy_kwh;
+    dst.estimated_kwh+=src.estimated_kwh;
+    // Infrastructure coverage is expressed in node-seconds (sum of covered nodes).
+    dst.coverage_seconds+=src.coverage_seconds;
+    if let Some(first)=src.first_seen_epoch {
+        dst.first_seen_epoch=Some(dst.first_seen_epoch.map_or(first,|v|v.min(first)));
+    }
+    dst.from_epoch=src.from_epoch;
+    dst.to_epoch=src.to_epoch;
+}
+
+async fn energy_overview(
+    State(state): State<AppState>,Query(params):Query<EnergyQuery>,
+)->Result<Json<HubEnergyResponse>,(StatusCode,String)> {
+    let now=Utc::now().timestamp();
+    let to=params.to.map_or(now,|value|value.timestamp());
+    let selected_from=params.from.map(|value|value.timestamp());
+    if to>now+60 || selected_from.is_some_and(|value|value>=to) {
+        return Err((StatusCode::BAD_REQUEST,"invalid energy period".to_owned()));
+    }
+    let nodes=state.config.read().await.nodes.clone();
+    let storage=state.storage.lock().map_err(|_|(StatusCode::INTERNAL_SERVER_ERROR,
+        "storage lock poisoned".to_owned()))?;
+    let periods=[("24h",Some(now-86400)),("7d",Some(now-7*86400)),
+        ("30d",Some(now-30*86400)),("all",None)];
+    let mut global=HubEnergyGroup::default();
+    let mut result=BTreeMap::new();
+    for node in nodes {
+        let mut group=HubEnergyGroup::default();
+        for (key,start) in periods {
+            let item=powerwatch_core::energy::stats(&storage.conn,&node.id,start,now)
+                .map_err(|err|(StatusCode::INTERNAL_SERVER_ERROR,err.to_string()))?;
+            if node.enabled && node.include_in_total {
+                add_energy(global.windows.entry(key).or_default(),&item);
+            }
+            group.windows.insert(key,item);
+        }
+        group.selected=powerwatch_core::energy::stats(&storage.conn,&node.id,selected_from,to)
+            .map_err(|err|(StatusCode::INTERNAL_SERVER_ERROR,err.to_string()))?;
+        if node.enabled && node.include_in_total {
+            add_energy(&mut global.selected,&group.selected);
+        }
+        result.insert(node.id,group);
+    }
+    // Even an empty Hub returns all expected windows.
+    for (key,_) in periods {global.windows.entry(key).or_default();}
+    Ok(Json(HubEnergyResponse{global,nodes:result}))
+}
+
 async fn admin_status(State(state): State<AppState>) -> Json<HubAdminStatus> {
     Json(HubAdminStatus {
         enabled: state.admin_auth.enabled(),
@@ -1041,6 +1150,7 @@ fn build_router(state: AppState) -> Router {
         .route("/api/hub/auth/status", get(admin_status))
         .route("/api/hub/snapshot", get(snapshot))
         .route("/api/hub/history", get(history))
+        .route("/api/hub/energy",get(energy_overview))
         .merge(administration)
         .with_state(state)
         .layer(axum::extract::DefaultBodyLimit::max(64 * 1024))
@@ -1188,6 +1298,23 @@ mod tests {
         bad = good;
         bad.url = "192.168.0.196".into();
         assert!(validate_node(&bad).is_err());
+    }
+
+    #[test]
+    fn hub_tracks_independent_persistent_machine_energy() {
+        let dir=tempfile::tempdir().unwrap();
+        let path=dir.path().join("hub-energy.db");
+        let mut db=HubStorage::open(&path).unwrap();
+        let start=DateTime::<Utc>::from_timestamp(1_700_000_100,0).unwrap();
+        db.write_totals(start,&[("first".to_string(),20.0),("second".to_string(),30.0)]).unwrap();
+        db.write_totals(start+chrono::Duration::seconds(60),&[("first".to_string(),20.0),("second".to_string(),30.0)]).unwrap();
+        let first=energy::stats(&db.conn,"first",None,start.timestamp()+120).unwrap();
+        let second=energy::stats(&db.conn,"second",None,start.timestamp()+120).unwrap();
+        assert!(second.energy_kwh>first.energy_kwh);
+        drop(db);
+        let db=HubStorage::open(&path).unwrap();
+        let resumed=energy::stats(&db.conn,"first",None,start.timestamp()+120).unwrap();
+        assert!((resumed.energy_kwh-first.energy_kwh).abs()<1e-10);
     }
 
     #[test]
