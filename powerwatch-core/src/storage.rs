@@ -1,4 +1,5 @@
 use crate::model::{Component, Confidence, SensorReading};
+use crate::energy::{self, EnergyStats};
 use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 use serde::Serialize;
@@ -27,8 +28,26 @@ pub struct Storage {
 impl Storage {
     pub fn open(path: &std::path::Path) -> Result<Self, StorageError> {
         let conn = Connection::open(path).map_err(|e| StorageError::OpenFailed(e.to_string()))?;
-        let storage = Self { conn };
+        let mut storage = Self { conn };
         storage.create_schema()?;
+        // Upgrade existing installations: recover energy from actual raw total readings.
+        // Aggregated history is intentionally not counted as uninterrupted observation.
+        if !energy::has_samples(&storage.conn, "local")
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))? {
+            let history = {
+                let mut stmt = storage.conn.prepare(
+                    "SELECT CAST(strftime('%s',ts) AS INTEGER),watts,confidence
+                     FROM readings WHERE component='"Total"' ORDER BY ts ASC"
+                ).map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+                let rows = stmt.query_map([], |r| Ok((
+                    r.get::<_,i64>(0)?,r.get::<_,f64>(1)?,r.get::<_,String>(2)? == "estimated"
+                ))).map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+                rows.collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(|e| StorageError::QueryFailed(e.to_string()))?
+            };
+            energy::import_samples(&mut storage.conn, "local", &history, 600)
+                .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+        }
         Ok(storage)
     }
 
@@ -65,7 +84,19 @@ impl Storage {
                 CREATE INDEX IF NOT EXISTS idx_history_rollups_epoch ON history_rollups(bucket_epoch);",
             )
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+        energy::init(&self.conn).map_err(|e| StorageError::QueryFailed(e.to_string()))?;
         Ok(())
+    }
+
+    pub fn record_energy(&mut self, total: &SensorReading, max_gap: i64) -> Result<(), StorageError> {
+        energy::record(&mut self.conn,"local",total.timestamp.timestamp(),total.watts,
+            total.confidence == Confidence::Estimated,max_gap)
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))
+    }
+
+    pub fn energy_stats(&self, from: Option<i64>, to: i64) -> Result<EnergyStats,StorageError> {
+        energy::stats(&self.conn,"local",from,to)
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))
     }
 
     pub fn insert_reading(&self, reading: &SensorReading) -> Result<(), StorageError> {
@@ -192,6 +223,8 @@ impl Storage {
                    rusqlite::params![H1, Q15, hourly_cutoff]).map_err(|e| StorageError::QueryFailed(e.to_string()))?;
         tx.execute("DELETE FROM history_rollups WHERE bucket_seconds = ?1 AND bucket_epoch < ?2", rusqlite::params![Q15, hourly_cutoff]).map_err(|e| StorageError::QueryFailed(e.to_string()))?;
         tx.commit().map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+        energy::compact(&mut self.conn, now.timestamp())
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
         Ok(())
     }
 
@@ -288,6 +321,20 @@ mod tests {
 
         assert_eq!(readings[0].watts, 5.0);
         assert_eq!(readings[1].watts, 8.0);
+    }
+
+    #[test]
+    fn energy_ledger_survives_history_compaction() {
+        let mut storage=Storage::open_in_memory().unwrap();
+        let start=DateTime::<Utc>::from_timestamp(1700000100,0).unwrap();
+        storage.record_energy(&reading(Component::Total,30.0,Confidence::Estimated,start),180).unwrap();
+        storage.record_energy(&reading(Component::Total,30.0,Confidence::Estimated,start+Duration::seconds(60)),180).unwrap();
+        let end=(start.timestamp().div_euclid(3600)+1)*3600;
+        let before=storage.energy_stats(None,end).unwrap();
+        assert!(before.energy_kwh>0.0);
+        storage.compact_history(start+Duration::days(46)).unwrap();
+        let after=storage.energy_stats(None,end).unwrap();
+        assert!((before.energy_kwh-after.energy_kwh).abs()<1e-10);
     }
 
     #[test]

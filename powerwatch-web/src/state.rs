@@ -65,6 +65,12 @@ pub fn start_sampling_loop(
                         }
                         if let Some(total) = total {
                             let _ = db.insert_reading(&total);
+                            // The energy cursor is durable and independent of raw-history retention.
+                            let gap = history_interval.as_secs().saturating_mul(3).max(60)
+                                .min(i64::MAX as u64) as i64;
+                            if let Err(error) = db.record_energy(&total,gap) {
+                                eprintln!("warning: energy accounting failed: {error:?}");
+                            }
                         }
                         if last_history_maintenance.elapsed() >= maintenance_interval {
                             let _ = db.compact_history(chrono::Utc::now());

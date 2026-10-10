@@ -203,6 +203,25 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
   .nodes { grid-template-columns:1fr; }
   .quick-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
+
+/* Durable kWh accounting: independent of the live Watts display. */
+.energy-panel {margin:14px 0 18px;padding:14px;border:1px solid var(--border);border-radius:8px;background:var(--card,var(--surface,var(--bg)));}
+.energy-heading {display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;}
+.energy-heading h2 {font-size:1rem;margin:0;color:var(--text);}
+.energy-grid {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;}
+.energy-tile {padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;min-width:0;}
+.energy-tile-label {color:var(--muted);font-size:.77rem;display:block;margin-bottom:5px;}
+.energy-tile-value {font-size:1.3rem;font-weight:700;display:block;color:var(--text);overflow-wrap:anywhere;}
+.energy-tile-cost {color:var(--muted);font-size:.8rem;display:block;margin-top:3px;}
+.energy-controls {display:flex;align-items:end;gap:9px;flex-wrap:wrap;margin-top:12px;}
+.energy-controls label {color:var(--muted);font-size:.74rem;display:grid;gap:4px;}
+.energy-controls input {padding:6px 7px;max-width:210px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;}
+.energy-controls button {padding:7px 12px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer;}
+.energy-detail {margin-top:10px;color:var(--muted);font-size:.8rem;line-height:1.6;}
+.energy-node-row {font-size:.73rem;color:var(--muted);display:flex;flex-wrap:wrap;gap:7px;margin-bottom:7px;}
+.energy-node-row strong {color:var(--text);font-weight:600;}
+@media(max-width:730px){.energy-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+
 </style>
 </head>
 <body>
@@ -243,6 +262,26 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
   </section>
 </div>
 
+
+<section class="panel energy-panel" aria-labelledby="hub-energy-title">
+  <div class="energy-heading"><h2 id="hub-energy-title" data-i18n="energyTitle">Consommation énergétique</h2>
+    <span data-i18n="energyDisclaimer">Estimation partielle, hors pertes non mesurées</span></div>
+  <div class="energy-grid">
+    <div class="energy-tile"><span data-i18n="energy24h" class="energy-tile-label">24 h</span><strong id="hub-energy-24h" class="energy-tile-value">—</strong><span id="hub-cost-24h" class="energy-tile-cost"></span></div>
+    <div class="energy-tile"><span data-i18n="energy7d" class="energy-tile-label">7 j</span><strong id="hub-energy-7d" class="energy-tile-value">—</strong><span id="hub-cost-7d" class="energy-tile-cost"></span></div>
+    <div class="energy-tile"><span data-i18n="energy30d" class="energy-tile-label">30 j</span><strong id="hub-energy-30d" class="energy-tile-value">—</strong><span id="hub-cost-30d" class="energy-tile-cost"></span></div>
+    <div class="energy-tile"><span data-i18n="energyAll" class="energy-tile-label">Cumul permanent</span><strong id="hub-energy-all" class="energy-tile-value">—</strong><span id="hub-cost-all" class="energy-tile-cost"></span></div>
+  </div>
+  <div class="energy-controls">
+    <label><span data-i18n="energyFrom">Du</span><input id="hub-energy-from" type="datetime-local"></label>
+    <label><span data-i18n="energyTo">Au</span><input id="hub-energy-to" type="datetime-local"></label>
+    <button type="button" id="hub-energy-apply" data-i18n="energyApply">Afficher la période</button>
+    <button type="button" id="hub-energy-reset" data-i18n="energyReset">Effacer</button>
+    <label><span data-i18n="energyRate">Tarif (€/kWh)</span><input type="number" min="0" step="0.0001" id="hub-energy-rate" placeholder="0,25"></label>
+  </div>
+  <div id="hub-energy-detail" class="energy-detail" aria-live="polite">—</div>
+</section>
+
 <details class="panel management">
   <summary><strong data-i18n="manage">Machines / instances</strong><span class="manage-count" id="manage-count"></span></summary>
   <div class="management-body">
@@ -275,8 +314,8 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 
 <script>
 const I18N={
-  fr:{subtitle:"Dashboard fédéré multi-machines",globalTotal:"TOTAL INFRASTRUCTURE",totalMixed:"Mesures + estimations",history:"Historique fédéré",manage:"Machines / instances",security:"Les URLs doivent rester privées et accessibles depuis le conteneur Hub. Utilisez un jeton API en lecture seule si l'authentification PowerWatch est activée.",hubAdminToken:"Jeton administrateur du Hub",useForSession:"Utiliser pour cet onglet",adminReady:"authentification prête",adminMissing:"jeton administrateur requis",name:"Nom",apiToken:"Jeton API (facultatif)",saveToken:"Enregistrer le jeton",tokenConfigured:"jeton configuré",test:"Tester",add:"Ajouter",online:"en ligne",stale:"stale",offline:"hors ligne",disabled:"désactivé",included:"compter dans le total",enabled:"activé",remove:"supprimer",open:"ouvrir l'instance",nodes:"machines en ligne",configured:"configurées",noNodes:"Aucune instance configurée. Ajoute ton premier PowerWatch ci-dessus.",lastSeen:"vu",never:"jamais",disks:"Disques",psu:"Alimentation",module:"module",modules:"modules",nominal:"nominale",psuUnverified:"SMBIOS non vérifié",usable:"utilisables",smbiosUnavailable:"SMBIOS inaccessible",psuNotReported:"non fournie par le firmware SMBIOS",notReportedSmbios:"non reportée par SMBIOS",reportedBySmbios:"reportée par SMBIOS",measured:"Mesurée",estimated:"Estimée",global:"Total global",noHistory:"Pas encore d'historique",footerBasedOn:"Basé sur",footerThanks:"merci pour le projet d’origine."},
-  en:{subtitle:"Federated multi-machine dashboard",globalTotal:"INFRASTRUCTURE TOTAL",totalMixed:"Measured + estimated",history:"Federated history",manage:"Machines / instances",security:"URLs must stay private and reachable from the Hub container. Use a read-only API token when PowerWatch authentication is enabled.",hubAdminToken:"Hub administrator token",useForSession:"Use for this tab",adminReady:"authentication ready",adminMissing:"administrator token required",name:"Name",apiToken:"API token (optional)",saveToken:"Save token",tokenConfigured:"token configured",test:"Test",add:"Add",online:"online",stale:"stale",offline:"offline",disabled:"disabled",included:"include in total",enabled:"enabled",remove:"remove",open:"open instance",nodes:"nodes online",configured:"configured",noNodes:"No instance configured. Add your first PowerWatch above.",lastSeen:"seen",never:"never",disks:"Disks",psu:"Power supply",module:"module",modules:"modules",nominal:"nominal",psuUnverified:"SMBIOS unverified",usable:"usable",smbiosUnavailable:"SMBIOS unavailable",psuNotReported:"not exposed by SMBIOS firmware",notReportedSmbios:"not reported by SMBIOS",reportedBySmbios:"reported by SMBIOS",measured:"Measured",estimated:"Estimated",global:"Global total",noHistory:"No history yet",footerBasedOn:"Based on",footerThanks:"thank you for the original project."}
+  fr:{"energyTitle":"Consommation énergétique cumulée","energyDisclaimer":"Partiellement estimée · non mesurée à la prise","energy24h":"Dernières 24 h","energy7d":"7 derniers jours","energy30d":"30 derniers jours","energyAll":"Cumul historique","energyFrom":"Du","energyTo":"Au","energyApply":"Afficher la période","energyReset":"Effacer les dates","energyRate":"Tarif (€/kWh)","energySelected":"Période choisie","energyCoverage":"Couverture","energyNodeHours":"heures-machine","energySince":"Depuis","energyInvalidDates":"Dates invalides","energyLoadError":"Énergie indisponible",subtitle:"Dashboard fédéré multi-machines",globalTotal:"TOTAL INFRASTRUCTURE",totalMixed:"Mesures + estimations",history:"Historique fédéré",manage:"Machines / instances",security:"Les URLs doivent rester privées et accessibles depuis le conteneur Hub. Utilisez un jeton API en lecture seule si l'authentification PowerWatch est activée.",hubAdminToken:"Jeton administrateur du Hub",useForSession:"Utiliser pour cet onglet",adminReady:"authentification prête",adminMissing:"jeton administrateur requis",name:"Nom",apiToken:"Jeton API (facultatif)",saveToken:"Enregistrer le jeton",tokenConfigured:"jeton configuré",test:"Tester",add:"Ajouter",online:"en ligne",stale:"stale",offline:"hors ligne",disabled:"désactivé",included:"compter dans le total",enabled:"activé",remove:"supprimer",open:"ouvrir l'instance",nodes:"machines en ligne",configured:"configurées",noNodes:"Aucune instance configurée. Ajoute ton premier PowerWatch ci-dessus.",lastSeen:"vu",never:"jamais",disks:"Disques",psu:"Alimentation",module:"module",modules:"modules",nominal:"nominale",psuUnverified:"SMBIOS non vérifié",usable:"utilisables",smbiosUnavailable:"SMBIOS inaccessible",psuNotReported:"non fournie par le firmware SMBIOS",notReportedSmbios:"non reportée par SMBIOS",reportedBySmbios:"reportée par SMBIOS",measured:"Mesurée",estimated:"Estimée",global:"Total global",noHistory:"Pas encore d'historique",footerBasedOn:"Basé sur",footerThanks:"merci pour le projet d’origine."},
+  en:{"energyTitle":"Cumulative energy consumption","energyDisclaimer":"Partly estimated · not measured at the socket","energy24h":"Last 24 hours","energy7d":"Last 7 days","energy30d":"Last 30 days","energyAll":"Lifetime energy","energyFrom":"From","energyTo":"To","energyApply":"Show period","energyReset":"Clear dates","energyRate":"Rate (€/kWh)","energySelected":"Selected period","energyCoverage":"Observed coverage","energyNodeHours":"machine-hours","energySince":"Since","energyInvalidDates":"Invalid dates","energyLoadError":"Energy unavailable",subtitle:"Federated multi-machine dashboard",globalTotal:"INFRASTRUCTURE TOTAL",totalMixed:"Measured + estimated",history:"Federated history",manage:"Machines / instances",security:"URLs must stay private and reachable from the Hub container. Use a read-only API token when PowerWatch authentication is enabled.",hubAdminToken:"Hub administrator token",useForSession:"Use for this tab",adminReady:"authentication ready",adminMissing:"administrator token required",name:"Name",apiToken:"API token (optional)",saveToken:"Save token",tokenConfigured:"token configured",test:"Test",add:"Add",online:"online",stale:"stale",offline:"offline",disabled:"disabled",included:"include in total",enabled:"enabled",remove:"remove",open:"open instance",nodes:"nodes online",configured:"configured",noNodes:"No instance configured. Add your first PowerWatch above.",lastSeen:"seen",never:"never",disks:"Disks",psu:"Power supply",module:"module",modules:"modules",nominal:"nominal",psuUnverified:"SMBIOS unverified",usable:"usable",smbiosUnavailable:"SMBIOS unavailable",psuNotReported:"not exposed by SMBIOS firmware",notReportedSmbios:"not reported by SMBIOS",reportedBySmbios:"reported by SMBIOS",measured:"Measured",estimated:"Estimated",global:"Global total",noHistory:"No history yet",footerBasedOn:"Based on",footerThanks:"thank you for the original project."}
 };
 const GLOBAL_COLOR="#ffd166";
 const NODE_COLORS=[
@@ -321,6 +360,7 @@ function applyLanguage(){
   document.getElementById("lang-en").classList.toggle("active",lang==="en");
   if(snapshot)renderSnapshot(snapshot);
   drawHistory(lastHistory);
+  renderHubEnergy();
 }
 function slugify(value){return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,48);}
 function fmtSeen(value){if(!value)return tr("never");return new Date(value).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"});}
@@ -466,6 +506,7 @@ function renderSnapshot(data){
         <div class="node-total">${esc(total)}</div>
       </summary>
       <div class="node-body">
+        <div class="energy-node-row" data-energy-node="${esc(node.id)}"></div>
         <div class="quick-metrics">
           ${metric(SENSOR_ICONS.cpu+cpuModelLink(node.cpu_model),cpu,"measured",true)}
           ${metric("GPU",gpu,"measured")}
@@ -493,6 +534,7 @@ function renderSnapshot(data){
   }).join("");
   bindNodeActions();
   drawHistory(lastHistory);
+  renderHubEnergy();
 }
 function nodePayload(node,overrides={}){return {id:node.id,name:node.name,url:node.url,enabled:node.enabled,include_in_total:node.include_in_total,...overrides};}
 function bindNodeActions(){
@@ -726,6 +768,63 @@ function nearestHistoryIndex(mouseX,width){
   const b=new Date(lastHistory[lo].timestamp).getTime();
   return Math.abs(target-a)<=Math.abs(b-target)?lo-1:lo;
 }
+
+let hubEnergy=null;
+const hubEnergyRate=document.getElementById("hub-energy-rate");
+hubEnergyRate.value=localStorage.getItem("powerwatchHubEnergyRate")||"";
+function hubKwh(item) {
+  if (!item || item.first_seen_epoch==null)return "—";
+  return `${item.energy_kwh.toLocaleString(lang==="fr"?"fr-FR":"en-US",{maximumFractionDigits:item.energy_kwh<1?4:2})} kWh`;
+}
+function hubCost(item) {
+  if(!hubEnergyRate.value || !item || item.first_seen_epoch==null)return "";
+  const rate=Number(hubEnergyRate.value);
+  return Number.isFinite(rate)&&rate>=0 ? `≈ ${(rate*item.energy_kwh).toLocaleString(lang==="fr"?"fr-FR":"en-US",{style:"currency",currency:"EUR"})}`:"";
+}
+function renderHubEnergy() {
+  if(!hubEnergy)return;
+  for(const period of ["24h","7d","30d","all"]){
+    const item=hubEnergy.global.windows[period];
+    document.getElementById("hub-energy-"+period).textContent=hubKwh(item);
+    document.getElementById("hub-cost-"+period).textContent=item?.first_seen_epoch==null?"":
+      [hubCost(item),`${tr("energyCoverage")}: ${(item.coverage_seconds/3600).toFixed(1)} ${tr("energyNodeHours")}`].filter(Boolean).join(" · ");
+  }
+  const group=hubEnergy.global.selected;
+  const since=hubEnergy.global.windows.all?.first_seen_epoch;
+  document.getElementById("hub-energy-detail").textContent=
+    `${tr("energySelected")}: ${hubKwh(group)} ${hubCost(group)} · ${tr("energyCoverage")}: ${(group.coverage_seconds/3600).toFixed(1)} ${tr("energyNodeHours")} · ${tr("energySince")}: ${since==null?"—":new Date(since*1000).toLocaleString()} · ${tr("energyDisclaimer")}`;
+  document.querySelectorAll("[data-energy-node]").forEach(element=>{
+    const group=hubEnergy.nodes[element.dataset.energyNode];
+    if(!group){element.textContent="";return;}
+    element.innerHTML=["24h","7d","30d","all"].map(period=>{
+      const item=group.windows[period];
+      return `<span>${esc(tr("energy"+({"24h":"24h","7d":"7d","30d":"30d","all":"All"}[period])))}: <strong>${esc(hubKwh(item))}</strong> ${esc(hubCost(item))}</span>`;
+    }).join("") + `<span>${esc(tr("energySelected"))}: <strong>${esc(hubKwh(group.selected))}</strong> ${esc(hubCost(group.selected))}</span>`;
+  });
+}
+async function refreshHubEnergy(){
+  const from=document.getElementById("hub-energy-from").value;
+  const to=document.getElementById("hub-energy-to").value;
+  const qs=new URLSearchParams();
+  if(from && to && new Date(from)>=new Date(to)){
+    document.getElementById("hub-energy-detail").textContent=tr("energyInvalidDates");return;
+  }
+  if(from) qs.set("from",new Date(from).toISOString());
+  if(to) qs.set("to",new Date(to).toISOString());
+  try{hubEnergy=await api("/api/hub/energy?"+qs);renderHubEnergy();}
+  catch(error){document.getElementById("hub-energy-detail").textContent=`${tr("energyLoadError")}: ${error.message}`;}
+}
+document.getElementById("hub-energy-apply").onclick=refreshHubEnergy;
+document.getElementById("hub-energy-reset").onclick=()=>{
+  document.getElementById("hub-energy-from").value="";
+  document.getElementById("hub-energy-to").value="";
+  refreshHubEnergy();
+};
+hubEnergyRate.addEventListener("input",()=>{
+  localStorage.setItem("powerwatchHubEnergyRate",hubEnergyRate.value);
+  renderHubEnergy();
+});
+
 async function refreshHistory(){try{drawHistory(await api(`/api/hub/history?since=${encodeURIComponent(document.getElementById("history-range").value)}`));}catch(e){console.error(e);}}
 document.getElementById("lang-fr").onclick=()=>{lang="fr";localStorage.setItem("powerwatchHubLang",lang);applyLanguage();};
 document.getElementById("lang-en").onclick=()=>{lang="en";localStorage.setItem("powerwatchHubLang",lang);applyLanguage();};
@@ -748,7 +847,7 @@ historyCanvas.addEventListener("mouseleave",()=>{
   drawHistory(lastHistory,{updateLegend:false});
 });
 window.addEventListener("resize",()=>drawHistory(lastHistory));
-async function boot(){await initHubAdmin();applyLanguage();await refreshSnapshot();await refreshHistory();setInterval(refreshSnapshot,2000);setInterval(refreshHistory,60000);}boot();
+async function boot(){await initHubAdmin();applyLanguage();await refreshSnapshot();await refreshHistory();await refreshHubEnergy();setInterval(refreshSnapshot,2000);setInterval(refreshHistory,60000);setInterval(refreshHubEnergy,60000);}boot();
 </script>
 </body>
 </html>

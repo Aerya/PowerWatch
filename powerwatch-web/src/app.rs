@@ -705,6 +705,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/snapshot", get(snapshot))
         .route("/api/history", get(history))
         .route("/api/history/range", get(history_range))
+        .route("/api/energy",get(energy_overview))
         .route("/api/suggestions", get(suggestions_list))
         .route("/api/suggestions/apply", post(suggestions_apply))
         .route("/api/processes/top", get(top_processes))
@@ -985,6 +986,43 @@ async fn history_range(
         summary,
         points,
     }))
+}
+
+
+#[derive(Deserialize)]
+struct EnergyParams {
+    from: Option<chrono::DateTime<chrono::Utc>>,
+    to: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Serialize)]
+struct EnergyResponse {
+    windows: HashMap<&'static str, powerwatch_core::energy::EnergyStats>,
+    selected: powerwatch_core::energy::EnergyStats,
+}
+
+async fn energy_overview(
+    State(state): State<AppState>, Query(params): Query<EnergyParams>,
+) -> Result<Json<EnergyResponse>, (StatusCode,String)> {
+    let now=chrono::Utc::now().timestamp();
+    let to=params.to.map_or(now,|v|v.timestamp());
+    let selected_from=params.from.map(|v|v.timestamp());
+    if to>now+60 || selected_from.is_some_and(|start|start>=to) {
+        return Err((StatusCode::BAD_REQUEST,"invalid energy period".into()));
+    }
+    let storage=state.storage.lock().unwrap();
+    let Some(db)=storage.as_ref() else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE,"history storage unavailable".into()));
+    };
+    let fetch=|from,until|db.energy_stats(from,until)
+        .map_err(|error|(StatusCode::INTERNAL_SERVER_ERROR,format!("{error:?}")));
+    let mut windows=HashMap::new();
+    windows.insert("24h",fetch(Some(now-86400),now)?);
+    windows.insert("7d",fetch(Some(now-7*86400),now)?);
+    windows.insert("30d",fetch(Some(now-30*86400),now)?);
+    windows.insert("all",fetch(None,now)?);
+    let selected=fetch(selected_from,to)?;
+    Ok(Json(EnergyResponse{windows,selected}))
 }
 
 async fn suggestions_list(State(state): State<AppState>) -> Json<Vec<Proposal>> {

@@ -373,6 +373,18 @@ La page principale affiche :
 
 L'image Docker démarre automatiquement PowerWatch avec l'historique activé et le mode NAS/headless.
 
+## Consommation énergétique cumulée (kWh)
+
+PowerWatch et PowerWatch Hub affichent **24 h, 7 j, 30 j et cumul depuis les premiers relevés**, ainsi qu'une période personnalisée (dates et heures). Le Hub présente aussi les kWh **par machine**. Un tarif facultatif (€/kWh) permet de visualiser un **coût indicatif** ; il est conservé dans le navigateur, et aucun prix par défaut n'est inventé.
+
+Les kWh sont intégrés entre relevés successifs, uniquement si l'écart est compatible avec la fréquence de collecte ; les arrêts, capteurs indisponibles et longues coupures ne sont **pas interpolés**. La durée réellement couverte est indiquée dans l'interface (pour le Hub, en heures-machine). Le total peut donc être **inférieur à la consommation réelle**. La puissance de composants tels que RAM/disques étant estimée et les pertes d'alimentation non mesurées, **ces kWh ne remplacent pas un wattmètre à la prise**.
+
+Les cumuls sont persistés en SQLite, indépendamment de la rétention de l'historique en watts. Les intervalles précis sont conservés 45 jours, puis regroupés en heures sans perdre le cumul ; les périodes anciennes ont donc une résolution horaire. Lors de la première migration, seuls les relevés bruts historiques réellement disponibles et suffisamment proches sont convertis : **aucune consommation ne peut être reconstituée durant les périodes non observées**.
+
+- API locale : `GET /api/energy?from=<ISO8601>&to=<ISO8601>` (paramètres facultatifs).
+- API Hub : `GET /api/hub/energy?from=<ISO8601>&to=<ISO8601>` (périodes globales et par machine).
+- La WebUI locale conserve sa carte « Énergie » liée à l'historique graphique ; les nouveaux compteurs restent indépendants du graphique.
+
 ## Historique
 
 Les données sont stockées dans SQLite dans le volume persistant `./data`.
