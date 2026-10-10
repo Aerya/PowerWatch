@@ -1,3 +1,4 @@
+pub mod cpu_load_model;
 pub mod disk;
 pub mod gpu_power;
 pub mod macos;
