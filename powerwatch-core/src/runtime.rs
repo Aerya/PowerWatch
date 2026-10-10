@@ -1,9 +1,38 @@
 use crate::sampler::Sampler;
 
+/// Where the `cpu` reading of the default sampler comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CpuSource {
+    /// No CPU power source was found or configured.
+    None,
+    /// RAPL through the Linux powercap interface: CPU package only.
+    Rapl,
+    /// RAPL read directly from the MSR device: CPU package only.
+    Msr,
+    /// Whole-board estimate from CPU load, calibrated at the wall.
+    BoardLoadModel,
+    /// The board model was requested but its configuration is invalid.
+    BoardMisconfigured,
+}
+
+impl CpuSource {
+    /// Board-level sources already cover RAM, storage and power-supply
+    /// losses, so the separate RAM and disk estimates must not be added on
+    /// top of them. A misconfigured board model skips them too: board-level
+    /// accounting was requested, and a total made only of the RAM and disk
+    /// estimates would be misleadingly low.
+    pub fn is_board_level(self) -> bool {
+        matches!(self, Self::BoardLoadModel | Self::BoardMisconfigured)
+    }
+}
+
 #[cfg(target_os = "linux")]
 pub fn build_default_sampler() -> Sampler {
     use crate::discovery;
     use crate::model::{Component, GpuVendor};
+    use crate::sensors::cpu_load_model::{
+        board_model_from_env, CpuLoadModelSensor, InvalidBoardModelSensor, ProcStatSource,
+    };
     use crate::sensors::gpu_power::LinuxGpuPowerSensor;
     use crate::sensors::nvidia::NvidiaSensor;
     use crate::sensors::ram::RamSensor;
@@ -12,6 +41,7 @@ pub fn build_default_sampler() -> Sampler {
     use std::path::{Path, PathBuf};
 
     let mut sampler = Sampler::new();
+    let mut cpu_source = CpuSource::None;
 
     let configured_powercap = std::env::var("POWERWATCH_POWERCAP_PATH").ok();
     let mut rapl_domains = configured_powercap
@@ -66,6 +96,7 @@ pub fn build_default_sampler() -> Sampler {
                 )),
             );
         }
+        cpu_source = CpuSource::Rapl;
     } else {
         // Some kernels, notably Synology DSM on Gemini Lake, expose the raw
         // x86 MSR device without the Linux powercap/RAPL sysfs interface.
@@ -76,6 +107,30 @@ pub fn build_default_sampler() -> Sampler {
             .unwrap_or_else(|_| PathBuf::from("/dev/cpu/0/msr"));
         if let Ok(sensor) = RaplMsrSensor::new(&msr_path) {
             sampler.add_sensor("cpu", Box::new(sensor));
+            cpu_source = CpuSource::Msr;
+        }
+    }
+
+    // Machines without any power telemetry (most ARM single-board computers)
+    // can use a whole-board estimate based on CPU load, but only when both
+    // coefficients were measured and configured. RAPL and MSR always win.
+    if cpu_source == CpuSource::None {
+        match board_model_from_env() {
+            Ok(Some(model)) => {
+                sampler.add_sensor(
+                    "cpu",
+                    Box::new(CpuLoadModelSensor::new(
+                        ProcStatSource::new("/proc/stat"),
+                        model,
+                    )),
+                );
+                cpu_source = CpuSource::BoardLoadModel;
+            }
+            Ok(None) => {}
+            Err(message) => {
+                sampler.add_sensor("cpu", Box::new(InvalidBoardModelSensor::new(message)));
+                cpu_source = CpuSource::BoardMisconfigured;
+            }
         }
     }
 
@@ -116,14 +171,18 @@ pub fn build_default_sampler() -> Sampler {
         }
     }
 
-    sampler.add_sensor(
-        "ram",
-        Box::new(RamSensor::new(Path::new("/proc/meminfo").to_path_buf())),
-    );
+    // A board-level reading already includes RAM and storage: adding their
+    // separate estimates would count them twice.
+    if !cpu_source.is_board_level() {
+        sampler.add_sensor(
+            "ram",
+            Box::new(RamSensor::new(Path::new("/proc/meminfo").to_path_buf())),
+        );
 
-    for (device, disk_type) in discovery::discover_disks(Path::new("/sys/block")) {
-        let sensor_name = format!("disk:{device}");
-        sampler.add_sensor(sensor_name, disk_sensor_for(device, disk_type));
+        for (device, disk_type) in discovery::discover_disks(Path::new("/sys/block")) {
+            let sensor_name = format!("disk:{device}");
+            sampler.add_sensor(sensor_name, disk_sensor_for(device, disk_type));
+        }
     }
 
     sampler
@@ -249,4 +308,23 @@ pub fn build_default_sampler() -> Sampler {
     );
 
     sampler
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CpuSource;
+
+    #[test]
+    fn package_level_sources_keep_the_ram_and_disk_estimates() {
+        for source in [CpuSource::None, CpuSource::Rapl, CpuSource::Msr] {
+            assert!(!source.is_board_level(), "{source:?}");
+        }
+    }
+
+    #[test]
+    fn board_level_sources_replace_the_ram_and_disk_estimates() {
+        for source in [CpuSource::BoardLoadModel, CpuSource::BoardMisconfigured] {
+            assert!(source.is_board_level(), "{source:?}");
+        }
+    }
 }
