@@ -257,6 +257,70 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 #tariffs-fr-app ul{padding-left:18px}
 @media(max-width:650px){#tariffs-fr-app .tf-grid{grid-template-columns:1fr}}
 
+/* PowerWatch tariff UI polish: shared by standalone WebUI and Hub. */
+#tariffs-fr-app {padding:0;overflow:hidden;}
+#tariffs-fr-app .tf-main {margin:0;border:0;}
+#tariffs-fr-app .tf-main > .tf-main-summary {
+  display:flex;align-items:center;gap:11px;flex-wrap:wrap;list-style:none;
+  padding:10px 14px;cursor:pointer;user-select:none;min-height:43px;
+}
+#tariffs-fr-app .tf-main > .tf-main-summary::-webkit-details-marker {display:none;}
+#tariffs-fr-app .tf-main > .tf-main-summary::before {
+  content:"▸";display:inline-block;color:var(--muted);font-size:1rem;
+  transform-origin:center;transition:transform .15s ease;
+}
+#tariffs-fr-app .tf-main[open] > .tf-main-summary::before {transform:rotate(90deg);}
+#tariffs-fr-app .tf-main > .tf-main-summary:hover {background:rgba(127,127,127,.045);}
+#tariffs-fr-app .tf-main > .tf-main-summary:focus-visible {outline:2px solid var(--measured);outline-offset:-3px;}
+#tariffs-fr-app .tf-main-name {font-size:.9rem;font-weight:700;color:var(--text);}
+#tariffs-fr-app .tf-main-status {font-size:.73rem;color:var(--muted);white-space:nowrap;}
+#tariffs-fr-app .tf-main-contract {font-size:.73rem;color:var(--muted);margin-left:auto;min-width:0;overflow-wrap:anywhere;text-align:right;}
+#tariffs-fr-app .tf-main-body {padding:10px 14px 14px;border-top:1px solid var(--border);}
+#tariffs-fr-app .tf-main-disclaimer {margin-top:0;}
+#tariffs-fr-app .tf-market-controls,
+#tariffs-fr-app .tf-cost-controls {
+  display:grid;gap:10px;align-items:end;margin:10px 0;min-width:0;
+}
+#tariffs-fr-app .tf-market-controls {
+  grid-template-columns:minmax(145px,.9fr) max-content minmax(255px,2fr) max-content;
+}
+#tariffs-fr-app[data-mode="hub"] .tf-market-controls {
+  grid-template-columns:minmax(140px,1fr) max-content minmax(255px,2fr) minmax(140px,1fr) max-content;
+}
+#tariffs-fr-app .tf-cost-controls {grid-template-columns:repeat(2,minmax(195px,240px)) max-content;}
+#tariffs-fr-app .tf-market-controls > .tf-label,
+#tariffs-fr-app .tf-cost-controls > .tf-label {display:grid;grid-template-rows:auto 34px;gap:5px;min-width:0;}
+#tariffs-fr-app .tf-market-controls .tf-label select,
+#tariffs-fr-app .tf-cost-controls .tf-label input {
+  width:100%;max-width:100%;min-width:0;height:34px;box-sizing:border-box;padding:5px 8px;
+}
+#tariffs-fr-app .tf-market-controls > button,
+#tariffs-fr-app .tf-cost-controls > button {
+  height:34px;min-height:34px;align-self:end;white-space:nowrap;padding:5px 10px;max-width:100%;
+}
+#tariffs-fr-app .tf-market-controls #tf-market-offer {width:100%;min-width:0;max-width:100%;}
+@media(max-width:1250px) {
+  #tariffs-fr-app .tf-market-controls,
+  #tariffs-fr-app[data-mode="hub"] .tf-market-controls {grid-template-columns:repeat(2,minmax(0,1fr));}
+  #tariffs-fr-app .tf-market-controls .tf-market-offer-field {grid-column:1/-1;}
+  #tariffs-fr-app .tf-market-controls #tf-market-import {grid-column:1/-1;justify-self:start;}
+  #tariffs-fr-app .tf-market-controls > button {white-space:normal;height:auto;min-height:34px;}
+}
+@media(max-width:630px) {
+  #tariffs-fr-app .tf-market-controls,
+  #tariffs-fr-app[data-mode="hub"] .tf-market-controls,
+  #tariffs-fr-app .tf-cost-controls {grid-template-columns:minmax(0,1fr);}
+  #tariffs-fr-app .tf-market-controls .tf-market-offer-field,
+  #tariffs-fr-app .tf-market-controls #tf-market-import {grid-column:auto;}
+  #tariffs-fr-app .tf-market-controls > button,
+  #tariffs-fr-app .tf-cost-controls > button {justify-self:stretch;white-space:normal;height:auto;min-height:34px;}
+  #tariffs-fr-app .tf-main-contract {display:none;}
+  #tariffs-fr-app .tf-main > .tf-main-summary {flex-wrap:nowrap;gap:7px;padding:9px 10px;}
+  #tariffs-fr-app .tf-main-name {min-width:0;font-size:.82rem;}
+  #tariffs-fr-app .tf-main-status {margin-left:auto;font-size:.7rem;}
+}
+/* End PowerWatch tariff UI polish. */
+
 </style>
 </head>
 <body>

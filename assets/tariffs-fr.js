@@ -8,6 +8,9 @@
   const tr=(fr,en)=>document.documentElement.lang==="en"?en:fr;
   const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   let conf=null, nodes=[],cost=null;
+  const PANEL_STORAGE_KEY=`powerwatchTariffsFrPanelOpenV1:${hub?"hub":"local"}`;
+  let panelOpen=false; // The power dashboard is the primary screen.
+  try {panelOpen=localStorage.getItem(PANEL_STORAGE_KEY)==="1";} catch (_) { /* Storage optional. */ }
   const money=n=>Number(n||0).toLocaleString(document.documentElement.lang==="en"?"en-US":"fr-FR",{style:"currency",currency:"EUR",maximumFractionDigits:4});
   const fields={base:["base"],hphc:["hp","hc"],tempo:["blue_hp","blue_hc","white_hp","white_hc","red_hp","red_hc"],custom:["hp","hc"]};
   const labels={base:"Base",hp:"HP",hc:"HC",blue_hp:"Bleu HP",blue_hc:"Bleu HC",white_hp:"Blanc HP",white_hc:"Blanc HC",red_hp:"Rouge HP",red_hc:"Rouge HC"};
@@ -39,9 +42,9 @@ function marketEditor(){
   return `<details class="tf-section" open><summary>${tr("Catalogue automatique des offres (bêta)","Automatic offer catalogue (beta)")}</summary>
     <p class="tf-help">${tr("Recherche les grilles publiques TTC sur Kelwatt. Les offres historiques et promotions individuelles peuvent différer. Les prix ne sont jamais inventés.",
     "Reads published VAT-inclusive grids from Kelwatt. Historical and customer-specific prices can differ. Prices are never invented.")}</p>
-    <div class="tf-row"><label class="tf-label">${tr("Fournisseur","Supplier")}<select id="tf-market-supplier">${select(marketSuppliers.map(s=>[s.slug,s.name]),marketSlug)}</select></label>
+    <div class="tf-market-controls"><label class="tf-label">${tr("Fournisseur","Supplier")}<select id="tf-market-supplier">${select(marketSuppliers.map(s=>[s.slug,s.name]),marketSlug)}</select></label>
     <button type="button" id="tf-market-search">${tr("Charger les offres et prix","Load offers and prices")}</button>
-    <label class="tf-label">${tr("Offre, option et puissance","Offer, option and power")}<select id="tf-market-offer">${select(details,"")}</select></label>
+    <label class="tf-label tf-market-offer-field">${tr("Offre, option et puissance","Offer, option and power")}<select id="tf-market-offer">${select(details,"")}</select></label>
     ${hub?`<label class="tf-label">${tr("Site électrique","Electric site")}<select id="tf-market-site">${select(conf.sites.map(s=>[s.id,s.name]),conf.sites[0]?.id||"")}</select></label>`:""}
     <button id="tf-market-import" type="button" ${!details.length?"disabled":""}>${tr("Importer et suivre automatiquement","Import and track automatically")}</button></div>
     <p class="tf-help" id="tf-market-status">${esc(marketError || tr("Choisir un fournisseur puis charger ses offres.","Choose a supplier and load its offers."))}</p>
@@ -135,18 +138,34 @@ function bindMarket(){
     </details>`;
   }
   function costEditor(){return `<details class="tf-section" open><summary>${tr("Estimation de coût","Cost estimate")}</summary>
-    <div class="tf-row"><label class="tf-label">${tr("Du","From")}<input id="tf-from" type="datetime-local"></label><label class="tf-label">${tr("Au","To")}<input id="tf-to" type="datetime-local"></label>
+    <div class="tf-cost-controls"><label class="tf-label">${tr("Du","From")}<input id="tf-from" type="datetime-local"></label><label class="tf-label">${tr("Au","To")}<input id="tf-to" type="datetime-local"></label>
     <button type="button" id="tf-calculate">${tr("Calculer","Calculate")}</button></div><div id="tf-cost"></div></details>`;}
   function render(){
-    root.innerHTML=`<div class="tf-banner"><strong>${tr("Tarification électrique France","French electricity pricing")} <span class="tf-beta">BÊTA</span></strong>
-    <p>${tr("Prix partiels ou périmés possibles. Consommation estimée, non mesurée à la prise. Ne remplace pas une facture.","Prices can be incomplete or outdated. Energy is estimated, not measured at the socket. Not a bill.")}</p></div>
+    const activeContract=conf.contracts.find(c=>!c.ends_on)||conf.contracts[0];
+    const summary=activeContract
+      ? `${activeContract.supplier} · ${activeContract.offer} · ${activeContract.option.toUpperCase()} · ${activeContract.kva} kVA`
+      : tr("Aucun contrat","No contract");
+    root.innerHTML=`<details class="tf-main" ${panelOpen?"open":""}>
+    <summary class="tf-main-summary"><span class="tf-main-name">${tr("Tarification électrique France","French electricity pricing")} <span class="tf-beta">BÊTA</span></span>
+    <span class="tf-main-status">${tr(conf.enabled?"Activée":"Désactivée",conf.enabled?"Enabled":"Disabled")}</span>
+    <span class="tf-main-contract">${esc(summary)}</span></summary>
+    <div class="tf-main-body">
+    <p class="tf-help tf-main-disclaimer">${tr("Prix partiels ou périmés possibles. Consommation estimée, non mesurée à la prise. Ne remplace pas une facture.","Prices can be incomplete or outdated. Energy is estimated, not measured at the socket. Not a bill.")}</p>
     <div class="tf-row"><label class="tf-inline"><input id="tf-enabled" type="checkbox" ${conf.enabled?"checked":""}> ${tr("Activer la tarification","Enable pricing")}</label>
     <label class="tf-inline"><input id="tf-subscription" type="checkbox" ${conf.include_subscription?"checked":""}> ${tr("Inclure abonnement (une fois par site)","Include standing charge once per site")}</label>
     <button id="tf-save" type="button">${tr("Enregistrer sur le serveur","Save to server")}</button>
     <button id="tf-export" type="button">${tr("Exporter JSON","Export JSON")}</button>
     <button id="tf-import" type="button">${tr("Importer JSON","Import JSON")}</button><input type="file" accept="application/json" id="tf-file" hidden></div>
     <p id="tf-status" class="tf-help" role="status"></p>
-    ${marketEditor()}${siteEditor()}${contractEditor()}${tempoEditor()}${costEditor()}`;
+    ${marketEditor()}${siteEditor()}${contractEditor()}${tempoEditor()}${costEditor()}
+    </div></details>`;
+    const panel=root.querySelector("details.tf-main");
+    panel.addEventListener("toggle",event=>{
+      if(event.target!==panel || panel!==root.querySelector("details.tf-main"))return;
+      panelOpen=panel.open;
+      try {localStorage.setItem(PANEL_STORAGE_KEY,panelOpen?"1":"0");}
+      catch (_) { /* Panel remains operable without localStorage. */ }
+    });
     bind(); if(cost)renderCost();
   }
   function readEdits(){
