@@ -38,6 +38,11 @@ pub fn init(conn: &Connection) -> Result<()> {
             wh REAL NOT NULL, estimated_wh REAL NOT NULL, covered_seconds REAL NOT NULL,
             PRIMARY KEY(source,hour_epoch)
         );
+        CREATE TABLE IF NOT EXISTS energy_quarterly (
+            source TEXT NOT NULL, quarter_epoch INTEGER NOT NULL,
+            wh REAL NOT NULL, estimated_wh REAL NOT NULL, covered_seconds REAL NOT NULL,
+            PRIMARY KEY(source,quarter_epoch)
+        );
         CREATE TABLE IF NOT EXISTS energy_archive_cursor (
             source TEXT PRIMARY KEY, end_epoch INTEGER NOT NULL
         );",
@@ -158,18 +163,18 @@ pub fn compact(conn: &mut Connection, now_epoch: i64) -> Result<()> {
         if seconds<=0.0 { continue; }
         let mut cursor = start;
         while cursor < end {
-            let hour = cursor.div_euclid(HOUR)*HOUR;
-            let piece_end = end.min(hour+HOUR);
+            let quarter = cursor.div_euclid(900)*900;
+            let piece_end = end.min(quarter+900);
             let duration = (piece_end-cursor) as f64;
             let factor = duration/seconds;
             tx.execute(
-                "INSERT INTO energy_hourly(source,hour_epoch,wh,estimated_wh,covered_seconds)
+                "INSERT INTO energy_quarterly(source,quarter_epoch,wh,estimated_wh,covered_seconds)
                  VALUES (?1,?2,?3,?4,?5)
-                 ON CONFLICT(source,hour_epoch) DO UPDATE SET
-                 wh=energy_hourly.wh+excluded.wh,
-                 estimated_wh=energy_hourly.estimated_wh+excluded.estimated_wh,
-                 covered_seconds=energy_hourly.covered_seconds+excluded.covered_seconds",
-                params![source,hour,wh*factor,estimated_wh*factor,duration],
+                 ON CONFLICT(source,quarter_epoch) DO UPDATE SET
+                 wh=energy_quarterly.wh+excluded.wh,
+                 estimated_wh=energy_quarterly.estimated_wh+excluded.estimated_wh,
+                 covered_seconds=energy_quarterly.covered_seconds+excluded.covered_seconds",
+                params![source,quarter,wh*factor,estimated_wh*factor,duration],
             )?;
             cursor=piece_end;
         }
@@ -207,6 +212,24 @@ pub fn stats(conn: &Connection, source: &str, from: Option<i64>, to: i64) -> Res
             result.estimated_kwh+=estimated*frac/1000.0;
             result.coverage_seconds+=overlap;
             result.first_seen_epoch=Some(result.first_seen_epoch.map_or(start,|v|v.min(start)));
+        }
+    }
+    // Quarter-hour archives preserve tariff boundaries for all future history.
+    {
+        let mut stmt=conn.prepare(
+            "SELECT quarter_epoch,wh,estimated_wh,covered_seconds FROM energy_quarterly
+             WHERE source=?1 AND quarter_epoch+900>?2 AND quarter_epoch<?3")?;
+        let rows=stmt.query_map(params![source,floor,to],|r| Ok((
+            r.get::<_,i64>(0)?,r.get::<_,f64>(1)?,r.get::<_,f64>(2)?,r.get::<_,f64>(3)?,
+        )))?;
+        for row in rows {
+            let (quarter,wh,estimated,coverage)=row?;
+            let overlap=((quarter+900).min(to)-quarter.max(floor)).max(0) as f64;
+            let frac=overlap/900.0;
+            result.energy_kwh+=wh*frac/1000.0;
+            result.estimated_kwh+=estimated*frac/1000.0;
+            result.coverage_seconds+=coverage*frac;
+            result.first_seen_epoch=Some(result.first_seen_epoch.map_or(quarter,|v|v.min(quarter)));
         }
     }
     {

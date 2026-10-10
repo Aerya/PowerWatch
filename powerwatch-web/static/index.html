@@ -533,6 +533,26 @@
 .energy-node-row strong {color:var(--text);font-weight:600;}
 @media(max-width:730px){.energy-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
 
+/* Optional French electricity tariff configuration */
+#tariffs-fr-app{margin:14px 0;padding:14px;background:var(--card,var(--surface,var(--bg)));color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:.84rem}
+#tariffs-fr-app .tf-banner strong{font-size:1rem}
+#tariffs-fr-app .tf-banner p,#tariffs-fr-app .tf-help{font-size:.76rem;color:var(--muted);margin:7px 0}
+#tariffs-fr-app .tf-beta{padding:2px 6px;background:#7b5809;color:#fff;border-radius:10px;font-size:.62rem;margin-left:8px}
+#tariffs-fr-app .tf-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:9px 0}
+#tariffs-fr-app .tf-section{margin:12px 0;border:1px solid var(--border);border-radius:5px;padding:10px}
+#tariffs-fr-app .tf-section>summary{cursor:pointer;font-weight:700}
+#tariffs-fr-app .tf-item{margin:10px 0;padding:12px;border:1px solid var(--border);border-radius:5px}
+#tariffs-fr-app .tf-rev{padding:8px;margin:8px 0;border:1px dashed var(--border)}
+#tariffs-fr-app .tf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:9px;margin:7px 0}
+#tariffs-fr-app .tf-label{display:grid;gap:4px;color:var(--muted);font-size:.73rem}
+#tariffs-fr-app .tf-label input,#tariffs-fr-app .tf-label select,#tariffs-fr-app button{font:inherit;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px;max-width:100%;min-width:0}
+#tariffs-fr-app button{cursor:pointer}
+#tariffs-fr-app button:hover{border-color:var(--muted)}
+#tariffs-fr-app .tf-inline{display:inline-flex;align-items:center;gap:5px;font-size:.75rem}
+#tariffs-fr-app input[type=checkbox]{accent-color:var(--measured)}
+#tariffs-fr-app ul{padding-left:18px}
+@media(max-width:650px){#tariffs-fr-app .tf-grid{grid-template-columns:1fr}}
+
 </style>
 </head>
 <body data-page="dashboard">
@@ -569,6 +589,8 @@
     </div>
     <div id="energy-details" class="energy-detail" aria-live="polite">—</div>
   </section>
+
+  <div id="tariffs-fr-app" data-mode="local"></div>
 
   <div id="alerts-summary" style="margin:-6px 0 16px;color:var(--muted);font-size:.82rem;"></div>
 
@@ -1795,5 +1817,6 @@ setInterval(refreshHistory, 60000);
 setInterval(refreshSuggestions, 5000);
 setInterval(refreshAlertsSummary, 3000);
 </script>
+<script src="/static/tariffs-fr.js" defer></script>
 </body>
 </html>

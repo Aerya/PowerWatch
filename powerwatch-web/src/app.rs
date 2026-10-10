@@ -43,6 +43,12 @@ fn convert_rss_to_mb(output: &str) -> String {
 const INDEX_HTML: &str = include_str!("../static/index.html");
 const I18N_JS: &str = include_str!("../static/i18n.js");
 const AUTH_JS: &str = include_str!("../static/auth.js");
+const TARIFF_FR_JS: &str = include_str!("../../assets/tariffs-fr.js");
+include!("tariffs_fr_handlers.rs");
+
+async fn tariff_fr_js() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE,"application/javascript; charset=utf-8")],TARIFF_FR_JS)
+}
 const SECURITY_HTML: &str = include_str!("../static/security.html");
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -706,6 +712,9 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/history", get(history))
         .route("/api/history/range", get(history_range))
         .route("/api/energy",get(energy_overview))
+        .route("/api/tariffs-fr",get(tariff_fr_get).put(tariff_fr_put))
+        .route("/api/tariffs-fr/sync",post(tariff_fr_sync))
+        .route("/api/tariffs-fr/cost",get(tariff_fr_cost))
         .route("/api/suggestions", get(suggestions_list))
         .route("/api/suggestions/apply", post(suggestions_apply))
         .route("/api/processes/top", get(top_processes))
@@ -730,6 +739,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/", get(index))
         .route("/static/i18n.js", get(i18n_js))
         .route("/static/auth.js", get(auth_js))
+        .route("/static/tariffs-fr.js",get(tariff_fr_js))
         .route("/alerts", get(crate::alerts::page))
         .route("/security", get(security_page))
         .route("/api/health", get(health))

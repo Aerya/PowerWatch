@@ -20,6 +20,11 @@ use tokio::sync::RwLock;
 use tokio::task::JoinSet;
 
 const INDEX_HTML: &str = include_str!("../static/index.html");
+const TARIFF_FR_JS: &str = include_str!("../../assets/tariffs-fr.js");
+include!("tariffs_fr_handlers.rs");
+async fn hub_tariff_js() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE,"application/javascript; charset=utf-8")],TARIFF_FR_JS)
+}
 const BACKFILL_DAYS: u32 = 400;
 const BACKFILL_MAX_POINTS: u32 = 5_000;
 
@@ -403,6 +408,7 @@ impl HubStorage {
         )?;
         let mut storage=Self { conn };
         energy::init(&storage.conn)?;
+        powerwatch_core::tariffs_fr::init(&storage.conn)?;
         // Upgrade pre-existing Hub history, with no duplicate kWh on restarts.
         let migration_needed:bool=storage.conn.query_row(
             "SELECT NOT EXISTS(SELECT 1 FROM energy_last LIMIT 1)",[],|r|r.get(0))?;
@@ -1139,6 +1145,8 @@ fn build_router(state: AppState) -> Router {
         .route("/api/hub/nodes", get(list_nodes).post(add_node))
         .route("/api/hub/nodes/:id", post(update_node).delete(delete_node))
         .route("/api/hub/test", post(probe_node))
+        .route("/api/hub/tariffs-fr",get(hub_tariff_get).put(hub_tariff_put))
+        .route("/api/hub/tariffs-fr/sync",post(hub_tariff_sync))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             require_hub_admin,
@@ -1151,6 +1159,8 @@ fn build_router(state: AppState) -> Router {
         .route("/api/hub/snapshot", get(snapshot))
         .route("/api/hub/history", get(history))
         .route("/api/hub/energy",get(energy_overview))
+        .route("/api/hub/tariffs-fr/cost",get(hub_tariff_cost))
+        .route("/static/tariffs-fr.js",get(hub_tariff_js))
         .merge(administration)
         .with_state(state)
         .layer(axum::extract::DefaultBodyLimit::max(64 * 1024))
@@ -1216,6 +1226,7 @@ async fn main() {
         Duration::from_secs(args.history_interval.max(5)),
     ));
     tokio::spawn(backfill_all(state.clone()));
+    tokio::spawn(hub_tariff_refresh_background(state.clone()));
 
     let listener = match tokio::net::TcpListener::bind((args.host, args.port)).await {
         Ok(listener) => listener,

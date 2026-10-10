@@ -373,13 +373,28 @@ La page principale affiche :
 
 L'image Docker démarre automatiquement PowerWatch avec l'historique activé et le mode NAS/headless.
 
+### Tarification électrique France — bêta (optionnelle)
+
+**Bêta : les prix peuvent être incomplets, périmés ou erronés. Les coûts sont indicatifs, non mesurés au compteur et ne remplacent pas une facture.** Désactivée par défaut. La base SQLite conserve les configurations et les corrections manuelles ; rien n'est enregistré exclusivement dans le navigateur.
+
+- Contrats et fournisseurs successifs avec dates de début/fin, sites et affectation des machines côté Hub. Un seul contrat à la fois par site évite les doubles tarifs ; plusieurs sites distincts peuvent avoir des fournisseurs différents.
+- Versions de tarifs datées par contrat : Base, heures pleines/creuses personnalisables, Tempo avec ses six prix, offre personnalisée. Chaque prix TTC, abonnement annuel et date restent éditables ; toute correction manuelle prime sur la source automatique.
+- Synchronisation des **tarifs réglementés EDF Tarif Bleu** via fichiers CSV officiels de la CRE (Base, HP/HC, Tempo), selon la puissance souscrite ; synchronisation des **couleurs Tempo confirmées** via l'API tierce calendrier-tempo.fr (CC BY 4.0 ; ce n'est pas une API officielle EDF/RTE). D'abord manuellement par bouton, puis chaque jour côté serveur lorsque l'option est activée. L'indisponibilité d'une source n'efface jamais les tarifs existants.
+- Les autres fournisseurs (Engie, TotalEnergies, Octopus, etc.) sont gérés **en saisie manuelle / import-export JSON**, sans prétendre importer automatiquement des tarifs qui ne sont pas publiés sous forme réutilisable.
+- Date et heure en `Europe/Paris`, avec changement d'heure. La journée Tempo va de 06 h à 06 h, HP de 06 h à 22 h pour Tempo. La grille HP/HC non Tempo est configurable pour chaque contrat.
+- **Agrégats énergétiques de 15 minutes conservés sans limite de durée programmée** pour les nouvelles archives. Les anciens agrégats horaires restent lisibles, avec un avertissement de précision pour leurs coûts. Les périodes inconnues n'ont **jamais de prix inventé**.
+- Abonnements facultatifs, calculés une fois par site et proratisés au jour ; aucun abonnement doublement compté entre plusieurs machines du Hub. Les périodes sans contrat, tarif ou couleur Tempo apparaissent en kWh non chiffrés.
+- Accès WebUI : `/api/tariffs-fr` (GET/PUT), `/api/tariffs-fr/sync` (POST), `/api/tariffs-fr/cost` (GET). Accès Hub : `/api/hub/tariffs-fr` et équivalents `/sync` et `/cost`. Les mutations sont protégées par l'authentification de la WebUI ou l'authentification administrateur du Hub si activée.
+
+Sources : https://www.cre.fr/documents/open-data/historique-des-tarifs-reglementes-de-vente-delectricite-pour-les-consommateurs-residentiels.html et https://www.calendrier-tempo.fr/api-tempo. Aucun tarif n'est codé en dur.
+
 ## Consommation énergétique cumulée (kWh)
 
 PowerWatch et PowerWatch Hub affichent **24 h, 7 j, 30 j et cumul depuis les premiers relevés**, ainsi qu'une période personnalisée (dates et heures). Le Hub présente aussi les kWh **par machine**.
 
 Les kWh sont intégrés entre relevés successifs, uniquement si l'écart est compatible avec la fréquence de collecte ; les arrêts, capteurs indisponibles et longues coupures ne sont **pas interpolés**. La durée réellement couverte est indiquée dans l'interface (pour le Hub, en heures-machine). Le total peut donc être **inférieur à la consommation réelle**. La puissance de composants tels que RAM/disques étant estimée et les pertes d'alimentation non mesurées, **ces kWh ne remplacent pas un wattmètre à la prise**.
 
-Les cumuls sont persistés en SQLite, indépendamment de la rétention de l'historique en watts. Les intervalles précis sont conservés 45 jours, puis regroupés en heures sans perdre le cumul ; les périodes anciennes ont donc une résolution horaire. Lors de la première migration, seuls les relevés bruts historiques réellement disponibles et suffisamment proches sont convertis : **aucune consommation ne peut être reconstituée durant les périodes non observées**.
+Les cumuls sont persistés en SQLite, indépendamment de la rétention de l'historique en watts. Les intervalles précis sont conservés 45 jours, puis regroupés en quarts d’heure sans perdre le cumul ; les anciennes archives horaires restent lisibles. Lors de la première migration, seuls les relevés bruts historiques réellement disponibles et suffisamment proches sont convertis : **aucune consommation ne peut être reconstituée durant les périodes non observées**.
 
 - API locale : `GET /api/energy?from=<ISO8601>&to=<ISO8601>` (paramètres facultatifs).
 - API Hub : `GET /api/hub/energy?from=<ISO8601>&to=<ISO8601>` (périodes globales et par machine).
