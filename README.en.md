@@ -375,7 +375,7 @@ The Docker image automatically starts PowerWatch with history enabled and NAS/he
 
 ## Persistent energy consumption (kWh)
 
-PowerWatch and PowerWatch Hub show **24 h, 7 d, 30 d, lifetime** and a custom start/end date-time. Hub also displays **per-node** kWh. An optional electricity rate (€/kWh), stored in the browser, provides an indicative cost without assuming a tariff.
+PowerWatch and PowerWatch Hub show **24 h, 7 d, 30 d, lifetime** and a custom start/end date-time. Hub also displays **per-node** kWh.
 
 Energy is integrated between consecutive power readings only across sufficiently short sampling gaps. Downtime and missing telemetry **are not filled with invented electricity usage**; the observed coverage is displayed (in node-hours for Hub). As RAM/disk data may be estimated and PSU inefficiency is not monitored, **kWh are not a substitute for a plug-in power meter**.
 

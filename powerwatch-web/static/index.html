@@ -523,7 +523,7 @@
 .energy-tile {padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;min-width:0;}
 .energy-tile-label {color:var(--muted);font-size:.77rem;display:block;margin-bottom:5px;}
 .energy-tile-value {font-size:1.3rem;font-weight:700;display:block;color:var(--text);overflow-wrap:anywhere;}
-.energy-tile-cost {color:var(--muted);font-size:.8rem;display:block;margin-top:3px;}
+.energy-tile-note {color:var(--muted);font-size:.8rem;display:block;margin-top:3px;}
 .energy-controls {display:flex;align-items:end;gap:9px;flex-wrap:wrap;margin-top:12px;}
 .energy-controls label {color:var(--muted);font-size:.74rem;display:grid;gap:4px;}
 .energy-controls input {padding:6px 7px;max-width:210px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;}
@@ -556,17 +556,16 @@
       <span id="energy-estimate" data-i18n="energy.estimate">Estimation partielle, non mesurée à la prise</span>
     </div>
     <div class="energy-grid">
-      <div class="energy-tile"><span class="energy-tile-label" data-i18n="energy.24h">24 dernières heures</span><strong id="energy-24h" class="energy-tile-value">—</strong><span id="energy-cost-24h" class="energy-tile-cost"></span></div>
-      <div class="energy-tile"><span class="energy-tile-label" data-i18n="energy.7d">7 derniers jours</span><strong id="energy-7d" class="energy-tile-value">—</strong><span id="energy-cost-7d" class="energy-tile-cost"></span></div>
-      <div class="energy-tile"><span class="energy-tile-label" data-i18n="energy.30d">30 derniers jours</span><strong id="energy-30d" class="energy-tile-value">—</strong><span id="energy-cost-30d" class="energy-tile-cost"></span></div>
-      <div class="energy-tile"><span class="energy-tile-label" data-i18n="energy.all">Depuis le premier relevé</span><strong id="energy-all" class="energy-tile-value">—</strong><span id="energy-cost-all" class="energy-tile-cost"></span></div>
+      <div class="energy-tile"><span class="energy-tile-label" data-i18n="energy.24h">24 dernières heures</span><strong id="energy-24h" class="energy-tile-value">—</strong><span id="energy-coverage-24h" class="energy-tile-note"></span></div>
+      <div class="energy-tile"><span class="energy-tile-label" data-i18n="energy.7d">7 derniers jours</span><strong id="energy-7d" class="energy-tile-value">—</strong><span id="energy-coverage-7d" class="energy-tile-note"></span></div>
+      <div class="energy-tile"><span class="energy-tile-label" data-i18n="energy.30d">30 derniers jours</span><strong id="energy-30d" class="energy-tile-value">—</strong><span id="energy-coverage-30d" class="energy-tile-note"></span></div>
+      <div class="energy-tile"><span class="energy-tile-label" data-i18n="energy.all">Depuis le premier relevé</span><strong id="energy-all" class="energy-tile-value">—</strong><span id="energy-coverage-all" class="energy-tile-note"></span></div>
     </div>
     <div class="energy-controls">
       <label><span data-i18n="energy.from">Du</span><input id="energy-from" type="datetime-local"></label>
       <label><span data-i18n="energy.to">Au</span><input id="energy-to" type="datetime-local"></label>
       <button id="energy-apply" type="button" data-i18n="energy.apply">Afficher la période</button>
       <button id="energy-reset" type="button" data-i18n="energy.reset">Effacer les dates</button>
-      <label><span data-i18n="energy.rate">Tarif (€/kWh)</span><input id="energy-rate" type="number" min="0" step="0.0001" inputmode="decimal" placeholder="0,25"></label>
     </div>
     <div id="energy-details" class="energy-detail" aria-live="polite">—</div>
   </section>
@@ -1733,34 +1732,27 @@ window.addEventListener("powerwatch:languagechange", () => {
 });
 
 
-// Energy is persisted by the server. Prices are a local display preference only.
+// Cumulative energy and measurement coverage are persisted server-side.
 let powerwatchEnergy = null;
-const pwEnergyRateInput = document.getElementById("energy-rate");
-pwEnergyRateInput.value = localStorage.getItem("powerwatch-energy-rate") || "";
 function pwEnergyText(key) { return t("energy." + key); }
 function pwEnergyFormat(entry) {
   if (!entry || entry.first_seen_epoch == null) return "—";
   const v = entry.energy_kwh;
   return `${v.toLocaleString(PWI18n.language === "en" ? "en-US" : "fr-FR", {maximumFractionDigits:v < 1 ? 4 : 2})} kWh`;
 }
-function pwEnergyPrice(entry) {
-  const rate = Number(pwEnergyRateInput.value);
-  if (!pwEnergyRateInput.value || !Number.isFinite(rate) || rate < 0 || !entry || entry.first_seen_epoch == null) return "";
-  return `≈ ${(entry.energy_kwh * rate).toLocaleString(undefined,{style:"currency",currency:"EUR"})}`;
-}
 function pwEnergyRender() {
   if (!powerwatchEnergy) return;
   for (const id of ["24h","7d","30d","all"]) {
     const entry = powerwatchEnergy.windows[id];
     document.getElementById("energy-" + id).textContent = pwEnergyFormat(entry);
-    document.getElementById("energy-cost-" + id).textContent = entry?.first_seen_epoch == null ? "" :
-      [pwEnergyPrice(entry), `${pwEnergyText("coverage")}: ${(entry.coverage_seconds/3600).toFixed(1)} h`].filter(Boolean).join(" · ");
+    document.getElementById("energy-coverage-" + id).textContent = entry?.first_seen_epoch == null ? "" :
+      `${pwEnergyText("coverage")}: ${(entry.coverage_seconds/3600).toFixed(1)} h`;
   }
   const selected = powerwatchEnergy.selected;
   const since = powerwatchEnergy.windows.all?.first_seen_epoch;
   const covered = (selected.coverage_seconds/3600).toLocaleString(undefined,{maximumFractionDigits:2});
   const part = selected.first_seen_epoch == null ? pwEnergyText("noData") :
-    `${pwEnergyText("selected")}: ${pwEnergyFormat(selected)} ${pwEnergyPrice(selected)} · ${pwEnergyText("coverage")}: ${covered} h`;
+    `${pwEnergyText("selected")}: ${pwEnergyFormat(selected)} · ${pwEnergyText("coverage")}: ${covered} h`;
   document.getElementById("energy-details").textContent = `${part} · ${pwEnergyText("since")}: ${since == null ? "—" : new Date(since*1000).toLocaleString()} · ${pwEnergyText("estimate")}`;
 }
 async function pwEnergyRefresh() {
@@ -1787,10 +1779,6 @@ document.getElementById("energy-reset").addEventListener("click",()=>{
   document.getElementById("energy-from").value="";
   document.getElementById("energy-to").value="";
   pwEnergyRefresh();
-});
-pwEnergyRateInput.addEventListener("input",()=>{
-  localStorage.setItem("powerwatch-energy-rate",pwEnergyRateInput.value);
-  pwEnergyRender();
 });
 window.addEventListener("powerwatch:languagechange",pwEnergyRender);
 pwEnergyRefresh();
