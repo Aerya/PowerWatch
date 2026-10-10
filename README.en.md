@@ -32,12 +32,15 @@
   - [NVIDIA](#nvidia)
 - [Disks, partitions, and storage](#disks-partitions-and-storage)
 - [Web UI](#web-ui)
+  - [French electricity tariffs — beta (optional)](#french-electricity-tariffs--beta-optional)
+- [Persistent energy consumption (kWh)](#persistent-energy-consumption-kwh)
 - [History](#history)
 - [Alerts and notifications](#alerts-and-notifications)
 - [Integrated authentication](#integrated-authentication)
 - [CLI and TUI in Docker](#cli-and-tui-in-docker)
 - [Check detected sensors](#check-detected-sensors)
 - [PowerWatch Hub](#powerwatch-hub--multiple-machines-one-dashboard)
+  - [Selecting instances for energy totals](#selecting-instances-for-energy-totals)
   - [Start the Hub](#start-the-hub)
 - [Security](#security)
 - [Attribution](#attribution)
@@ -579,6 +582,7 @@ The Hub provides:
 - **online / stale / offline / disabled** states;
 - adding, testing, enabling, and removing instances directly from the Web UI;
 - the ability to exclude a machine from the global total;
+- energy totals filtered by one, multiple, or all instances independently of the global total;
 - federated SQLite history, stored every 60 seconds by default;
 - automatic recovery of aggregated history already available on the nodes (up to 400 days);
 - a federated graph with the **global total + one colored line per instance**;
@@ -588,6 +592,16 @@ The Hub provides:
 The global total adds up the node values, **both measured and estimated**. It is not a wall-outlet power measurement, and nominal PSU capacity is never included.
 
 The Hub requires **no `/sys` access, no `pid: host`, and no privileged host access**. It only needs network access to the private URLs of the PowerWatch instances.
+
+### Selecting instances for energy totals
+
+On the Hub **Cumulative energy consumption** panel, the **Energy instances** filter determines which machines contribute to the displayed totals:
+
+- **Normal total** (default): sums only enabled instances marked **“include in total”**.
+- **All**: includes all configured instances, even those disabled or excluded from the normal total, to the extent their recorded history is available.
+- **Custom selection**: check individual instances to sum one machine or several. With none checked, the panel asks you to select at least one instance.
+
+The selection affects the **last 24 hours, 7 days, 30 days, lifetime, custom date range**, and **coverage in machine-hours**. It is saved in the browser (`localStorage`) and does **not change SQLite data, the live watts total, the federated chart, or the totals on individual node cards**.
 
 ### Start the Hub
 
