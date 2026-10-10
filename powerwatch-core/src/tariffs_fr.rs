@@ -325,7 +325,7 @@ fn category(config:&TariffConfig,contract:&TariffContract,when:DateTime<Utc>)->O
     let hc=in_offpeak(local.time(),&contract.offpeak);
     match contract.option.as_str(){
         "base"=>Some("base".into()),
-        "hphc"|"custom"=>Some(if hc{"hc"}else{"hp"}.into()),
+        "hphc"|"custom"=>if contract.offpeak.is_empty(){None}else{Some(if hc{"hc"}else{"hp"}.into())},
         "tempo"=>{
             let day=if local.hour()<6 {date.pred_opt()?}else{date};
             let color=config.tempo_days.get(&day.to_string())?.color.as_str();
@@ -440,6 +440,13 @@ mod tests {
         let slices=[EnergySlice{start:t,end:t+3600,wh:1000.0,estimated_wh:1000.0,covered_seconds:3600.0,approximate:false}];
         let p=price_slices(&c,"local",&slices);
         assert!((p.energy_cost_eur-0.225).abs()<1e-8);
+    }
+    #[test] fn missing_meter_offpeak_slots_do_not_guess_hourly_costs(){
+        let mut c=sample();c.contracts[0].offpeak.clear();
+        let now=Paris.with_ymd_and_hms(2026,10,10,22,0,0).single().unwrap().with_timezone(&Utc).timestamp();
+        let result=price_slices(&c,"local",&[EnergySlice{start:now,end:now+900,wh:100.0,estimated_wh:0.0,covered_seconds:900.0,approximate:false}]);
+        assert_eq!(result.energy_cost_eur,0.0);
+        assert!((result.unpriced_kwh-0.1).abs()<1e-9);
     }
     #[test] fn missing_tempo_color_never_invents_price(){
         let mut c=sample();c.contracts[0].option="tempo".into();

@@ -5,6 +5,7 @@ pub mod disk_topology;
 pub mod duration;
 pub mod energy;
 pub mod tariffs_fr;
+pub mod market_fr;
 pub mod hook;
 pub mod json_snapshot;
 pub mod model;

@@ -22,6 +22,7 @@ use tokio::task::JoinSet;
 const INDEX_HTML: &str = include_str!("../static/index.html");
 const TARIFF_FR_JS: &str = include_str!("../../assets/tariffs-fr.js");
 include!("tariffs_fr_handlers.rs");
+include!("market_fr_handlers.rs");
 async fn hub_tariff_js() -> impl IntoResponse {
     ([(header::CONTENT_TYPE,"application/javascript; charset=utf-8")],TARIFF_FR_JS)
 }
@@ -1147,6 +1148,9 @@ fn build_router(state: AppState) -> Router {
         .route("/api/hub/test", post(probe_node))
         .route("/api/hub/tariffs-fr",get(hub_tariff_get).put(hub_tariff_put))
         .route("/api/hub/tariffs-fr/sync",post(hub_tariff_sync))
+        .route("/api/hub/tariffs-fr/market/suppliers",get(market_suppliers))
+        .route("/api/hub/tariffs-fr/market/offers",get(market_offers))
+        .route("/api/hub/tariffs-fr/market/import",post(market_import))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             require_hub_admin,
@@ -1227,6 +1231,7 @@ async fn main() {
     ));
     tokio::spawn(backfill_all(state.clone()));
     tokio::spawn(hub_tariff_refresh_background(state.clone()));
+    tokio::spawn(market_fr_refresh_background(state.clone()));
 
     let listener = match tokio::net::TcpListener::bind((args.host, args.port)).await {
         Ok(listener) => listener,

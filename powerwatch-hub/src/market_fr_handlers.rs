@@ -1,0 +1,94 @@
+// Hub market catalogue import, guarded by the same Hub administration middleware.
+#[derive(Deserialize)] struct MarketSupplierQuery { supplier: String }
+#[derive(Deserialize)] struct MarketImportRequest {
+    supplier: String, offer: String, option: String, kva: u32, contract_id: String, site_id: String,
+}
+#[derive(Serialize)] struct MarketImportResponse { changed: bool, config:powerwatch_core::tariffs_fr::TariffConfig }
+async fn market_public_fetch(url:&str)->Result<String,(StatusCode,String)> {
+    let client=Client::builder().timeout(Duration::from_secs(20))
+      .build().map_err(|e|(StatusCode::BAD_GATEWAY,e.to_string()))?;
+    let reply=client.get(url).send().await.map_err(|e|(StatusCode::BAD_GATEWAY,e.to_string()))?
+      .error_for_status().map_err(|e|(StatusCode::BAD_GATEWAY,e.to_string()))?;
+    if reply.content_length().is_some_and(|n|n>4_000_000){return Err((StatusCode::BAD_GATEWAY,"market response too large".into()));}
+    let bytes=reply.bytes().await.map_err(|e|(StatusCode::BAD_GATEWAY,e.to_string()))?;
+    if bytes.len()>4_000_000 {return Err((StatusCode::BAD_GATEWAY,"market response too large".into()));}
+    String::from_utf8(bytes.to_vec()).map_err(|e|(StatusCode::BAD_GATEWAY,e.to_string()))
+}
+async fn market_suppliers()->Result<Json<Vec<powerwatch_core::market_fr::Supplier>>,(StatusCode,String)>{
+    let html=market_public_fetch(powerwatch_core::market_fr::DIRECTORY).await?;
+    let suppliers=powerwatch_core::market_fr::parse_suppliers(&html);
+    if suppliers.is_empty(){return Err((StatusCode::BAD_GATEWAY,"no supplier list found; source may have changed".into()));}
+    Ok(Json(suppliers))
+}
+async fn market_offers(Query(params):Query<MarketSupplierQuery>)->Result<Json<Vec<powerwatch_core::market_fr::MarketOffer>>,(StatusCode,String)>{
+    let url=powerwatch_core::market_fr::tariff_url(&params.supplier).map_err(|e|(StatusCode::BAD_REQUEST,e))?;
+    let html=market_public_fetch(&url).await?;
+    let offers=powerwatch_core::market_fr::parse_offers(&params.supplier,&html).map_err(|e|(StatusCode::BAD_GATEWAY,e))?;
+    Ok(Json(offers))
+}
+async fn market_import(State(state):State<AppState>,Json(req):Json<MarketImportRequest>)
+ ->Result<Json<MarketImportResponse>,(StatusCode,String)> {
+    let url=powerwatch_core::market_fr::tariff_url(&req.supplier).map_err(|e|(StatusCode::BAD_REQUEST,e))?;
+    let html=market_public_fetch(&url).await?;
+    let offers=powerwatch_core::market_fr::parse_offers(&req.supplier,&html).map_err(|e|(StatusCode::BAD_GATEWAY,e))?;
+    let offer=offers.iter().find(|o|o.offer==req.offer && o.option==req.option && o.kva==req.kva)
+       .ok_or((StatusCode::BAD_REQUEST,"offer no longer available at source".into()))?;
+    let db=state.storage.lock().map_err(|_|(StatusCode::INTERNAL_SERVER_ERROR,"storage poisoned".into()))?;
+    let mut config=powerwatch_core::tariffs_fr::load(&db.conn).map_err(|e|(StatusCode::INTERNAL_SERVER_ERROR,e))?;
+    if !config.contracts.iter().any(|c|c.id==req.contract_id) {
+        if !config.sites.iter().any(|s|s.id==req.site_id){return Err((StatusCode::BAD_REQUEST,"unknown electric site".into()));}
+        let today=powerwatch_core::market_fr::today_fr();
+        // Do not replace another contract at this site or invent meter-specific off-peak hours.
+        if config.contracts.iter().any(|c|c.site_id==req.site_id && c.starts_on<=today && c.ends_on.is_none_or(|d|d>=today)) {
+            return Err((StatusCode::BAD_REQUEST,"active contract already exists on this site".into()));
+        }
+        config.contracts.push(powerwatch_core::tariffs_fr::TariffContract {
+            id:req.contract_id.clone(),site_id:req.site_id.clone(),supplier:offer.supplier.clone(),
+            offer:offer.offer.clone(),option:offer.option.clone(),starts_on:today,ends_on:None,
+            kva:offer.kva,offpeak:Vec::new(),revisions:Vec::new(),
+        });
+    }
+    let changed=powerwatch_core::market_fr::apply_offer(&mut config,&req.contract_id,offer,powerwatch_core::market_fr::today_fr())
+       .map_err(|e|(StatusCode::BAD_REQUEST,e))?;
+    config.enabled=true;
+    powerwatch_core::tariffs_fr::save(&db.conn,&config).map_err(|e|(StatusCode::BAD_REQUEST,e))?;
+    Ok(Json(MarketImportResponse{changed,config}))
+}
+
+async fn market_fr_refresh_background(state:AppState) {
+    tokio::time::sleep(Duration::from_secs(300)).await;
+    loop {
+        let config={let Ok(db)=state.storage.lock()else{return};powerwatch_core::tariffs_fr::load(&db.conn).ok()};
+        if let Some(config)=config.filter(|cfg|cfg.enabled) {
+            use powerwatch_core::market_fr as market;
+            let mut slugs=std::collections::BTreeSet::new();
+            for c in &config.contracts {
+                if let Some(rev)=c.revisions.iter().max_by_key(|r|r.from) {
+                    if rev.source!=market::MARKET_SOURCE || rev.manual {continue;}
+                    let Some(url)=rev.source_url.as_deref()else{continue};
+                    let Some(tail)=url.strip_prefix("https://www.kelwatt.fr/fournisseurs/")else{continue};
+                    let slug=tail.split('/').next().unwrap_or("");
+                    if market::valid_slug(slug){slugs.insert(slug.to_string());}
+                }
+            }
+            for slug in slugs.into_iter().take(50) {
+                let Ok(url)=market::tariff_url(&slug)else{continue};
+                let Ok(html)=market_public_fetch(&url).await else{continue};
+                let Ok(offers)=market::parse_offers(&slug,&html)else{continue};
+                let Ok(db)=state.storage.lock()else{return};
+                let Ok(mut current)=powerwatch_core::tariffs_fr::load(&db.conn)else{continue};
+                let targets=current.contracts.iter().filter(|c|c.revisions.iter().max_by_key(|r|r.from)
+                      .is_some_and(|r|r.source==market::MARKET_SOURCE && r.source_url.as_deref()==Some(url.as_str()) && !r.manual))
+                   .map(|c|(c.id.clone(),c.supplier.clone(),c.offer.clone(),c.option.clone(),c.kva)).collect::<Vec<_>>();
+                let mut changed=false;
+                for (id,supplier,offer_name,option,kva) in targets {
+                    if let Some(offer)=offers.iter().find(|o|o.supplier==supplier&&o.offer==offer_name&&o.option==option&&o.kva==kva) {
+                        if let Ok(true)=market::apply_offer(&mut current,&id,offer,market::today_fr()){changed=true;}
+                    }
+                }
+                if changed {let _=powerwatch_core::tariffs_fr::save(&db.conn,&current);}
+            }
+        }
+        tokio::time::sleep(Duration::from_secs(86400)).await;
+    }
+}

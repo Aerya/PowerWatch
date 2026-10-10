@@ -45,6 +45,7 @@ const I18N_JS: &str = include_str!("../static/i18n.js");
 const AUTH_JS: &str = include_str!("../static/auth.js");
 const TARIFF_FR_JS: &str = include_str!("../../assets/tariffs-fr.js");
 include!("tariffs_fr_handlers.rs");
+include!("market_fr_handlers.rs");
 
 async fn tariff_fr_js() -> impl IntoResponse {
     ([(header::CONTENT_TYPE,"application/javascript; charset=utf-8")],TARIFF_FR_JS)
@@ -714,6 +715,9 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/energy",get(energy_overview))
         .route("/api/tariffs-fr",get(tariff_fr_get).put(tariff_fr_put))
         .route("/api/tariffs-fr/sync",post(tariff_fr_sync))
+        .route("/api/tariffs-fr/market/suppliers",get(market_suppliers))
+        .route("/api/tariffs-fr/market/offers",get(market_offers))
+        .route("/api/tariffs-fr/market/import",post(market_import))
         .route("/api/tariffs-fr/cost",get(tariff_fr_cost))
         .route("/api/suggestions", get(suggestions_list))
         .route("/api/suggestions/apply", post(suggestions_apply))
