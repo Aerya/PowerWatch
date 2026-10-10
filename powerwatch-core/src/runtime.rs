@@ -13,16 +13,35 @@ pub enum CpuSource {
     BoardLoadModel,
     /// The board model was requested but its configuration is invalid.
     BoardMisconfigured,
+    /// Raspberry Pi 5 PMIC rails, measured: SoC, RAM and on-board supplies,
+    /// but nothing powered directly from the 5 V input.
+    RpiPmic,
 }
 
 impl CpuSource {
-    /// Board-level sources already cover RAM, storage and power-supply
-    /// losses, so the separate RAM and disk estimates must not be added on
-    /// top of them. A misconfigured board model skips them too: board-level
-    /// accounting was requested, and a total made only of the RAM and disk
-    /// estimates would be misleadingly low.
-    pub fn is_board_level(self) -> bool {
-        matches!(self, Self::BoardLoadModel | Self::BoardMisconfigured)
+    /// Whether the separate RAM estimate must be added to this source.
+    ///
+    /// A board model calibrated at the wall already includes the RAM, and the
+    /// Raspberry Pi 5 PMIC measures the DDR rails. A misconfigured board model
+    /// skips it too: board-level accounting was requested, and a total made
+    /// only of the RAM and disk estimates would be misleadingly low.
+    pub fn adds_ram_estimate(self) -> bool {
+        matches!(self, Self::None | Self::Rapl | Self::Msr)
+    }
+
+    /// Whether the separate estimate for the disk `device` must be added.
+    ///
+    /// A board model calibrated at the wall includes every disk powered from
+    /// the same plug. With the Raspberry Pi 5 PMIC, the on-board SD card or
+    /// eMMC slot is assumed to be supplied from a measured rail, whereas USB
+    /// and PCIe storage draw from the 5 V input, which the PMIC does not
+    /// measure: their estimates are kept.
+    pub fn adds_disk_estimate(self, device: &str) -> bool {
+        match self {
+            Self::None | Self::Rapl | Self::Msr => true,
+            Self::BoardLoadModel | Self::BoardMisconfigured => false,
+            Self::RpiPmic => !device.starts_with("mmcblk"),
+        }
     }
 }
 
@@ -38,6 +57,10 @@ pub fn build_default_sampler() -> Sampler {
     use crate::sensors::ram::RamSensor;
     use crate::sensors::rapl::{RaplPackageMinusDomainSensor, RaplSensor};
     use crate::sensors::rapl_msr::RaplMsrSensor;
+    use crate::sensors::rpi_pmic::{
+        parse_pmic_adc, GencmdSource, RpiPmicSensor, VcioGencmd, DEFAULT_GENCMD_DEVICE,
+        GENCMD_DEVICE_ENV, PMIC_COMMAND,
+    };
     use std::path::{Path, PathBuf};
 
     let mut sampler = Sampler::new();
@@ -134,6 +157,26 @@ pub fn build_default_sampler() -> Sampler {
         }
     }
 
+    // Raspberry Pi 5: measured rail power from the PMIC, through the firmware
+    // mailbox. An explicitly configured board model takes precedence, since
+    // it is calibrated at the wall and covers the whole board. The sensor is
+    // only registered when a first read returns real rails, so other boards
+    // (where the firmware does not know pmic_read_adc) are left untouched.
+    if cpu_source == CpuSource::None {
+        let gencmd_path = std::env::var(GENCMD_DEVICE_ENV)
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(DEFAULT_GENCMD_DEVICE));
+        if let Ok(mut gencmd) = VcioGencmd::open(&gencmd_path) {
+            let has_pmic = gencmd
+                .run(PMIC_COMMAND)
+                .is_ok_and(|answer| parse_pmic_adc(&answer).is_ok());
+            if has_pmic {
+                sampler.add_sensor("cpu", Box::new(RpiPmicSensor::new(gencmd)));
+                cpu_source = CpuSource::RpiPmic;
+            }
+        }
+    }
+
     // NVIDIA: enumerate every NVML device exposed by the host/runtime.
     if let Ok(devices) = NvidiaSensor::discover() {
         for (index, _) in devices {
@@ -171,15 +214,17 @@ pub fn build_default_sampler() -> Sampler {
         }
     }
 
-    // A board-level reading already includes RAM and storage: adding their
-    // separate estimates would count them twice.
-    if !cpu_source.is_board_level() {
+    // Board-level readings already include part or all of the RAM and
+    // storage: adding their separate estimates would count them twice.
+    if cpu_source.adds_ram_estimate() {
         sampler.add_sensor(
             "ram",
             Box::new(RamSensor::new(Path::new("/proc/meminfo").to_path_buf())),
         );
+    }
 
-        for (device, disk_type) in discovery::discover_disks(Path::new("/sys/block")) {
+    for (device, disk_type) in discovery::discover_disks(Path::new("/sys/block")) {
+        if cpu_source.adds_disk_estimate(&device) {
             let sensor_name = format!("disk:{device}");
             sampler.add_sensor(sensor_name, disk_sensor_for(device, disk_type));
         }
@@ -314,17 +359,38 @@ pub fn build_default_sampler() -> Sampler {
 mod tests {
     use super::CpuSource;
 
+    const DISKS: [&str; 4] = ["mmcblk0", "sda", "nvme0n1", "vda"];
+
     #[test]
     fn package_level_sources_keep_the_ram_and_disk_estimates() {
         for source in [CpuSource::None, CpuSource::Rapl, CpuSource::Msr] {
-            assert!(!source.is_board_level(), "{source:?}");
+            assert!(source.adds_ram_estimate(), "{source:?}");
+            for disk in DISKS {
+                assert!(source.adds_disk_estimate(disk), "{source:?} {disk}");
+            }
         }
     }
 
     #[test]
-    fn board_level_sources_replace_the_ram_and_disk_estimates() {
+    fn a_board_model_replaces_the_ram_and_every_disk_estimate() {
         for source in [CpuSource::BoardLoadModel, CpuSource::BoardMisconfigured] {
-            assert!(source.is_board_level(), "{source:?}");
+            assert!(!source.adds_ram_estimate(), "{source:?}");
+            for disk in DISKS {
+                assert!(!source.adds_disk_estimate(disk), "{source:?} {disk}");
+            }
         }
+    }
+
+    #[test]
+    fn the_pi5_pmic_replaces_the_ram_and_sd_card_estimates_only() {
+        let source = CpuSource::RpiPmic;
+
+        assert!(!source.adds_ram_estimate());
+        assert!(!source.adds_disk_estimate("mmcblk0"));
+        assert!(source.adds_disk_estimate("sda"), "USB storage runs on 5 V");
+        assert!(
+            source.adds_disk_estimate("nvme0n1"),
+            "PCIe storage runs on 5 V"
+        );
     }
 }

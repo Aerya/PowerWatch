@@ -17,7 +17,7 @@
 //! Because the coefficients are measured at the wall, the estimate already
 //! includes RAM, storage and power-supply losses. The separate RAM and disk
 //! estimates must therefore not be added on top of it (see
-//! `runtime::CpuSource::is_board_level`).
+//! `runtime::CpuSource::adds_ram_estimate` and `adds_disk_estimate`).
 
 use crate::model::{Component, Confidence, PowerSensor, SensorError, SensorReading};
 use std::path::{Path, PathBuf};
