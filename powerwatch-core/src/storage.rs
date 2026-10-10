@@ -36,8 +36,8 @@ impl Storage {
             .map_err(|e| StorageError::QueryFailed(e.to_string()))? {
             let history = {
                 let mut stmt = storage.conn.prepare(
-                    "SELECT CAST(strftime('%s',ts) AS INTEGER),watts,confidence
-                     FROM readings WHERE component='"Total"' ORDER BY ts ASC"
+                    r#"SELECT CAST(strftime('%s',ts) AS INTEGER),watts,confidence
+                     FROM readings WHERE component='"Total"' ORDER BY ts ASC"#
                 ).map_err(|e| StorageError::QueryFailed(e.to_string()))?;
                 let rows = stmt.query_map([], |r| Ok((
                     r.get::<_,i64>(0)?,r.get::<_,f64>(1)?,r.get::<_,String>(2)? == "estimated"
@@ -321,6 +321,27 @@ mod tests {
 
         assert_eq!(readings[0].watts, 5.0);
         assert_eq!(readings[1].watts, 8.0);
+    }
+
+    #[test]
+    fn migrates_legacy_total_samples_with_json_component_label() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("legacy-powerwatch.sqlite");
+        let start = DateTime::<Utc>::from_timestamp(1_700_000_100, 0).unwrap();
+        {
+            let old = Storage::open(&path).unwrap();
+            old.insert_reading(&reading(Component::Total, 30.0, Confidence::Estimated, start)).unwrap();
+            old.insert_reading(&reading(Component::Total, 30.0, Confidence::Estimated,
+                start + Duration::seconds(60))).unwrap();
+        }
+        let upgraded = Storage::open(&path).unwrap();
+        let stats = upgraded.energy_stats(None, start.timestamp() + 120).unwrap();
+        assert!((stats.energy_kwh - 30.0 * 60.0 / 3_600_000.0).abs() < 1e-10);
+        assert_eq!(stats.coverage_seconds, 60.0);
+        drop(upgraded);
+        let reopened = Storage::open(&path).unwrap();
+        assert!((reopened.energy_stats(None, start.timestamp() + 120).unwrap().energy_kwh
+            - stats.energy_kwh).abs() < 1e-10);
     }
 
     #[test]

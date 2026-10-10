@@ -4,7 +4,7 @@
 //! readings using trapezoids and stored in Wh. Long gaps are deliberately NOT imputed.
 //! Recent intervals allow accurate rolling/custom ranges; older ones are compacted
 //! into hourly buckets without losing all-time counters.
-use rusqlite::{params, Connection, Result};
+use rusqlite::{params, Connection, OptionalExtension, Result};
 use serde::Serialize;
 
 const COMPACT_AFTER_DAYS: i64 = 45;
@@ -37,6 +37,9 @@ pub fn init(conn: &Connection) -> Result<()> {
             source TEXT NOT NULL, hour_epoch INTEGER NOT NULL,
             wh REAL NOT NULL, estimated_wh REAL NOT NULL, covered_seconds REAL NOT NULL,
             PRIMARY KEY(source,hour_epoch)
+        );
+        CREATE TABLE IF NOT EXISTS energy_archive_cursor (
+            source TEXT PRIMARY KEY, end_epoch INTEGER NOT NULL
         );",
     )
 }
@@ -68,8 +71,15 @@ pub fn import_samples(
     let mut sorted = samples.to_vec();
     sorted.sort_by_key(|p| p.0);
     let tx = conn.transaction()?;
+    // Re-importing old history after hourly compaction must not recreate
+    // intervals which already contributed to the permanent Wh ledger.
+    let archived_until: Option<i64> = tx.query_row(
+        "SELECT end_epoch FROM energy_archive_cursor WHERE source=?1",
+        [source], |r| r.get(0),
+    ).optional()?;
     for pair in sorted.windows(2) {
         let (a, b) = (pair[0], pair[1]);
+        if archived_until.is_some_and(|until| b.0 <= until) { continue; }
         insert_segment(&tx, source, a.0, b.0, a.1, b.1, a.2 || b.2, max_gap)?;
     }
     if let Some(&(epoch, watts, estimated)) = sorted.last() {
@@ -137,8 +147,14 @@ pub fn compact(conn: &mut Connection, now_epoch: i64) -> Result<()> {
         )))?;
         for row in rows { samples.push(row?); }
     }
+    let mut archived_ends = std::collections::BTreeMap::<String, i64>::new();
     for (source,start,end,wh,estimated_wh) in samples {
         let seconds = (end-start) as f64;
+        if seconds > 0.0 {
+            archived_ends.entry(source.clone())
+                .and_modify(|last| *last = (*last).max(end))
+                .or_insert(end);
+        }
         if seconds<=0.0 { continue; }
         let mut cursor = start;
         while cursor < end {
@@ -157,6 +173,14 @@ pub fn compact(conn: &mut Connection, now_epoch: i64) -> Result<()> {
             )?;
             cursor=piece_end;
         }
+    }
+    for (source, end_epoch) in archived_ends {
+        tx.execute(
+            "INSERT INTO energy_archive_cursor(source,end_epoch) VALUES (?1,?2)
+             ON CONFLICT(source) DO UPDATE SET
+             end_epoch=MAX(energy_archive_cursor.end_epoch,excluded.end_epoch)",
+            params![source,end_epoch],
+        )?;
     }
     tx.execute("DELETE FROM energy_segments WHERE end_epoch<=?1",[cutoff])?;
     tx.commit()
@@ -234,6 +258,19 @@ mod tests {
         assert_eq!(after.coverage_seconds,60.0);
         assert_eq!(after.estimated_kwh,0.0);
     }
+    #[test]
+    fn reimport_after_hourly_archiving_does_not_double_count() {
+        let mut c = setup();
+        let points = [(100, 20.0, true), (160, 20.0, true)];
+        import_samples(&mut c, "host", &points, 180).unwrap();
+        let before = stats(&c, "host", None, 3600).unwrap();
+        compact(&mut c, 46 * 86400 + 1000).unwrap();
+        import_samples(&mut c, "host", &points, 180).unwrap();
+        let after = stats(&c, "host", None, 3600).unwrap();
+        assert!((before.energy_kwh - after.energy_kwh).abs() < 1e-10);
+        assert_eq!(before.coverage_seconds, after.coverage_seconds);
+    }
+
     #[test]
     fn imports_are_idempotent() {
         let mut c=setup();
