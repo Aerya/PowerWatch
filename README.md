@@ -32,12 +32,15 @@
   - [NVIDIA](#nvidia)
 - [Disques, partitions et stockage](#disques-partitions-et-stockage)
 - [WebUI](#webui)
+  - [Tarification électrique France — bêta (optionnelle)](#tarification-électrique-france--bêta-optionnelle)
+- [Consommation énergétique cumulée (kWh)](#consommation-énergétique-cumulée-kwh)
 - [Historique](#historique)
 - [Alertes et notifications](#alertes-et-notifications)
 - [Authentification intégrée](#authentification-intégrée)
 - [CLI et TUI dans Docker](#cli-et-tui-dans-docker)
 - [Vérifier les capteurs détectés](#vérifier-les-capteurs-détectés)
 - [PowerWatch Hub](#powerwatch-hub--plusieurs-machines-un-seul-dashboard)
+  - [Sélection des instances pour les cumuls](#sélection-des-instances-pour-les-cumuls)
   - [Démarrage du Hub](#démarrage-du-hub)
 - [Sécurité](#sécurité)
 - [Attribution](#attribution)
@@ -581,6 +584,7 @@ Le Hub fournit :
 - les états **online / stale / offline / disabled** ;
 - l'ajout, le test, l'activation et la suppression d'instances directement depuis la WebUI ;
 - la possibilité d'exclure une machine du total global ;
+- le filtrage des cumuls énergétiques par une, plusieurs ou toutes les instances, indépendamment du total global ;
 - un historique SQLite fédéré, enregistré par défaut toutes les 60 secondes ;
 - la récupération automatique de l’historique agrégé déjà présent sur les nœuds (jusqu’à 400 jours) ;
 - un graphe fédéré avec **total global + une courbe colorée par instance** ;
@@ -590,6 +594,16 @@ Le Hub fournit :
 Le total global additionne les valeurs remontées par les instances, **qu'elles soient mesurées ou estimées**. Il ne correspond pas à une mesure de consommation à la prise et n'inclut pas la puissance nominale des alimentations.
 
 Le Hub ne nécessite **aucun accès à `/sys`, aucun `pid: host` et aucun accès privilégié**. Il doit seulement pouvoir joindre les URLs privées des instances PowerWatch.
+
+### Sélection des instances pour les cumuls
+
+Dans le panneau **Consommation énergétique cumulée** du Hub, le filtre **Instances pour les cumuls** choisit les machines prises en compte :
+
+- **Total habituel** (par défaut) : seules les instances activées et marquées **« compter dans le total »** sont additionnées.
+- **Toutes** : toutes les instances configurées, y compris celles exclues du total habituel ou désactivées, dans la limite de leur historique disponible.
+- **Sélection personnalisée** : cochez les instances souhaitées pour additionner une seule machine ou plusieurs. Si aucune n'est cochée, le panneau demande d'en sélectionner au moins une.
+
+La sélection s'applique aux **24 h, 7 j, 30 j, cumul historique, période personnalisée** et à la **couverture en heures-machine**. Elle est mémorisée dans le navigateur (`localStorage`) et ne modifie **ni les données SQLite, ni le total instantané en watts, ni le graphique fédéré, ni les cumuls des cartes individuelles**.
 
 ### Démarrage du Hub
 
