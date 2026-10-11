@@ -1,5 +1,4 @@
 # PowerWatch
-
 <p align="center">
   <img src="docs/images/powerwatch-aerya-logo.png" alt="PowerWatch" width="720">
 </p>
@@ -387,11 +386,14 @@ The Docker image automatically starts PowerWatch with history enabled and NAS/he
 - **Important limits**: offers with additional special bands (e.g. Heures Eco+ and Charge'Heures) are not mispriced as plain two-rate plans. Current public grids may differ from older fixed contracts or personal discounts, and do not recreate historical rates. **Meter-specific Linky off-peak slots** cannot be inferred from the supplier catalogue: check them with Enedis or the supplier. Without verified time slots, peak/off-peak electricity is left unpriced. Manual override remains available.
 - Europe/Paris local time, DST, Tempo 06:00-to-06:00 day. 15-minute lifetime archives for newly compacted energy; legacy hourly energy is still supported and its price breakdown is flagged approximate.
 - Optional prorated subscription billed **once per electric site**, not per node. Missing rates, missing Tempo days and unmonitored time are never costed with a guessed number.
-- Endpoints `/api/tariffs-fr` and `/api/hub/tariffs-fr` (plus `/sync` and `/cost`); writes require the existing WebUI/Hub admin protection when enabled.
+- Endpoints `/api/tariffs-fr` and `/api/hub/tariffs-fr` (plus `/sync`, `/cost`, and `/overview` for counter pricing; the Hub overview accepts an optional `nodes` filter); writes require the existing WebUI/Hub admin protection when enabled.
 
 Sources: https://www.cre.fr/documents/open-data/historique-des-tarifs-reglementes-de-vente-delectricite-pour-les-consommateurs-residentiels.html and https://www.calendrier-tempo.fr/api-tempo.
 
 ## Persistent energy consumption (kWh)
+
+> **Cost in the counters (instance and Hub)**: with French tariffs enabled, the 24-hour, 7-day, 30-day and lifetime counters automatically show estimated euro costs below their kWh totals. Custom date ranges use the same tariff engine. Hub costs follow the selected instance filter; optional standing charges are counted once per electricity site. Missing tariff slots are marked as partial or unavailable, never filled with invented prices.
+
 
 PowerWatch and PowerWatch Hub show **24 h, 7 d, 30 d, lifetime** and a custom start/end date-time. Hub also displays **per-node** kWh.
 

@@ -61,6 +61,39 @@ async fn hub_tariff_cost(State(state):State<AppState>,Query(params):Query<HubTar
     Ok(Json(answer))
 }
 
+#[derive(Deserialize)]
+struct HubCostOverviewParams {
+    from: Option<DateTime<Utc>>,
+    to: Option<DateTime<Utc>>,
+    // Empty selection is meaningful. Omitted = normal Hub total.
+    nodes: Option<String>,
+}
+async fn hub_tariff_overview(
+    State(state): State<AppState>, Query(params): Query<HubCostOverviewParams>,
+) -> Result<Json<powerwatch_core::tariffs_fr::CostOverview>, (StatusCode,String)> {
+    let now=Utc::now().timestamp();
+    let to=params.to.map_or(now,|v|v.timestamp());
+    let from=params.from.map(|v|v.timestamp());
+    let nodes=state.config.read().await.nodes.clone();
+    // Explicit picks include disabled/excluded nodes, matching the energy picker.
+    let chosen: Option<HashSet<&str>> = params.nodes.as_deref().map(|v|v.split(',').filter(|id|!id.is_empty()).collect());
+    if params.nodes.as_ref().is_some_and(|v|v.len()>8192) {
+        return Err((StatusCode::BAD_REQUEST,"too many selected nodes".into()));
+    }
+    let db=state.storage.lock().map_err(|_|(StatusCode::INTERNAL_SERVER_ERROR,"storage poisoned".into()))?;
+    let config=powerwatch_core::tariffs_fr::load(&db.conn)
+        .map_err(|e|(StatusCode::INTERNAL_SERVER_ERROR,e))?;
+    let assignments: Vec<_> = nodes.into_iter().filter(|node|chosen.as_ref().map_or(
+        node.enabled&&node.include_in_total,|selected|selected.contains(node.id.as_str())
+    )).map(|node| {
+        let site=config.sites.iter().find(|s|s.nodes.contains(&node.id))
+            .map(|s|s.id.clone()).unwrap_or_else(||"__unassigned__".into());
+        (node.id,site,true)
+    }).collect();
+    powerwatch_core::tariffs_fr::cost_overview(&db.conn,&config,&assignments,now,from,to)
+        .map(Json).map_err(|e|(StatusCode::BAD_REQUEST,e))
+}
+
 async fn hub_tariff_refresh_background(state:AppState) {
     tokio::time::sleep(Duration::from_secs(120)).await;
     loop {
