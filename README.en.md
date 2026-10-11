@@ -19,6 +19,7 @@
 
 - [Features](#features)
 - [Measurements](#measurements)
+  - [ARM boards and measurement coverage](#arm-boards-and-measurement-coverage)
   - [RAM and power supply](#ram-and-power-supply)
 - [Docker installation](#docker-installation)
   - [Requirements](#requirements)
@@ -64,6 +65,7 @@ This fork is primarily designed for **servers, mini PCs, Linux desktop machines,
 - Best-effort display of associated **mounted partitions, filesystems, mdraid, LVM, and dm-crypt**, without noise from unmounted partitions.
 - CLI and TUI available in the Docker image.
 - Multi-architecture **amd64 / arm64** GHCR images.
+- ARM boards: a wall-calibrated whole-board power model; Raspberry Pi 5 PMIC rail measurements when `/dev/vcio_gencmd` is available.
 - **French / English** Web UI.
 - Optional Web UI authentication with one administrator account, persistent sessions, and read-only API tokens.
 - Configurable PowerWatch instance name, automatically suggested when adding the instance to the Hub while keeping the Hub alias independent.
@@ -76,16 +78,27 @@ This fork is primarily designed for **servers, mini PCs, Linux desktop machines,
 
 ### ARM boards and measurement coverage
 
-On Linux ARM64 or ARMv7, `POWERWATCH_BOARD_IDLE_W` and `POWERWATCH_BOARD_MAX_W` enable a **Board** model calibrated at the wall socket. Measure idle and loaded power with a meter; no coefficients are guessed. The estimate includes RAM, storage and supply losses present during calibration, and never replaces available RAPL/MSR measurements.
+On Linux ARM64 or ARMv7, `POWERWATCH_BOARD_IDLE_W` and `POWERWATCH_BOARD_MAX_W` enable a **Board** model calibrated at the wall socket. Measure the board **and peripherals powered by the same plug** at a stable idle, then with all CPU cores under sustained load. Use those two watt readings as the variables: `Board = idle + (maximum − idle) × CPU utilization`. No coefficient is guessed. The reading remains **estimated** and never replaces available RAPL/MSR telemetry. RAM, storage and supply losses present during calibration are already included and are not added again. Peripheral load that changes independently of the CPU may not be captured by this model.
 
-On Raspberry Pi 5, the PMIC reads rails through `/dev/vcio_gencmd` (the `video` group). In Docker, pass that device with suitable read permissions; expose host board identification when container isolation hides it so initial failures can be retried. The PMIC measures rails but excludes devices powered directly from 5 V (USB, PCIe/NVMe, fan) and supply losses. Totals, kWh and euros based only on this source are therefore **partial lower bounds**, with no invented power for uncovered loads. USB/NVMe estimates can be added; RAM and SD card are not counted twice.
+In `compose.yaml`, add both measured values under `services.powerwatch.environment`, for example `POWERWATCH_BOARD_IDLE_W: ${POWERWATCH_BOARD_IDLE_W:-}` and `POWERWATCH_BOARD_MAX_W: ${POWERWATCH_BOARD_MAX_W:-}`, then set them in `.env`. These numbers belong to **your** installation; readings from another board are not suitable. With both values absent, the model stays off; one missing or invalid value appears as a sensor error.
 
-Published images support amd64 and arm64. ARMv7 may be compiled natively with a suitable Rust toolchain, but no ARMv7 image is published until build and hardware validation are completed.
+On Raspberry Pi 5, the PMIC reads rails through `/dev/vcio_gencmd` (the `video` group). For Docker, add this under `services.powerwatch`:
+
+```yaml
+devices:
+  - /dev/vcio_gencmd:/dev/vcio_gencmd
+```
+
+Check that the device exists on the host and the process can open it; native users generally need membership in `video`. The official container runs as root and does not require `privileged: true`. If container isolation hides board identity, also expose `/proc/device-tree` read-only so retry attempts after an initial failure can recognize Pi 5. The PMIC measures rails but excludes devices powered directly from 5 V (USB, PCIe/NVMe, fan) and supply losses. Totals, kWh and euros based only on this source are therefore **partial lower bounds**, with no invented power for uncovered loads. USB/NVMe estimates can be added; RAM and SD card are not counted twice. An explicitly configured wall-calibrated model takes priority over PMIC.
+
+Published images support amd64 and arm64. The ARMv7 binary was built and tried natively on Raspberry Pi 2 B; the model was also tried on Pi 3 A+, Pi 4 B and Pi 5. No ARMv7 Docker image is published.
 
 
 | Component | Source | Type |
 |---|---|---|
 | CPU | Linux RAPL (`powercap` or MSR `/dev/cpu/0/msr`) | Measured |
+| ARM board (model) | CPU load and wall-socket calibration | Estimated |
+| Raspberry Pi 5 (PMIC) | PMIC rails through `/dev/vcio_gencmd` | Measured, partial |
 | NVIDIA GPU | NVML | Measured |
 | AMD GPU | `amdgpu` hwmon | Measured |
 | Intel GPU | `i915` / `xe` hwmon or RAPL `uncore` | Measured |
