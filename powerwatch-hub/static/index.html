@@ -344,6 +344,8 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 @media(max-width:630px){#tariffs-fr-app .tf-market-controls,#tariffs-fr-app[data-mode="hub"] .tf-market-controls{grid-template-columns:minmax(0,1fr)}#tariffs-fr-app .tf-market-controls .tf-market-offer-field,#tariffs-fr-app .tf-market-controls #tf-market-import{grid-column:auto}}
 
 </style>
+<link rel="stylesheet" href="/static/theme.css">
+<script src="/static/theme.js"></script>
 </head>
 <body>
 <main>
@@ -1005,12 +1007,14 @@ function hubCostText(energy,cost){
   if (!hubEnergyCosts) return "—";
   if (!hubEnergyCosts.enabled) return tr("energyCostDisabled");
   if (!cost || !Number.isFinite(cost.energy_cost_eur) || !Number.isFinite(cost.subscription_eur)) return tr("energyCostUnavailable");
-  if (cost.unpriced_kwh>0.0000001) {
+  const projected=(cost.projected_energy_cost_eur||0)+(cost.projected_subscription_eur||0);
+  if (cost.unpriced_kwh>0.0000001 && !cost.billed_energy_kwh && !cost.projected_kwh) {
     const reasons={"no contract for this historical period":"aucun contrat pour cette période historique","no price revision for this historical period":"aucun prix pour cette période historique","meter off-peak hours are missing":"horaires HC du compteur manquants","official Tempo color is missing":"couleur Tempo officielle manquante","price missing for this tariff category":"prix manquant pour cette catégorie"};
     return `${tr("energyCostUnavailable")} · ${(cost.warnings||[]).map(w=>lang==="fr"?(reasons[w]||w):w).join(", ")}`;
   }
-  const money=(cost.energy_cost_eur+cost.subscription_eur).toLocaleString(lang==="fr"?"fr-FR":"en-US",{style:"currency",currency:"EUR",minimumFractionDigits:2,maximumFractionDigits:2});
-  return `≈ ${money}${energy.estimated_kwh>0.0000001?` · ${tr("energyCostPartial")}`:""}`;
+  const money=(cost.energy_cost_eur+cost.subscription_eur+projected).toLocaleString(lang==="fr"?"fr-FR":"en-US",{style:"currency",currency:"EUR",minimumFractionDigits:2,maximumFractionDigits:2});
+  const estimate=cost.projected_kwh>0.0000001?(lang==="fr"?" · estimation historique au prix connu":" · historical estimate using later rates"):"";
+  return `≈ ${money}${estimate}${cost.unpriced_kwh>0.0000001||energy.estimated_kwh>0.0000001?` · ${tr("energyCostPartial")}`:""}`;
 }
 async function refreshHubCosts() {
   const qs=hubCostParams();
@@ -1041,7 +1045,7 @@ function renderHubEnergy() {
     document.getElementById("hub-energy-"+period).textContent=hubKwh(item);
     const costElement=document.getElementById("hub-energy-cost-"+period);
     costElement.textContent=hubCostText(item,hubEnergyCosts?.windows?.[period]);
-    costElement.classList.toggle("is-muted",!hubEnergyCosts?.enabled || hubCostFailed || !hubEnergyCosts?.windows?.[period]?.billed_energy_kwh);
+    costElement.classList.toggle("is-muted",!hubEnergyCosts?.enabled || hubCostFailed || !(hubEnergyCosts?.windows?.[period]?.billed_energy_kwh || hubEnergyCosts?.windows?.[period]?.projected_kwh));
     document.getElementById("hub-coverage-"+period).textContent=item?.first_seen_epoch==null?"":
       `${tr("energyCoverage")}: ${(item.coverage_seconds/3600).toFixed(1)} ${tr("energyNodeHours")}`;
   }
@@ -1100,6 +1104,7 @@ historyCanvas.addEventListener("mouseleave",()=>{
   drawHistory(lastHistory,{updateLegend:false});
 });
 window.addEventListener("resize",()=>drawHistory(lastHistory));
+window.addEventListener("powerwatch:themechange",()=>drawHistory(lastHistory));
 window.addEventListener("powerwatch:tariffschange",()=>{if(hubEnergy)void refreshHubCosts();});
 async function boot(){await initHubAdmin();applyLanguage();await refreshSnapshot();await refreshHistory();await refreshHubEnergy();setInterval(refreshSnapshot,2000);setInterval(refreshHistory,60000);setInterval(refreshHubEnergy,60000);}boot();
 </script>

@@ -17,6 +17,7 @@ function getFunction(html,name,context){
 const rated={energy_cost_eur:0.2,subscription_eur:0.05,billed_energy_kwh:1,unpriced_kwh:0};
 const partial={...rated,unpriced_kwh:1,warnings:["meter off-peak hours are missing"]};
 const absent={...rated,energy_cost_eur:0,billed_energy_kwh:0,unpriced_kwh:1,warnings:["no contract for this historical period"]};
+const projected={...rated,energy_cost_eur:0,subscription_eur:0,billed_energy_kwh:0,projected_energy_cost_eur:0.18,projected_kwh:1,unpriced_kwh:0};
 const energy={first_seen_epoch:1750000,energy_kwh:1};
 for(const [label,html,prefix] of [["local",local,"energy"],["hub",hub,"hub-energy"]]){
   test(label+": each existing energy counter has its own cost line",()=>{
@@ -41,9 +42,10 @@ for(const label of ["local","hub"]){
     };
     const cost=getFunction(target,label==="local"?"pwCostText":"hubCostText",context);
     assert.match(cost(energy,rated),/0,25/);
-    assert.match(cost(energy,partial),/horaires HC du compteur manquants/);
-    assert.doesNotMatch(cost(energy,partial),/0,25/);
+    assert.match(cost(energy,partial),/0,25/);
+    assert.match(cost(energy,partial),/partiel/);
     assert.match(cost(energy,absent),/aucun contrat pour cette période historique/);
+    assert.match(cost(energy,projected),/0,18.*estimation historique/);
     assert.match(cost({...energy,estimated_kwh:0.001},rated),/partiel/);
     assert.equal(cost({first_seen_epoch:null},rated),"");
     context[label==="local"?"powerwatchCosts":"hubEnergyCosts"]={enabled:false};

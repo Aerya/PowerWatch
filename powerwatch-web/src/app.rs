@@ -44,11 +44,19 @@ const INDEX_HTML: &str = include_str!("../static/index.html");
 const I18N_JS: &str = include_str!("../static/i18n.js");
 const AUTH_JS: &str = include_str!("../static/auth.js");
 const TARIFF_FR_JS: &str = include_str!("../../assets/tariffs-fr.js");
+const THEME_JS: &str = include_str!("../../assets/theme.js");
+const THEME_CSS: &str = include_str!("../../assets/theme.css");
 include!("tariffs_fr_handlers.rs");
 include!("market_fr_handlers.rs");
 
 async fn tariff_fr_js() -> impl IntoResponse {
     ([(header::CONTENT_TYPE,"application/javascript; charset=utf-8")],TARIFF_FR_JS)
+}
+async fn theme_js() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE,"application/javascript; charset=utf-8")],THEME_JS)
+}
+async fn theme_css() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE,"text/css; charset=utf-8")],THEME_CSS)
 }
 const SECURITY_HTML: &str = include_str!("../static/security.html");
 
@@ -745,6 +753,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/static/i18n.js", get(i18n_js))
         .route("/static/auth.js", get(auth_js))
         .route("/static/tariffs-fr.js",get(tariff_fr_js))
+        .route("/static/theme.js",get(theme_js))
+        .route("/static/theme.css",get(theme_css))
         .route("/alerts", get(crate::alerts::page))
         .route("/security", get(security_page))
         .route("/api/health", get(health))

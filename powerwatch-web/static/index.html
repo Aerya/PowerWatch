@@ -640,6 +640,8 @@
 @media(max-width:630px){#tariffs-fr-app .tf-market-controls,#tariffs-fr-app[data-mode="hub"] .tf-market-controls{grid-template-columns:minmax(0,1fr)}#tariffs-fr-app .tf-market-controls .tf-market-offer-field,#tariffs-fr-app .tf-market-controls #tf-market-import{grid-column:auto}}
 
 </style>
+<link rel="stylesheet" href="/static/theme.css">
+<script src="/static/theme.js"></script>
 </head>
 <body data-page="dashboard">
   <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
@@ -1688,9 +1690,10 @@ function renderChart() {
   ctx.clearRect(0, 0, width, height);
 
   const caption = document.getElementById("chart-caption");
+  const themeColor=(name,fallback)=>getComputedStyle(document.documentElement).getPropertyValue(name).trim()||fallback;
 
   if (lastReadings.length === 0) {
-    ctx.fillStyle = "#8b949e";
+    ctx.fillStyle = themeColor("--muted","#8b949e");
     ctx.font = "13px monospace";
     ctx.fillText(t("dashboard.noHistory"), 16, height / 2);
     caption.textContent = "";
@@ -1707,7 +1710,7 @@ function renderChart() {
   caption.textContent = t("dashboard.chartCaption", { label: historyMeta.label, points: lastReadings.length, resolution: formatBucket(historyMeta.bucketSeconds), updated: formatTime(Date.now()) });
 
   if (visibleReadings.length === 0) {
-    ctx.fillStyle = "#8b949e";
+    ctx.fillStyle = themeColor("--muted","#8b949e");
     ctx.font = "13px monospace";
     ctx.fillText(t("dashboard.allHidden"), 16, height / 2);
     return;
@@ -1724,8 +1727,8 @@ function renderChart() {
   const x = (t) => padding.left + ((t - minTime) / Math.max(maxTime - minTime, 1)) * w;
   const y = (watts) => padding.top + h - (watts / maxWatts) * h;
 
-  ctx.strokeStyle = "#21262d";
-  ctx.fillStyle = "#8b949e";
+  ctx.strokeStyle = themeColor("--border","#30363d");
+  ctx.fillStyle = themeColor("--muted","#8b949e");
   ctx.font = "11px monospace";
   ctx.textAlign = "right";
   const divisions = 4;
@@ -1742,12 +1745,12 @@ function renderChart() {
   const axisTicks = timeAxisTicks(minTime, maxTime, historyMeta.rangeSeconds || 600, w);
   axisTicks.forEach((timestamp, index) => {
     const px = x(timestamp);
-    ctx.strokeStyle = "#21262d";
+    ctx.strokeStyle = themeColor("--border","#30363d");
     ctx.beginPath();
     ctx.moveTo(px, padding.top);
     ctx.lineTo(px, padding.top + h);
     ctx.stroke();
-    ctx.fillStyle = "#8b949e";
+    ctx.fillStyle = themeColor("--muted","#8b949e");
     ctx.textAlign = index === 0 ? "left" : index === axisTicks.length - 1 ? "right" : "center";
     ctx.fillText(formatAxisTime(timestamp), px, height - 7);
   });
@@ -1778,7 +1781,7 @@ function renderChart() {
       const targetTime = minTime + ((cursorX - padding.left) / w) * (maxTime - minTime);
       const nearest = nearestPoints(visibleSeries, targetTime);
 
-      ctx.strokeStyle = "#8b949e";
+      ctx.strokeStyle = themeColor("--muted","#8b949e");
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(cursorX, padding.top);
@@ -1797,12 +1800,12 @@ function renderChart() {
       const boxX = Math.min(cursorX + 8, width - boxWidth - 4);
       const boxY = padding.top + 4;
 
-      ctx.fillStyle = "rgba(22, 27, 34, 0.95)";
-      ctx.strokeStyle = "#30363d";
+      ctx.fillStyle = themeColor("--panel","#161b22");
+      ctx.strokeStyle = themeColor("--border","#30363d");
       ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
       ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
 
-      ctx.fillStyle = "#c9d1d9";
+      ctx.fillStyle = themeColor("--text","#c9d1d9");
       lines.forEach((line, i) => {
         ctx.fillText(line, boxX + 8, boxY + 16 + i * 16);
       });
@@ -1830,6 +1833,7 @@ function setupChartInteractions() {
   });
 
   window.addEventListener("resize", () => renderChart());
+  window.addEventListener("powerwatch:themechange", () => renderChart());
 }
 
 window.addEventListener("powerwatch:languagechange", () => {
@@ -1857,15 +1861,16 @@ function pwCostText(energy, cost) {
   if (!powerwatchCosts) return "—";
   if (!powerwatchCosts.enabled) return pwEnergyText("costDisabled");
   if (!cost || !Number.isFinite(cost.energy_cost_eur) || !Number.isFinite(cost.subscription_eur)) return pwEnergyText("costUnavailable");
-  // Never turn missing tariff slots into a fictional full bill.
-  if (cost.unpriced_kwh > 0.0000001) {
+  const projected = (cost.projected_energy_cost_eur || 0) + (cost.projected_subscription_eur || 0);
+  if (cost.unpriced_kwh > 0.0000001 && !cost.billed_energy_kwh && !cost.projected_kwh) {
     const reasons={"no contract for this historical period":"aucun contrat pour cette période historique","no price revision for this historical period":"aucun prix pour cette période historique","meter off-peak hours are missing":"horaires HC du compteur manquants","official Tempo color is missing":"couleur Tempo officielle manquante","price missing for this tariff category":"prix manquant pour cette catégorie"};
     return `${pwEnergyText("costUnavailable")} · ${(cost.warnings||[]).map(w=>PWI18n.language==="fr"?(reasons[w]||w):w).join(", ")}`;
   }
-  const amount = cost.energy_cost_eur + cost.subscription_eur;
+  const amount = cost.energy_cost_eur + cost.subscription_eur + projected;
   const money = amount.toLocaleString(PWI18n.language === "en" ? "en-US" : "fr-FR", {style:"currency",currency:"EUR",minimumFractionDigits:2,maximumFractionDigits:2});
-  const partial = energy.estimated_kwh > 0.0000001 ? ` · ${pwEnergyText("costPartial")}` : "";
-  return `≈ ${money}${partial}`;
+  const estimate = cost.projected_kwh > 0.0000001 ? (PWI18n.language === "en" ? " · historical estimate using later rates" : " · estimation historique au prix connu") : "";
+  const partial = cost.unpriced_kwh > 0.0000001 || energy.estimated_kwh > 0.0000001 ? ` · ${pwEnergyText("costPartial")}` : "";
+  return `≈ ${money}${estimate}${partial}`;
 }
 async function pwCostRefresh(params) {
   try {
@@ -1888,7 +1893,7 @@ function pwEnergyRender() {
     document.getElementById("energy-" + id).textContent = pwEnergyFormat(entry);
     const costElement = document.getElementById("energy-cost-" + id);
     costElement.textContent = pwCostText(entry, powerwatchCosts?.windows?.[id]);
-    costElement.classList.toggle("is-muted", !powerwatchCosts?.enabled || pwCostFailed || !powerwatchCosts?.windows?.[id]?.billed_energy_kwh);
+    costElement.classList.toggle("is-muted", !powerwatchCosts?.enabled || pwCostFailed || !(powerwatchCosts?.windows?.[id]?.billed_energy_kwh || powerwatchCosts?.windows?.[id]?.projected_kwh));
     document.getElementById("energy-coverage-" + id).textContent = entry?.first_seen_epoch == null ? "" :
       `${pwEnergyText("coverage")}: ${(entry.coverage_seconds/3600).toFixed(1)} h`;
   }

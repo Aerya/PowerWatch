@@ -60,6 +60,7 @@ pub struct TariffConfig {
     #[serde(default)] pub enabled: bool,
     #[serde(default = "default_fr")] pub country: String,
     #[serde(default)] pub include_subscription: bool,
+    #[serde(default)] pub estimate_unknown_history: bool,
     #[serde(default)] pub sites: Vec<TariffSite>,
     #[serde(default)] pub contracts: Vec<TariffContract>,
     #[serde(default)] pub tempo_days: BTreeMap<String, TempoColor>,
@@ -68,7 +69,7 @@ pub struct TariffConfig {
 }
 impl Default for TariffConfig {
     fn default() -> Self {
-        Self { revision:0,enabled:false,country:default_fr(),include_subscription:false,
+        Self { revision:0,enabled:false,country:default_fr(),include_subscription:false,estimate_unknown_history:false,
           sites:vec![TariffSite{id:"local".into(),name:"Local".into(),nodes:vec![]}],
           contracts:vec![],tempo_days:BTreeMap::new(),cre_last_sync:None,tempo_last_sync:None }
     }
@@ -271,6 +272,9 @@ pub struct CostStats {
     pub billed_energy_kwh:f64,
     pub energy_cost_eur:f64,
     pub subscription_eur:f64,
+    pub projected_energy_cost_eur:f64,
+    pub projected_subscription_eur:f64,
+    pub projected_kwh:f64,
     pub unpriced_kwh:f64,
     pub approximate_kwh:f64,
     pub estimated_kwh:f64,
@@ -283,6 +287,9 @@ impl CostStats {
         self.billed_energy_kwh+=other.billed_energy_kwh;
         self.energy_cost_eur+=other.energy_cost_eur;
         self.subscription_eur+=other.subscription_eur;
+        self.projected_energy_cost_eur+=other.projected_energy_cost_eur;
+        self.projected_subscription_eur+=other.projected_subscription_eur;
+        self.projected_kwh+=other.projected_kwh;
         self.unpriced_kwh+=other.unpriced_kwh;
         self.approximate_kwh+=other.approximate_kwh;
         self.estimated_kwh+=other.estimated_kwh;
@@ -320,6 +327,9 @@ pub fn load_slices(conn:&Connection,source:&str,from:i64,to:i64)->rusqlite::Resu
 fn price_at<'a>(contract:&'a TariffContract,date:NaiveDate)->Option<&'a PriceRevision> {
     contract.revisions.iter().filter(|rev|rev.from<=date&&rev.until.is_none_or(|u|date<=u))
         .max_by_key(|r|r.from)
+}
+fn first_future_price<'a>(contract:&'a TariffContract,date:NaiveDate)->Option<&'a PriceRevision> {
+    contract.revisions.iter().min_by_key(|rev|rev.from).filter(|rev|rev.from>date)
 }
 fn in_offpeak(time:NaiveTime,windows:&[OffpeakWindow])->bool {
     windows.iter().any(|window|{
@@ -369,7 +379,13 @@ pub fn price_slices(config:&TariffConfig,site:&str,slices:&[EnergySlice])->CostS
                 result.billed_energy_kwh+=wh/1000.0;
                 result.energy_cost_eur+=wh/1000.0*price;
             }else{
-                result.unpriced_kwh+=wh/1000.0;
+                let projection=if config.estimate_unknown_history {
+                    contract.and_then(|c|if price_at(c,date).is_none(){first_future_price(c,date).and_then(|rev|category(config,c,at).and_then(|key|rev.eur_kwh.get(&key).copied()))}else{None})
+                }else{None};
+                if let Some(projected_price)=projection {
+                    result.projected_kwh+=wh/1000.0;
+                    result.projected_energy_cost_eur+=wh/1000.0*projected_price;
+                }else{result.unpriced_kwh+=wh/1000.0;}
                 let reason=match contract {
                     None=>"no contract for this historical period",
                     Some(c) if price_at(c,date).is_none()=>"no price revision for this historical period",
@@ -377,28 +393,34 @@ pub fn price_slices(config:&TariffConfig,site:&str,slices:&[EnergySlice])->CostS
                     Some(c) if c.option=="tempo" && category(config,c,at).is_none()=>"official Tempo color is missing",
                     Some(_)=>"price missing for this tariff category",
                 };
-                if !result.warnings.iter().any(|w|w==reason){result.warnings.push(reason.into());}
+                if projection.is_none() && !result.warnings.iter().any(|w|w==reason){result.warnings.push(reason.into());}
             }
             cursor=next;
         }
     }
     if result.approximate_kwh>1e-10 {result.warnings.push("legacy hourly energy: price breakdown approximate".into());}
+    if result.projected_kwh>1e-10 {result.warnings.push("historical cost estimated using a later known rate, not a historical bill".into());}
     result
 }
 /// Optional subscription cost, once per site, prorated by contract/revision days.
 /// No subscription is implicitly charged for unconfigured time ranges.
 pub fn subscription_cost(config:&TariffConfig,site:&str,from:i64,to:i64)->f64 {
-    if !config.enabled||!config.include_subscription||to<=from{return 0.0;}
-    let Some(start)=DateTime::<Utc>::from_timestamp(from,0)else{return 0.0};
-    let Some(end)=DateTime::<Utc>::from_timestamp(to,0)else{return 0.0};
-    let mut cost=0.0;
+    subscription_cost_breakdown(config,site,from,to).0
+}
+pub fn subscription_cost_breakdown(config:&TariffConfig,site:&str,from:i64,to:i64)->(f64,f64) {
+    if !config.enabled||!config.include_subscription||to<=from{return (0.0,0.0);}
+    let Some(start)=DateTime::<Utc>::from_timestamp(from,0)else{return (0.0,0.0)};
+    let Some(end)=DateTime::<Utc>::from_timestamp(to,0)else{return (0.0,0.0)};
+    let mut cost=0.0;let mut projected=0.0;
     let mut day=start.with_timezone(&Paris).date_naive();
     let last=end.with_timezone(&Paris).date_naive();
     let mut count=0;
     while day<=last&&count<36525 {
         // Calculate site subscription in local calendar-day fractions with DST.
         if let Some(c)=config.contracts.iter().find(|c|c.site_id==site&&c.starts_on<=day&&c.ends_on.is_none_or(|d|day<=d)) {
-            if let Some(rev)=price_at(c,day) {
+            let exact=price_at(c,day);
+            let selected=exact.or_else(||if config.estimate_unknown_history {first_future_price(c,day)} else {None});
+            if let Some(rev)=selected {
                 if let Some(annual)=rev.annual_subscription_eur {
                     let next=day.succ_opt().unwrap_or(day);
                     let local0=day.and_hms_opt(0,0,0).and_then(|t|Paris.from_local_datetime(&t).earliest());
@@ -408,14 +430,15 @@ pub fn subscription_cost(config:&TariffConfig,site:&str,from:i64,to:i64)->f64 {
                         let observed=(to.min(b)-from.max(a)).max(0) as f64;
                         let year_days=if NaiveDate::from_ymd_opt(day.year(),2,29).is_some(){366.0}else{365.0};
                         let full=(b-a).max(1) as f64;
-                        cost+=annual/year_days*(observed/full);
+                        let amount=annual/year_days*(observed/full);
+                        if exact.is_some(){cost+=amount;}else{projected+=amount;}
                     }
                 }
             }
         }
         let Some(next)=day.succ_opt()else{break}; day=next;count+=1;
     }
-    cost
+    (cost,projected)
 }
 
 #[derive(Debug, Serialize, Default)]
@@ -438,7 +461,7 @@ pub fn cost_report(conn:&Connection, config:&TariffConfig, assignments:&[(String
         if *included {report.sites.entry(site.clone()).or_default().add(&cost);}
     }
     for (site,stats) in report.sites.iter_mut() {
-        stats.subscription_eur=subscription_cost(config,site,from,to);
+        (stats.subscription_eur,stats.projected_subscription_eur)=subscription_cost_breakdown(config,site,from,to);
         report.global.add(stats);
     }
     Ok(report)
@@ -481,7 +504,7 @@ fn overview_period(
     let mut total = CostStats::default();
     for (site, part) in report.sites.iter_mut() {
         if let Some(first) = first_by_site.get(site) {
-            part.subscription_eur = subscription_cost(config, site, *first, to);
+            (part.subscription_eur,part.projected_subscription_eur) = subscription_cost_breakdown(config, site, *first, to);
         }
         total.add(part);
     }
@@ -557,6 +580,37 @@ mod tests {
         let unpriced=cost_overview(&db,&c,&included,end,None,end).unwrap();
         assert_eq!(unpriced.windows["24h"].energy_cost_eur,0.0);
         assert!((unpriced.windows["24h"].unpriced_kwh-2.0).abs()<1e-8);
+    }
+    #[test] fn optional_history_projection_keeps_documented_cost_separate_and_never_prices_missing_contracts() {
+        assert!(!TariffConfig::default().estimate_unknown_history);
+        let mut c=sample();c.contracts[0].starts_on=NaiveDate::from_ymd_opt(2019,6,1).unwrap();
+        c.contracts[0].revisions[0].from=NaiveDate::from_ymd_opt(2026,10,11).unwrap();
+        c.include_subscription=true;
+        let start=Paris.with_ymd_and_hms(2026,10,10,14,0,0).single().unwrap().with_timezone(&Utc).timestamp();
+        let slice=EnergySlice{start,end:start+3600,wh:1000.0,estimated_wh:0.0,covered_seconds:3600.0,approximate:false};
+        let strict=price_slices(&c,"local",&[slice.clone()]);
+        assert_eq!(strict.projected_kwh,0.0);assert!((strict.unpriced_kwh-1.0).abs()<1e-8);
+        c.estimate_unknown_history=true;
+        let projected=price_slices(&c,"local",&[slice.clone()]);
+        assert_eq!(projected.energy_cost_eur,0.0);
+        assert!((projected.projected_kwh-1.0).abs()<1e-8);
+        assert!((projected.projected_energy_cost_eur-0.30).abs()<1e-8);
+        assert_eq!(projected.unpriced_kwh,0.0);
+        let (exact,estimated)=subscription_cost_breakdown(&c,"local",start,start+3600);
+        assert_eq!(exact,0.0);assert!(estimated>0.0);
+        let mut db=Connection::open_in_memory().unwrap();crate::energy::init(&db).unwrap();
+        crate::energy::record(&mut db,"local",start,1000.0,false,3600).unwrap();
+        crate::energy::record(&mut db,"local",start+3600,1000.0,false,3600).unwrap();
+        let overview=cost_overview(&db,&c,&[("local".into(),"local".into(),true)],start+3600,Some(start),start+3600).unwrap();
+        assert!(overview.selected.projected_kwh>0.0);
+        assert_eq!(overview.selected.energy_cost_eur,0.0);
+        assert_eq!(overview.selected.unpriced_kwh,0.0);
+        let earlier=Paris.with_ymd_and_hms(2018,10,10,14,0,0).single().unwrap().with_timezone(&Utc).timestamp();
+        let no_contract=price_slices(&c,"local",&[EnergySlice{start:earlier,end:earlier+3600,..slice}]);
+        assert_eq!(no_contract.projected_kwh,0.0);assert!((no_contract.unpriced_kwh-1.0).abs()<1e-8);
+        c.contracts[0].offpeak.clear();
+        let no_hours=price_slices(&c,"local",&[EnergySlice{start,end:start+3600,wh:1000.0,estimated_wh:0.0,covered_seconds:3600.0,approximate:false}]);
+        assert_eq!(no_hours.projected_kwh,0.0);assert!((no_hours.unpriced_kwh-1.0).abs()<1e-8);
     }
         #[test] fn rejects_overlapping_contracts_and_negative_prices(){let mut c=sample();assert!(validate(&c).is_ok());let duplicate=c.contracts[0].clone();c.contracts.push(duplicate);assert!(validate(&c).is_err());}
     #[test] fn prices_switch_on_half_hour_and_dst(){

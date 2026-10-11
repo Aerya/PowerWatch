@@ -1,0 +1,129 @@
+/* PowerWatch palettes adapted from Dockge-Enhanced; semantic dashboard tokens. */
+html[data-theme-tone="dark"] { color-scheme: dark; }
+html[data-theme-tone="light"] {
+  color-scheme: light;
+  --bg: #f6f8fa; --panel: #ffffff; --border: #c5ced8;
+  --text: #24292f; --muted: #57606a; --measured: #1a7f37;
+  --estimated: #9a6700; --error: #cf222e; --accent: #0969da;
+}
+html[data-theme-tone="dark"] { --accent: #58a6ff; }
+html[data-theme-tone="light"][data-theme-palette="cat-latte"] {
+  --bg: #eff1f5;
+  --panel: #ffffff;
+  --border: #bcc3d1;
+  --text: #34364b;
+  --muted: #60647b;
+  --measured: #40a02b;
+  --estimated: #9a5a00;
+  --error: #d20f39;
+  --accent: #1e66f5;
+}
+html[data-theme-tone="dark"][data-theme-palette="cat-mocha"] {
+  --bg: #1e1e2e;
+  --panel: #242437;
+  --border: #45475a;
+  --text: #cdd6f4;
+  --muted: #bac2de;
+  --measured: #a6e3a1;
+  --estimated: #f9e2af;
+  --error: #f38ba8;
+  --accent: #89b4fa;
+}
+html[data-theme-tone="dark"][data-theme-palette="nord"] {
+  --bg: #2e3440;
+  --panel: #353d4b;
+  --border: #566272;
+  --text: #eceff4;
+  --muted: #c0cad8;
+  --measured: #a3be8c;
+  --estimated: #ebcb8b;
+  --error: #e07a84;
+  --accent: #88c0d0;
+}
+html[data-theme-tone="dark"][data-theme-palette="dracula"] {
+  --bg: #282a36;
+  --panel: #303241;
+  --border: #5d6076;
+  --text: #f8f8f2;
+  --muted: #d2d2d8;
+  --measured: #50fa7b;
+  --estimated: #f1fa8c;
+  --error: #ff6e76;
+  --accent: #bd93f9;
+}
+html[data-theme-tone="light"][data-theme-palette="nord-snow"] {
+  --bg: #e5e9f0;
+  --panel: #f8f9fb;
+  --border: #b7c2d1;
+  --text: #2e3440;
+  --muted: #526174;
+  --measured: #4d7541;
+  --estimated: #986b24;
+  --error: #b54b53;
+  --accent: #5e81ac;
+}
+html[data-theme-tone="light"][data-theme-palette="solarized-light"] {
+  --bg: #eee8d5;
+  --panel: #fdf6e3;
+  --border: #cec6ae;
+  --text: #3e5053;
+  --muted: #65777a;
+  --measured: #5b7800;
+  --estimated: #9b6b00;
+  --error: #cf4b42;
+  --accent: #268bd2;
+}
+html[data-theme-tone="dark"][data-theme-palette="gruvbox"] {
+  --bg: #1d2021;
+  --panel: #282828;
+  --border: #504945;
+  --text: #ebdbb2;
+  --muted: #c0b090;
+  --measured: #b8bb26;
+  --estimated: #fabd2f;
+  --error: #fb7b6c;
+  --accent: #fabd2f;
+}
+html[data-theme-tone="dark"][data-theme-palette="tokyo-night"] {
+  --bg: #16161e;
+  --panel: #1a1b26;
+  --border: #3b4261;
+  --text: #c0caf5;
+  --muted: #a9b1d6;
+  --measured: #9ece6a;
+  --estimated: #e0af68;
+  --error: #f7768e;
+  --accent: #7aa2f7;
+}
+html[data-theme-tone="dark"][data-theme-palette="solarized-dark"] {
+  --bg: #00232c;
+  --panel: #002b36;
+  --border: #24515b;
+  --text: #d5e0dc;
+  --muted: #a8bdbb;
+  --measured: #a4b92a;
+  --estimated: #d9a51c;
+  --error: #e47471;
+  --accent: #58b6e8;
+}
+html[data-theme-tone="dark"][data-theme-palette="rose-pine"] {
+  --bg: #191724;
+  --panel: #1f1d2e;
+  --border: #403d52;
+  --text: #e0def4;
+  --muted: #bcb8d2;
+  --measured: #9ccfba;
+  --estimated: #f6c177;
+  --error: #eb8b91;
+  --accent: #c4a7e7;
+}
+.theme-control { position:relative; font-size:.78rem; }
+.theme-control > summary { cursor:pointer; list-style:none; border:1px solid var(--border); border-radius:4px; padding:4px 8px; color:var(--text); white-space:nowrap; }
+.theme-control > summary::-webkit-details-marker { display:none; }
+.theme-control[open] > summary { border-color:var(--accent); }
+.theme-control-panel { position:absolute; z-index:50; right:0; top:calc(100% + 4px); width:min(310px,88vw); padding:12px; background:var(--panel); border:1px solid var(--border); border-radius:6px; box-shadow:0 8px 24px #0005; }
+.theme-control-panel label { display:grid; gap:4px; margin:6px 0; color:var(--muted); }
+.theme-control-panel select { width:100%; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:5px; }
+.theme-control-panel .theme-modes { display:flex; gap:4px; }
+.theme-control-panel .theme-modes button { flex:1; cursor:pointer; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:5px; }
+.theme-control-panel .theme-modes button[aria-pressed="true"] { border-color:var(--accent); color:var(--accent); font-weight:700; }
