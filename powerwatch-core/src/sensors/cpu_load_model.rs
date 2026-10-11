@@ -234,7 +234,7 @@ impl<S: CpuJiffiesSource> PowerSensor for CpuLoadModelSensor<S> {
         let utilization = compute_utilization(&last, &jiffies);
 
         Ok(SensorReading {
-            component: Component::Cpu,
+            component: Component::Board,
             watts: self.model.watts_at(utilization),
             confidence: Confidence::Estimated,
             timestamp: chrono::Utc::now(),
@@ -498,7 +498,7 @@ ctxt 987654
         let _ = sensor.sample();
         let reading = sensor.sample().unwrap();
 
-        assert_eq!(reading.component, Component::Cpu);
+        assert_eq!(reading.component, Component::Board);
         assert_eq!(reading.confidence, Confidence::Estimated);
         assert_eq!(reading.watts, 4.0);
     }

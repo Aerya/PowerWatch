@@ -416,7 +416,7 @@ impl<S: GencmdSource> RpiPmicSensor<S> {
         let power = read_pmic_power(&mut self.source)?;
 
         Ok(SensorReading {
-            component: Component::Cpu,
+            component: Component::Board,
             watts: power.watts,
             confidence: Confidence::Measured,
             timestamp: chrono::Utc::now(),
@@ -1054,7 +1054,7 @@ mod tests {
         let reading = sensor.sample().unwrap();
 
         assert_eq!(sensor.source.commands, vec!["pmic_read_adc".to_string()]);
-        assert_eq!(reading.component, Component::Cpu);
+        assert_eq!(reading.component, Component::Board);
         assert_eq!(reading.confidence, Confidence::Measured);
         assert!((reading.watts - 2.182_264_594).abs() < 1e-6);
     }

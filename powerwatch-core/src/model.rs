@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Component {
     Cpu,
+    Board,
     // Kept for backward compatibility with history written by older PowerWatch versions.
     Gpu(GpuVendor),
     GpuDevice {
@@ -39,6 +40,7 @@ impl Component {
     pub fn label(&self) -> String {
         match self {
             Self::Cpu => "cpu".to_string(),
+            Self::Board => "board".to_string(),
             Self::Gpu(vendor) => format!("gpu ({})", vendor.as_str()),
             Self::GpuDevice {
                 vendor,
@@ -124,6 +126,18 @@ mod tests {
         let json = serde_json::to_string(&legacy).unwrap();
         let parsed: Component = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, legacy);
+    }
+
+    #[test]
+    fn board_and_legacy_cpu_remain_distinct_in_json() {
+        assert_eq!(
+            serde_json::to_string(&Component::Board).unwrap(),
+            "\"Board\""
+        );
+        assert_eq!(
+            serde_json::from_str::<Component>("\"Cpu\"").unwrap(),
+            Component::Cpu
+        );
     }
 
     #[test]

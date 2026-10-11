@@ -42,6 +42,7 @@ for(const label of ["local","hub"]){
     const cost=getFunction(target,label==="local"?"pwCostText":"hubCostText",context);
     assert.match(cost(energy,rated),/0,25/);
     assert.match(cost(energy,partial),/partiel/);
+    assert.match(cost({...energy,estimated_kwh:0.001},rated),/partiel/);
     assert.equal(cost(energy,absent),"Coût indisponible");
     assert.equal(cost({first_seen_epoch:null},rated),"");
     context[label==="local"?"powerwatchCosts":"hubEnergyCosts"]={enabled:false};

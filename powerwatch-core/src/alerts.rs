@@ -64,12 +64,17 @@ impl AlertEvaluator {
             return snapshot.total().map(|r| r.watts);
         }
 
-        if self.rule.component_name.eq_ignore_ascii_case("gpu") {
+        if self.rule.component_name.eq_ignore_ascii_case("gpu")
+            || self.rule.component_name.eq_ignore_ascii_case("board")
+        {
+            let prefix = self.rule.component_name.to_ascii_lowercase();
             let mut found = false;
             let watts = snapshot
                 .results
                 .iter()
-                .filter(|(name, _)| name.eq_ignore_ascii_case("gpu") || name.starts_with("gpu:"))
+                .filter(|(name, _)| {
+                    name.eq_ignore_ascii_case(&prefix) || name.starts_with(&format!("{prefix}:"))
+                })
                 .filter_map(|(_, result)| result.as_ref().ok())
                 .map(|reading| {
                     found = true;
@@ -137,6 +142,18 @@ mod tests {
             threshold_watts: threshold,
             sustained_for,
         }
+    }
+
+    #[test]
+    fn board_rule_matches_pmic_board_sensor() {
+        let mut snapshot = snapshot_with(Component::Board, 2.2);
+        snapshot.results[0].0 = "board:pmic".to_string();
+        let mut evaluator = AlertEvaluator::new(AlertRule {
+            component_name: "board".to_string(),
+            threshold_watts: 2.0,
+            sustained_for: Duration::ZERO,
+        });
+        assert!(evaluator.evaluate_at(&snapshot, Instant::now()));
     }
 
     #[test]

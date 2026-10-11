@@ -6,6 +6,8 @@
 
   const messages = {
     en: {
+      "component.board": "Board",
+      "energy.pmicPartial": "PMIC rails measured; USB, PCIe/NVMe, fan and supply losses are not covered",
       "energy.title": "Energy consumption",
       "energy.estimate": "Partially estimated · not measured at the socket",
       "energy.24h": "Last 24 hours",
@@ -162,6 +164,8 @@
       "alerts.eventRecovered": "{rule} recovered: {component} is {watts} W (threshold {threshold} W)"
     },
     fr: {
+      "component.board": "Carte",
+      "energy.pmicPartial": "Rails PMIC mesurés ; USB, PCIe/NVMe, ventilateur et pertes d'alimentation non couverts",
       "energy.title": "Consommation énergétique cumulée",
       "energy.estimate": "Partiellement estimée · non mesurée à la prise",
       "energy.24h": "Dernières 24 heures",

@@ -141,7 +141,7 @@ pub fn build_default_sampler() -> Sampler {
         match board_model_from_env() {
             Ok(Some(model)) => {
                 sampler.add_sensor(
-                    "cpu",
+                    "board",
                     Box::new(CpuLoadModelSensor::new(
                         ProcStatSource::new("/proc/stat"),
                         model,
@@ -151,7 +151,7 @@ pub fn build_default_sampler() -> Sampler {
             }
             Ok(None) => {}
             Err(message) => {
-                sampler.add_sensor("cpu", Box::new(InvalidBoardModelSensor::new(message)));
+                sampler.add_sensor("board", Box::new(InvalidBoardModelSensor::new(message)));
                 cpu_source = CpuSource::BoardMisconfigured;
             }
         }
@@ -171,11 +171,11 @@ pub fn build_default_sampler() -> Sampler {
             .unwrap_or_else(|_| PathBuf::from(DEFAULT_GENCMD_DEVICE));
         if let Ok(mut gencmd) = VcioGencmd::open(&gencmd_path) {
             if read_pmic_power(&mut gencmd).is_ok() {
-                sampler.add_sensor("cpu", Box::new(RpiPmicSensor::new(gencmd)));
+                sampler.add_sensor("board:pmic", Box::new(RpiPmicSensor::new(gencmd)));
                 cpu_source = CpuSource::RpiPmic;
             } else if running_on_pi5_family() {
                 sampler.add_sensor(
-                    "cpu",
+                    "board:pmic",
                     Box::new(RpiPmicSensor::pending(gencmd, std::time::Instant::now())),
                 );
                 cpu_source = CpuSource::RpiPmic;
@@ -183,40 +183,50 @@ pub fn build_default_sampler() -> Sampler {
         }
     }
 
-    // NVIDIA: enumerate every NVML device exposed by the host/runtime.
-    if let Ok(devices) = NvidiaSensor::discover() {
-        for (index, _) in devices {
-            if let Ok(sensor) = NvidiaSensor::init(index) {
-                sampler.add_sensor(format!("gpu:nvidia:{index}"), Box::new(sensor));
+    // A wall-calibrated board estimate already includes GPU power from that plug.
+    // Adding a separate GPU reading would count it twice.
+    if !matches!(
+        cpu_source,
+        CpuSource::BoardLoadModel | CpuSource::BoardMisconfigured
+    ) {
+        // NVIDIA: enumerate every NVML device exposed by the host/runtime.
+        if let Ok(devices) = NvidiaSensor::discover() {
+            for (index, _) in devices {
+                if let Ok(sensor) = NvidiaSensor::init(index) {
+                    sampler.add_sensor(format!("gpu:nvidia:{index}"), Box::new(sensor));
+                }
             }
         }
-    }
 
-    // AMD and Intel: enumerate every DRM hwmon device that exposes real power
-    // or energy telemetry. The readings themselves come directly from hwmon
-    // under /sys; no /dev/dri access is required for power telemetry.
-    for target in linux_gpu_targets {
-        let sensor_name = format!("gpu:{}:{}", target.vendor.as_str(), target.index);
-        sampler.add_sensor(sensor_name, Box::new(LinuxGpuPowerSensor::new(target)));
-    }
+        // AMD and Intel: enumerate every DRM hwmon device that exposes real power
+        // or energy telemetry. The readings themselves come directly from hwmon
+        // under /sys; no /dev/dri access is required for power telemetry.
+        for target in linux_gpu_targets {
+            let sensor_name = format!("gpu:{}:{}", target.vendor.as_str(), target.index);
+            sampler.add_sensor(sensor_name, Box::new(LinuxGpuPowerSensor::new(target)));
+        }
 
-    // Some Intel platforms (including Jasper Lake) expose no i915/xe hwmon
-    // power counter but do expose a RAPL "uncore" child domain. Use it as a
-    // measured iGPU fallback only when no Intel hwmon GPU was discovered.
-    if !has_intel_hwmon && intel_drm_driver_loaded {
-        if let Some(uncore) = rapl_domains.as_ref().and_then(|domains| domains.uncore.as_ref()) {
-            sampler.add_sensor(
-                "gpu:intel:0",
-                Box::new(RaplSensor::new_for_component(
-                    uncore.energy_path.clone(),
-                    uncore.max_energy_uj,
-                    Component::GpuDevice {
-                        vendor: GpuVendor::Intel,
-                        index: 0,
-                        name: "Intel integrated GPU (RAPL uncore)".to_string(),
-                    },
-                )),
-            );
+        // Some Intel platforms (including Jasper Lake) expose no i915/xe hwmon
+        // power counter but do expose a RAPL "uncore" child domain. Use it as a
+        // measured iGPU fallback only when no Intel hwmon GPU was discovered.
+        if !has_intel_hwmon && intel_drm_driver_loaded {
+            if let Some(uncore) = rapl_domains
+                .as_ref()
+                .and_then(|domains| domains.uncore.as_ref())
+            {
+                sampler.add_sensor(
+                    "gpu:intel:0",
+                    Box::new(RaplSensor::new_for_component(
+                        uncore.energy_path.clone(),
+                        uncore.max_energy_uj,
+                        Component::GpuDevice {
+                            vendor: GpuVendor::Intel,
+                            index: 0,
+                            name: "Intel integrated GPU (RAPL uncore)".to_string(),
+                        },
+                    )),
+                );
+            }
         }
     }
 
