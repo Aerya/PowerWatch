@@ -71,8 +71,10 @@ set("hc","0.1600");document.querySelector("#tf-manual-save").click();await wait(
 const saved={writes,contracts:structuredClone(config.contracts),summary:document.querySelector(".tf-main-contract").textContent,status:document.querySelector("#tf-manual-status").textContent};
 set("price_from","2026-10-10");set("hp","0.2200");document.querySelector("#tf-manual-save").click();await wait(90);
 const revision={writes,contract:structuredClone(config.contracts[0])};
-set("offer","Autre offre");document.querySelector("#tf-manual-identity").click();await wait(40);
-document.querySelector("#result").textContent=JSON.stringify({identity,refused,saved,revision,writes,blockedStatus:document.querySelector("#tf-manual-status").textContent});})();
+document.querySelector("#tf-edit-current").click();const prefilled={offer:document.querySelector('[data-manual="offer"]').value,hp:document.querySelector('[data-manual="hp"]').value};
+set("offer","Online corrigé");set("hc","0.1550");document.querySelector("#tf-manual-save").click();await wait(90);
+const edited=structuredClone(config.contracts[0]);document.querySelector("#tf-estimate-history").click();await wait(90);
+document.querySelector("#result").textContent=JSON.stringify({identity,refused,saved,revision,prefilled,edited,estimate:config.estimate_unknown_history,writes});})();
 </script></body></html>`;
     const file=path.join(dir,"index.html");fs.writeFileSync(file,html);
     const output=execFileSync(chromium,["--headless","--no-sandbox","--disable-gpu","--disable-dev-shm-usage","--disable-background-networking","--no-first-run","--no-default-browser-check","--virtual-time-budget=3000","--dump-dom","file://"+file],{encoding:"utf8",timeout:60000,stdio:["ignore","pipe","ignore"]});
@@ -87,6 +89,38 @@ document.querySelector("#result").textContent=JSON.stringify({identity,refused,s
     assert.match(result.saved.summary,/TotalEnergies.*Online/);assert.match(result.saved.status,/enregistrés sur le serveur/);
     assert.equal(result.revision.writes,3);assert.equal(result.revision.contract.revisions.length,2);
     assert.equal(result.revision.contract.revisions[0].until,"2026-10-09");assert.equal(result.revision.contract.revisions[1].from,"2026-10-10");
-    assert.equal(result.writes,3);assert.match(result.blockedStatus,/prix historiques/);
+    assert.equal(result.prefilled.offer,"Online Électricité");assert.equal(result.prefilled.hp,"0.22");
+    assert.equal(result.edited.offer,"Online corrigé");assert.equal(result.edited.revisions.length,2);assert.equal(result.edited.revisions[1].eur_kwh.hc,0.155);
+    assert.equal(result.estimate,true);assert.equal(result.writes,5);
+  } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test("manual current rates start today when their date is blank, without backdating to the contract",{skip:!chromium},()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),"powerwatch-manual-current-"));
+  try {
+    const html=`<!doctype html><html lang="fr"><body><div id="tariffs-fr-app"></div><pre id="result">pending</pre>
+<script>
+let config={revision:0,enabled:false,country:"FR",include_subscription:false,sites:[{id:"local",name:"Local",nodes:[]}],contracts:[],tempo_days:{}};
+let confirmation="";
+window.fetch=async(url,opts={})=>{if(opts.method==="PUT"){config=JSON.parse(opts.body);config.revision++;}const data=url.endsWith("/market/suppliers")?[]:url.includes("/cost?")?{enabled:true,global:{energy_cost_eur:0,billed_energy_kwh:0,unpriced_kwh:0},sites:{},nodes:{}}:config;return {ok:true,json:async()=>structuredClone(data)};};
+window.confirm=message=>{confirmation=message;return true;};
+</script><script>${source.replace(/<\/script/gi,"<\\/script")}</script><script>
+(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms));await wait(200);document.querySelector(".tf-manual").open=true;
+const set=(key,value)=>{const input=document.querySelector('[data-manual="'+key+'"]');input.value=value;input.dispatchEvent(new Event("input"));};
+set("supplier","Example Energy");set("offer","Online");set("starts_on","2019-07-02");set("hp","0.2150");set("hc","0.1600");set("offpeak","14:54-16:54;23:5405:54");
+document.querySelector("#tf-manual-save").click();await wait(40);
+const invalid={status:document.querySelector("#tf-manual-status").textContent,writes:config.revision,confirmation};
+set("offpeak","14:54-16:54;23:54-05:54");document.querySelector("#tf-manual-save").click();await wait(120);
+document.querySelector("#result").textContent=JSON.stringify({invalid,contract:config.contracts[0],confirmation,status:document.querySelector("#tf-manual-status").textContent});})();
+</script></body></html>`;
+    const file=path.join(dir,"index.html");fs.writeFileSync(file,html);
+    const output=execFileSync(chromium,["--headless","--no-sandbox","--disable-gpu","--disable-dev-shm-usage","--disable-background-networking","--no-first-run","--no-default-browser-check","--virtual-time-budget=3000","--dump-dom","file://"+file],{encoding:"utf8",timeout:60000,stdio:["ignore","pipe","ignore"]});
+    const match=output.match(/<pre id="result">([^<]+)<\/pre>/);assert.ok(match);
+    const result=JSON.parse(match[1].replaceAll("&quot;",'"').replaceAll("&amp;","&"));
+    const today=new Intl.DateTimeFormat("sv-SE",{timeZone:"Europe/Paris",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+    assert.equal(result.invalid.writes,0);assert.equal(result.invalid.confirmation,"");assert.match(result.invalid.status,/Plage HC 2 invalide/);assert.match(result.invalid.status,/23:54-05:54/);
+    assert.equal(result.contract.starts_on,"2019-07-02");assert.equal(result.contract.revisions[0].from,today);
+    assert.equal(result.contract.offpeak[1].from,"23:54");assert.equal(result.contract.offpeak[1].to,"05:54");
+    assert.match(result.confirmation,/aujourd'hui/);assert.match(result.status,/enregistrés sur le serveur/);
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });

@@ -42,7 +42,7 @@ let marketSuppliers=[{slug:"totalenergies",name:"TotalEnergies"},{slug:"edf",nam
   {slug:"engie",name:"Engie"},{slug:"octopus-energy",name:"Octopus Energy"}];
 let marketSlug="totalenergies",marketOffers=[],marketError="",marketSelection="",marketSite="",marketBusy=false,marketSaved="",dirty=false;
 let marketOffpeak="",marketEffective="";
-let manualOpen=false,manualBusy=false,manualError="";
+let manualOpen=true,manualBusy=false,manualError="",manualEditingId=null,manualEditingFrom=null;
 const manualDraft={supplier:"",offer:"",option:"hphc",kva:"6",starts_on:"",price_from:"",hp:"",hc:"",base:"",subscription_monthly:"",offpeak:""};
 const offerKey=o=>[o.supplier_slug,o.offer,o.option,o.kva].join("\u001f");
 const activeForSite=site=>{const today=todayParis();return conf.contracts.find(c=>c.site_id===site&&c.starts_on<=today&&(!c.ends_on||c.ends_on>=today));};
@@ -55,7 +55,7 @@ function marketEditor(){
   const selectedOffer=marketOffers.find(o=>offerKey(o)===marketSelection);
   const savedOffer=activeForSite(marketSite||conf.sites[0]?.id);
   const alreadySaved=selectedOffer&&savedOffer?.supplier===selectedOffer.supplier&&savedOffer?.offer===selectedOffer.offer&&savedOffer?.option===selectedOffer.option&&savedOffer?.kva===selectedOffer.kva&&savedOffer.revisions.length>0;
-  return `<section class="tf-section tf-setup"><h3>${tr("Configurer mon contrat en 3 étapes","Set up my contract in 3 steps")}</h3>
+  return `<details class="tf-section tf-setup"><summary>${tr("Chercher une nouvelle offre dans le catalogue","Find a new offer in the catalogue")}</summary>
     <p class="tf-help">${tr("La sélection ci-dessous ne modifie pas le contrat enregistré tant que vous ne cliquez pas sur Enregistrer ce contrat.","The selection below does not change the saved contract until you save it.")}</p>
     <div class="tf-market-controls"><label class="tf-label">${tr("Fournisseur","Supplier")}<select id="tf-market-supplier">${select(marketSuppliers.map(s=>[s.slug,s.name]),marketSlug)}</select></label>
     <button type="button" id="tf-market-search">${tr("1. Voir les offres","1. Show offers")}</button>
@@ -68,7 +68,7 @@ function marketEditor(){
     <p class="tf-help" id="tf-market-status">${esc(marketError || tr("Choisir un fournisseur puis charger ses offres.","Choose a supplier and load its offers."))}</p>
     ${marketSaved?`<p class="tf-help" role="status">${esc(marketSaved)}</p>`:""}
     <p class="tf-help">${tr("Sans horaires HC confirmés, le coût HP/HC restera indisponible. Sans date confirmée, le nouveau prix commence aujourd'hui et les relevés antérieurs restent sans prix.","Without confirmed off-peak hours, HP/HC cost remains unavailable. Without a confirmed date, the new price starts today and earlier readings remain unpriced.")}</p>
-    </section>`;
+    </details>`;
 }
 async function marketLoadSuppliers(){
   try {
@@ -140,32 +140,49 @@ function bindMarket(){
 
   function manualEditor(){
     const field=(key,label,type="text",extra="")=>`<label class="tf-label">${label}<input data-manual="${key}" type="${type}" value="${esc(manualDraft[key])}" ${extra}></label>`;
-    return `<details class="tf-section tf-manual" ${manualOpen?"open":""}><summary>${tr("Mon offre est ancienne ou absente du catalogue","My offer is old or missing from the catalogue")}</summary>
-      <p class="tf-help">${tr("Exemple : contrat Online depuis 2019. Recopiez les prix TTC d'une facture et leur date de début. La date du contrat seule ne prouve pas que les prix sont restés identiques depuis 2019.","Example: an Online contract since 2019. Enter VAT-inclusive prices and their start date from a bill. The contract date alone does not prove that rates stayed the same since 2019.")}</p>
+    return `<details class="tf-section tf-manual" ${manualOpen?"open":""}><summary>${tr("Mon contrat et mes prix","My contract and rates")}</summary>
+      ${manualEditingId?`<p class="tf-help"><strong>${tr("Modification du contrat enregistré : les champs ci-dessous sont préremplis.","Editing the saved contract: fields below are prefilled.")}</strong></p>`:""}
+      <p class="tf-help">${tr("Saisissez les prix TTC connus sur votre facture ou votre espace client. Si leur date de début est inconnue, laissez-la vide : ils serviront à partir d'aujourd'hui. Le début de votre contrat ne prouve pas que ces prix existaient déjà.","Enter VAT-inclusive rates known from a bill or customer account. If their start date is unknown, leave it blank: they will apply from today. The contract start does not prove these rates applied then.")}</p>
       <div class="tf-grid">
-        ${field("supplier",tr("Fournisseur exact sur la facture","Exact supplier on the bill"),"text",'required maxlength="120"')}
+        ${field("supplier",tr("Fournisseur","Supplier"),"text",'required maxlength="120"')}
         ${field("offer",tr("Nom exact de l'offre (ex. Online)","Exact offer name (e.g. Online)"),"text",'required maxlength="120"')}
         <label class="tf-label">${tr("Option","Plan")}<select data-manual="option">${option("hphc","HP/HC",manualDraft.option)}${option("base","Base",manualDraft.option)}</select></label>
         ${field("kva",tr("Puissance souscrite (kVA)","Subscribed power (kVA)"),"number",'min="1" max="36" required')}
         ${field("starts_on",tr("Début du contrat, si connu (facultatif)","Contract start, if known (optional)"),"date")}
-        ${field("price_from",tr("Ces prix TTC sont valables depuis (sur la facture)","These VAT-inclusive rates apply since (on the bill)"),"date",`required max="${todayParis()}"`)}
+        ${field("price_from",tr("Début de ces prix TTC (facultatif : aujourd'hui si vide)","Start of these VAT-inclusive rates (optional: today if blank)"),"date",`max="${todayParis()}"`)}
         ${manualDraft.option==="base"?field("base",tr("Prix Base TTC (€/kWh)","Base rate incl. tax (€/kWh)"),"number",'required min="0" max="10" step="0.0001"'):
           `${field("hp",tr("Prix HP TTC (€/kWh)","Peak rate incl. tax (€/kWh)"),"number",'required min="0" max="10" step="0.0001"')}
            ${field("hc",tr("Prix HC TTC (€/kWh)","Off-peak rate incl. tax (€/kWh)"),"number",'required min="0" max="10" step="0.0001"')}
            ${field("offpeak",tr("Horaires HC réels (sur facture ou Enedis)","Actual off-peak hours (bill or Enedis)"),"text",'placeholder="22:30-06:30;13:00-15:00"')}`}
         ${field("subscription_monthly",tr("Abonnement mensuel TTC (€, facultatif)","Monthly standing charge incl. tax (€, optional)"),"number",'min="0" max="8333" step="0.001"')}
       </div>
-      <p class="tf-help">${tr("Sans horaires HC, le coût HP/HC reste indisponible. Sans prix pour une période antérieure, ses kWh restent sans montant en euros.","Without off-peak hours, HP/HC costs remain unavailable. Earlier periods without a rate remain unpriced.")}</p>
+      <p class="tf-help">${tr("Laissez la date des prix vide si vous ne connaissez que les tarifs actuels : ils commenceront aujourd'hui, même si votre contrat est plus ancien. Sans horaires HC, le coût HP/HC reste indisponible. Les périodes antérieures sans prix restent sans montant en euros.","Leave the rate date blank if you only know current rates: they will start today, even if your contract is older. Without off-peak hours, HP/HC costs remain unavailable. Earlier periods without rates remain unpriced.")}</p>
       <p class="tf-help">${tr("Si l'offre est indexée, ses prix peuvent évoluer : cette saisie manuelle ne se met pas à jour automatiquement. Ajoutez une nouvelle période tarifaire à chaque changement documenté.","Indexed offers can change price: manually entered rates do not update automatically. Add a new tariff period for each documented change.")}</p>
       <p class="tf-help">${tr("Vous n'avez que le nom de l'offre ? Enregistrez le contrat sans prix pour corriger « Tarif Bleu » ; aucun montant en euros ne sera alors calculé.","Only know the offer name? Save the contract without rates to correct Tarif Bleu; no euro amount will be calculated yet.")}</p>
-      <div class="tf-row"><button type="button" id="tf-manual-identity" ${manualBusy?"disabled":""}>${tr("Enregistrer le contrat sans prix","Save the contract without rates")}</button>
-      <button type="button" id="tf-manual-save" ${manualBusy?"disabled":""}>${tr("Enregistrer mon contrat et ces prix","Save my contract and these rates")}</button></div>
+      <div class="tf-row"><button type="button" id="tf-manual-identity" ${manualBusy?"disabled":""}>${manualEditingId?tr("Enregistrer les informations du contrat","Save contract details"):tr("Enregistrer le contrat sans prix","Save the contract without rates")}</button>
+      <button type="button" id="tf-manual-save" ${manualBusy?"disabled":""}>${manualEditingId?tr("Enregistrer mes corrections","Save my corrections"):tr("Enregistrer mon contrat et ces prix","Save my contract and these rates")}</button></div>
       <p class="tf-help" id="tf-manual-status" role="status">${esc(manualError)}</p>
     </details>`;
   }
   function manualWindows(value){
     if(!value.trim())return [];
-    return value.split(";").map(item=>{const match=/^(\d\d:\d\d)-(\d\d:\d\d)$/.exec(item.trim());if(!match)throw Error(tr("Horaires HC invalides : utilisez 22:30-06:30;13:00-15:00.","Invalid off-peak hours: use 22:30-06:30;13:00-15:00."));return {from:match[1],to:match[2]};});
+    return value.split(";").map((item,index)=>{
+      const window=item.trim(),match=/^(\d\d:\d\d)-(\d\d:\d\d)$/.exec(window);
+      if(!match){
+        const joined=/^(\d\d:\d\d)(\d\d:\d\d)$/.exec(window);
+        const hint=joined?`${joined[1]}-${joined[2]}`:"22:30-06:30";
+        throw Error(tr(`Plage HC ${index+1} invalide (« ${window} »). Il faut un tiret entre début et fin, par exemple ${hint}.`,`Off-peak window ${index+1} is invalid ("${window}"). Separate start and end with a dash, for example ${hint}.`));
+      }
+      return {from:match[1],to:match[2]};
+    });
+  }
+  function editCurrentContract(){
+    const contract=activeForSite(marketSite||conf.sites[0]?.id);
+    if(!contract)return;
+    const today=todayParis(),revision=contract.revisions.find(r=>r.from<=today&&(!r.until||r.until>=today))||[...contract.revisions].sort((a,b)=>b.from.localeCompare(a.from))[0];
+    manualEditingId=contract.id;manualEditingFrom=revision?.from||null;manualOpen=true;manualError="";
+    Object.assign(manualDraft,{supplier:contract.supplier,offer:contract.offer,option:contract.option,kva:String(contract.kva),starts_on:contract.starts_on,price_from:revision?.from||"",hp:String(revision?.eur_kwh?.hp??""),hc:String(revision?.eur_kwh?.hc??""),base:String(revision?.eur_kwh?.base??""),subscription_monthly:revision?.annual_subscription_eur==null?"":String(Math.round(revision.annual_subscription_eur/12*1000)/1000),offpeak:contract.offpeak.map(w=>`${w.from}-${w.to}`).join(";")});
+    render();root.querySelector(".tf-manual")?.scrollIntoView({block:"start"});
   }
   async function saveManual(withRates){
     const status=root.querySelector("#tf-manual-status");
@@ -174,28 +191,34 @@ function bindMarket(){
       if(dirty)throw Error(tr("Enregistrez d'abord vos corrections avancées ou rechargez la page.","Save advanced edits or reload first."));
       const supplier=manualDraft.supplier.trim(),offer=manualDraft.offer.trim();
       if(!supplier||!offer)throw Error(tr("Indiquez le fournisseur et le nom exact de l'offre figurant sur votre facture.","Enter the exact supplier and offer name from your bill."));
-      const kva=Number(manualDraft.kva),from=manualDraft.price_from,start=manualDraft.starts_on||(withRates?from:todayParis());
+      const kva=Number(manualDraft.kva),from=withRates?(manualDraft.price_from||todayParis()):manualDraft.price_from,start=manualDraft.starts_on||(withRates?from:todayParis());
       if(!Number.isInteger(kva)||kva<1||kva>36)throw Error(tr("Puissance kVA invalide.","Invalid kVA value."));
-      if((withRates&&(!from||from>todayParis()||start>from))||start>todayParis())throw Error(tr("Vérifiez la date de début des prix et celle du contrat.","Check the rate and contract start dates."));
+      if(start>todayParis())throw Error(tr("Le début du contrat ne peut pas être dans le futur.","The contract start cannot be in the future."));
+      if(withRates&&from>todayParis())throw Error(tr("La date de début des prix ne peut pas être dans le futur.","The rate start date cannot be in the future."));
+      if(withRates&&start>from)throw Error(tr("Les prix ne peuvent pas commencer avant le contrat : corrigez l'une des deux dates.","Rates cannot start before the contract: correct one of the dates."));
       const keys=manualDraft.option==="base"?["base"]:["hp","hc"];
       const prices={};if(withRates)for(const key of keys){const raw=manualDraft[key].trim().replace(",",".");const n=Number(raw);if(!raw||!Number.isFinite(n)||n<=0||n>10)throw Error(tr("Renseignez chaque prix TTC du kWh indiqué sur votre facture.","Enter every VAT-inclusive kWh rate shown on your bill."));prices[key]=n;}
       const subRaw=manualDraft.subscription_monthly.trim().replace(",",".");const monthly=subRaw?Number(subRaw):null;
       if(monthly!==null&&(!Number.isFinite(monthly)||monthly<0||monthly>8333))throw Error(tr("Abonnement mensuel invalide.","Invalid monthly standing charge."));
       const subscription=monthly===null?null:Math.round(monthly*120000)/10000;
-      const site_id=marketSite||conf.sites[0]?.id||"local",previous=activeForSite(site_id);
-      const same=previous?.supplier===supplier&&previous?.offer===offer&&previous?.option===manualDraft.option&&Number(previous?.kva)===kva;
+      const offpeak=manualDraft.option==="hphc"?manualWindows(manualDraft.offpeak):[];
+      const site_id=marketSite||conf.sites[0]?.id||"local",previous=manualEditingId?conf.contracts.find(c=>c.id===manualEditingId):activeForSite(site_id);
+      const editing=!!manualEditingId&&previous?.id===manualEditingId;
+      const same=editing||previous?.supplier===supplier&&previous?.offer===offer&&previous?.option===manualDraft.option&&Number(previous?.kva)===kva;
+      if(editing&&previous.option!==manualDraft.option&&previous.revisions.length)throw Error(tr("Pour changer l'option d'un contrat déjà tarifé, corrigez ses grilles dans les réglages avancés.","To change the plan of a priced contract, edit its grids in advanced settings."));
       if(previous&&!same&&previous.revisions.some(r=>Object.keys(r.eur_kwh||{}).length))throw Error(tr("Ce contrat possède déjà des prix historiques. Utilisez Contrats et grilles pour conserver ces périodes avant de le remplacer.","This contract has price history. Use Contracts and grids to preserve those periods before replacing it."));
       if(previous&&!same&&!window.confirm(tr(`Remplacer le contrat sans prix ${previous.supplier} · ${previous.offer} par ${supplier} · ${offer} ?`,`Replace the unpriced contract ${previous.supplier} · ${previous.offer} with ${supplier} · ${offer}?`)))return;
-      if(same&&withRates&&previous.revisions.some(r=>r.from===from))throw Error(tr("Une grille existe déjà à cette date. Corrigez-la dans Contrats et grilles pour éviter de remplacer l'historique.","A grid already starts on this date. Edit it in Contracts and grids to avoid replacing history."));
-      if(withRates&&!window.confirm(tr(`Confirmez-vous que ces prix TTC figurent sur votre facture et sont valables depuis le ${from} ?`,`Do you confirm these VAT-inclusive rates appear on your bill and apply since ${from}?`)))return;
+      if(same&&withRates&&previous.revisions.some(r=>r.from===from&&(!editing||r.from!==manualEditingFrom)))throw Error(tr("Une autre grille existe déjà à cette date. Choisissez sa date exacte ou modifiez-la dans les réglages avancés.","Another grid already starts on this date. Use its exact date or edit it in advanced settings."));
+      if(withRates&&!window.confirm(manualDraft.price_from?
+        tr(`Confirmez-vous que ces prix TTC sont valables depuis le ${from} selon votre fournisseur ?`,`Do you confirm these VAT-inclusive rates apply since ${from} according to your supplier?`):
+        tr(`La date des prix est vide : ces tarifs seront appliqués à partir d'aujourd'hui (${from}), pas depuis le début du contrat. Confirmez-vous ces prix TTC ?`,`The rate date is blank: these rates will apply from today (${from}), not from the contract start. Do you confirm these VAT-inclusive rates?`)))return;
       manualBusy=true;root.querySelector("#tf-manual-save").disabled=true;root.querySelector("#tf-manual-identity").disabled=true;status.textContent=tr("Enregistrement sur le serveur…","Saving on the server…");
       const next=structuredClone(conf);
-      const offpeak=manualDraft.option==="hphc"?manualWindows(manualDraft.offpeak):[];
       let contract;
       if(same){
         contract=next.contracts.find(c=>c.id===previous.id);
-        if(start<contract.starts_on)contract.starts_on=start;
-        if(offpeak.length)contract.offpeak=offpeak;
+        if(editing){Object.assign(contract,{supplier,offer,option:manualDraft.option,kva,starts_on:start,offpeak});}
+        else {if(start<contract.starts_on)contract.starts_on=start;if(offpeak.length)contract.offpeak=offpeak;}
       }else{
         if(previous)next.contracts=next.contracts.filter(c=>c.id!==previous.id);
         contract={id:id(),site_id,supplier,offer,option:manualDraft.option,kva,starts_on:start,ends_on:null,offpeak,revisions:[]};
@@ -203,17 +226,20 @@ function bindMarket(){
       }
       if(withRates){
         const dayBefore=date=>{const value=new Date(date+"T00:00:00Z");value.setUTCDate(value.getUTCDate()-1);return value.toISOString().slice(0,10);};
+        if(editing&&manualEditingFrom)contract.revisions=contract.revisions.filter(r=>r.from!==manualEditingFrom);
         const revisions=contract.revisions.sort((a,b)=>a.from.localeCompare(b.from));
         const prior=[...revisions].reverse().find(r=>r.from<from&&(!r.until||r.until>=from));
         const following=revisions.find(r=>r.from>from);
         if(prior)prior.until=dayBefore(from);
-        revisions.push({from,until:following?dayBefore(following.from):null,eur_kwh:prices,annual_subscription_eur:subscription,source:"facture (saisie manuelle)",source_url:null,manual:true,retrieved_at:null});
+        revisions.push({from,until:following?dayBefore(following.from):null,eur_kwh:prices,annual_subscription_eur:subscription,source:"prix communiqués (saisie manuelle)",source_url:null,manual:true,retrieved_at:null});
         revisions.sort((a,b)=>a.from.localeCompare(b.from));
       }
       next.enabled=true;
       next.include_subscription=root.querySelector("#tf-subscription").checked;
       conf=await request("",{method:"PUT",body:JSON.stringify(next)});
-      dirty=false;manualError=withRates?tr("Contrat et prix enregistrés sur le serveur. Ajoutez une autre période seulement avec les prix de sa facture.","Contract and rates saved on the server. Add another period only with the rates from its bill."):
+      if(editing)manualEditingFrom=withRates?from:manualEditingFrom;
+      dirty=false;manualError=withRates?tr("Contrat et prix enregistrés sur le serveur.","Contract and rates saved on the server."):
+        editing?tr("Informations du contrat enregistrées ; les grilles déjà saisies sont conservées.","Contract details saved; existing rate grids were kept."):
         tr("Contrat enregistré sans prix. Le coût en euros reste indisponible jusqu'à la saisie de prix TTC datés.","Contract saved without rates. Euro costs remain unavailable until dated VAT-inclusive rates are entered.");
       marketOffers=[];marketSelection="";marketSaved="";render();void calculate();
     }catch(e){manualError=e.message;if(status)status.textContent=manualError;}
@@ -292,8 +318,11 @@ function bindMarket(){
     <span class="tf-main-contract">${esc(summary)}</span></summary>
     <div class="tf-main-body">
     <p class="tf-help tf-main-disclaimer">${tr("Prix partiels ou périmés possibles. Consommation estimée, non mesurée à la prise. Ne remplace pas une facture.","Prices can be incomplete or outdated. Energy is estimated, not measured at the socket. Not a bill.")}</p>
-    <p class="tf-help tf-current"><strong>${tr("Contrat actuellement enregistré :","Currently saved contract:")} ${esc(summary)}</strong><br>${activeDetails}<br>${esc(pricingReason)}</p>
-    ${marketEditor()}${manualEditor()}
+    <p class="tf-help tf-current"><strong>${tr("Contrat actuellement enregistré :","Currently saved contract:")} ${esc(summary)}</strong><br>${activeDetails}<br>${esc(pricingReason)}${activeContract?`<br><button type="button" id="tf-edit-current">${tr("Modifier ce contrat et ses prix","Edit this contract and its rates")}</button>`:""}</p>
+    <label class="tf-inline tf-history-estimate"><input id="tf-estimate-history" type="checkbox" ${conf.estimate_unknown_history?"checked":""}> ${tr("Estimer mes anciens relevés avec le premier prix connu","Estimate earlier readings using my first known rate")}</label>
+    <span class="tf-help" id="tf-estimate-status" role="status"></span>
+    <p class="tf-help">${tr("Choix facultatif : les prix anciens restent inconnus. Le calcul approximatif utilise votre premier tarif enregistré seulement avant sa date de début, sans modifier votre contrat ni inventer une grille historique. Les périodes sans contrat ou sans horaires HC restent indisponibles.","Optional: historical rates remain unknown. The rough calculation uses your first saved rate only before its start date, without changing your contract or inventing a historical grid. Periods without a contract or off-peak hours remain unavailable.")}</p>
+    ${manualEditor()}${marketEditor()}
     <details class="tf-advanced"><summary>${tr("Réglages avancés (facultatifs)","Advanced settings (optional)")}</summary>
     <p class="tf-help">${tr("Contrats et grilles : correction manuelle des périodes et prix. Tempo : uniquement pour un contrat Tempo. Estimation de coût : détail technique des kWh tarifés.","Contracts and grids: manual correction of dates and prices. Tempo: only for a Tempo contract. Cost estimate: technical detail of priced energy.")}</p>
     <div class="tf-row"><label class="tf-inline"><input id="tf-enabled" type="checkbox" ${conf.enabled?"checked":""}> ${tr("Activer la tarification","Enable pricing")}</label>
@@ -354,6 +383,13 @@ function bindMarket(){
     bindMarket();
     bindManual();
     const act=(selector,handler)=>root.querySelector(selector)?.addEventListener("click",handler);
+    act("#tf-edit-current",editCurrentContract);
+    root.querySelector("#tf-estimate-history")?.addEventListener("change",async event=>{
+      const checkbox=event.currentTarget;
+      try {if(dirty)throw Error(tr("Enregistrez d'abord vos corrections avancées.","Save advanced edits first."));
+        const next=structuredClone(conf);next.estimate_unknown_history=checkbox.checked;conf=await request("",{method:"PUT",body:JSON.stringify(next)});render();void calculate();}
+      catch(e){checkbox.checked=!!conf.estimate_unknown_history;root.querySelector("#tf-estimate-status").textContent=e.message;}
+    });
     act("#tf-save",async()=>{try{readEdits();conf=await request("",{method:"PUT",body:JSON.stringify(conf)});dirty=false;render();editorMsg(tr("Configuration sauvegardée en SQLite.","Saved to SQLite."));}catch(e){editorMsg(e.message);}});
     root.querySelectorAll('.tf-advanced input:not(#tf-from):not(#tf-to):not(#tf-enabled):not(#tf-subscription),.tf-advanced select[data-field]').forEach(input=>input.addEventListener("input",()=>{dirty=true;const status=root.querySelector("#tf-dirty");if(status)status.textContent=tr("Modifications non enregistrées","Unsaved changes");}));
     act("#tf-export",()=>{try{readEdits();const data=JSON.stringify(conf,null,2);const blob=new Blob([data],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="powerwatch-tarifs-fr.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),3000);}catch(e){editorMsg(e.message)}});
@@ -377,11 +413,12 @@ function bindMarket(){
   function renderCost(){
     const target=root.querySelector("#tf-cost");if(!target||!cost)return;
     if(!cost.enabled){target.textContent=tr("Tarification désactivée : activez-la et enregistrez les modifications.","Pricing disabled: enable it and save changes.");return;}
-    const summary=part=>`${part?.unpriced_kwh>1e-7?tr("Coût incomplet","Incomplete cost"):money((part?.energy_cost_eur||0)+(part?.subscription_eur||0))} · ${(part?.billed_energy_kwh||0).toFixed(3)} kWh ${tr("tarifés","priced")} · ${(part?.unpriced_kwh||0).toFixed(3)} kWh ${tr("sans tarif","unpriced")} · ${(part?.approximate_kwh||0).toFixed(3)} kWh ${tr("approximatifs","approximate")}`;
+    const summary=part=>{const known=(part?.energy_cost_eur||0)+(part?.subscription_eur||0),projected=(part?.projected_energy_cost_eur||0)+(part?.projected_subscription_eur||0),missing=part?.unpriced_kwh||0;
+      return `${projected>0?"≈ ":""}${missing>1e-7&&!known&&!projected?tr("Coût indisponible","Cost unavailable"):money(known+projected)}${projected>0?" · "+tr("estimation historique avec tarif ultérieur","historical estimate using later rates"):""}${missing>1e-7?" · "+tr("partiel","partial"):""} · ${(part?.billed_energy_kwh||0).toFixed(3)} kWh ${tr("tarifés","priced")} · ${(part?.projected_kwh||0).toFixed(3)} kWh ${tr("estimés au prix connu","estimated using known rate")} · ${missing.toFixed(3)} kWh ${tr("sans tarif","unpriced")}`;};
     const parts=Object.entries(cost.sites||{}).map(([site,v])=>`<li>${esc(site)} : ${esc(summary(v))}</li>`).join("");
     const machine=hub?Object.entries(cost.nodes||{}).map(([node,v])=>`<li>${esc(node)} : ${esc(summary(v))}</li>`).join(""):"";
     target.innerHTML=`<p><strong>${tr("Total", "Total")} : ${esc(summary(cost.global))}</strong></p>
-       <small>${tr("Abonnement inclus uniquement si activé ; données manquantes non remplacées.","Subscription only if enabled; missing prices not filled.")}</small>
+       <small>${tr("Estimation historique distincte du coût fondé sur les prix datés ; abonnement inclus uniquement si activé. Ne remplace pas une facture.","Historical estimate is separate from cost based on dated rates; standing charge only if enabled. Not a bill.")}</small>
        <ul>${parts}${machine}</ul><p class="tf-help">${esc((cost.global?.warnings||[]).join(" · "))}</p>`;
   }
   async function calculate(){try{
