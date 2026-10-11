@@ -26,7 +26,12 @@
     }
     const response=await fetch(base+path,{...opts,headers,cache:"no-store"});
     if(!response.ok)throw Error(await response.text()||`HTTP ${response.status}`);
-    return response.json();
+    const data=await response.json();
+    if ((opts.method === "PUT" || opts.method === "POST") &&
+        (path === "" || path === "/sync" || path === "/market/import")) {
+      window.dispatchEvent(new Event("powerwatch:tariffschange"));
+    }
+    return data;
   }
   const editable=(label,value,field,extra="")=>`<label class="tf-label">${esc(label)}<input ${extra} data-field="${esc(field)}" value="${esc(value??"")}"></label>`;
   const inputPrice=(field,value)=>editable(labels[field]||field,value??"",field,'type="number" step="0.0001" min="0" max="10"');

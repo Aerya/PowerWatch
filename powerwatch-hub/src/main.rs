@@ -1164,6 +1164,7 @@ fn build_router(state: AppState) -> Router {
         .route("/api/hub/history", get(history))
         .route("/api/hub/energy",get(energy_overview))
         .route("/api/hub/tariffs-fr/cost",get(hub_tariff_cost))
+        .route("/api/hub/tariffs-fr/overview",get(hub_tariff_overview))
         .route("/static/tariffs-fr.js",get(hub_tariff_js))
         .merge(administration)
         .with_state(state)

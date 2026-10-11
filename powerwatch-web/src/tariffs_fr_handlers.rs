@@ -75,6 +75,21 @@ async fn tariff_fr_cost(
     Ok(Json(data))
 }
 
+async fn tariff_fr_overview(
+    State(state): State<AppState>, Query(params): Query<FranceCostParams>,
+) -> Result<Json<powerwatch_core::tariffs_fr::CostOverview>, (StatusCode,String)> {
+    let now=chrono::Utc::now().timestamp();
+    let to=params.to.map_or(now,|v|v.timestamp());
+    let from=params.from.map(|v|v.timestamp());
+    let locked=state.storage.lock().map_err(|_|(StatusCode::INTERNAL_SERVER_ERROR,"storage poisoned".into()))?;
+    let db=locked.as_ref().ok_or((StatusCode::SERVICE_UNAVAILABLE,"history storage unavailable".into()))?;
+    let conf=powerwatch_core::tariffs_fr::load(db.tariff_connection())
+        .map_err(|e|(StatusCode::INTERNAL_SERVER_ERROR,e))?;
+    powerwatch_core::tariffs_fr::cost_overview(
+        db.tariff_connection(),&conf,&[("local".into(),"local".into(),true)],now,from,to
+    ).map(Json).map_err(|e|(StatusCode::BAD_REQUEST,e))
+}
+
 pub async fn tariff_fr_refresh_background(state:AppState) {
     // Initial refresh, then daily. Failed sources leave existing/manual tariffs unchanged.
     tokio::time::sleep(std::time::Duration::from_secs(120)).await;

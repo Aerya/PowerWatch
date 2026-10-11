@@ -523,6 +523,8 @@
 .energy-tile {padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;min-width:0;}
 .energy-tile-label {color:var(--muted);font-size:.77rem;display:block;margin-bottom:5px;}
 .energy-tile-value {font-size:1.3rem;font-weight:700;display:block;color:var(--text);overflow-wrap:anywhere;}
+.energy-tile-cost {display:block;margin-top:5px;font-size:.92rem;font-weight:600;color:var(--text);min-height:1em;}
+.energy-tile-cost.is-muted {color:var(--muted);font-size:.77rem;font-weight:400;}
 .energy-tile-note {color:var(--muted);font-size:.8rem;display:block;margin-top:3px;}
 .energy-controls {display:flex;align-items:end;gap:9px;flex-wrap:wrap;margin-top:12px;}
 .energy-controls label {color:var(--muted);font-size:.74rem;display:grid;gap:4px;}
@@ -640,10 +642,10 @@
       <span id="energy-estimate" data-i18n="energy.estimate">Estimation partielle, non mesurée à la prise</span>
     </div>
     <div class="energy-grid">
-      <div class="energy-tile"><span class="energy-tile-label" data-i18n="energy.24h">24 dernières heures</span><strong id="energy-24h" class="energy-tile-value">—</strong><span id="energy-coverage-24h" class="energy-tile-note"></span></div>
-      <div class="energy-tile"><span class="energy-tile-label" data-i18n="energy.7d">7 derniers jours</span><strong id="energy-7d" class="energy-tile-value">—</strong><span id="energy-coverage-7d" class="energy-tile-note"></span></div>
-      <div class="energy-tile"><span class="energy-tile-label" data-i18n="energy.30d">30 derniers jours</span><strong id="energy-30d" class="energy-tile-value">—</strong><span id="energy-coverage-30d" class="energy-tile-note"></span></div>
-      <div class="energy-tile"><span class="energy-tile-label" data-i18n="energy.all">Depuis le premier relevé</span><strong id="energy-all" class="energy-tile-value">—</strong><span id="energy-coverage-all" class="energy-tile-note"></span></div>
+      <div class="energy-tile"><span class="energy-tile-label" data-i18n="energy.24h">24 dernières heures</span><strong id="energy-24h" class="energy-tile-value">—</strong><span id="energy-cost-24h" class="energy-tile-cost" aria-live="polite"></span><span id="energy-coverage-24h" class="energy-tile-note"></span></div>
+      <div class="energy-tile"><span class="energy-tile-label" data-i18n="energy.7d">7 derniers jours</span><strong id="energy-7d" class="energy-tile-value">—</strong><span id="energy-cost-7d" class="energy-tile-cost" aria-live="polite"></span><span id="energy-coverage-7d" class="energy-tile-note"></span></div>
+      <div class="energy-tile"><span class="energy-tile-label" data-i18n="energy.30d">30 derniers jours</span><strong id="energy-30d" class="energy-tile-value">—</strong><span id="energy-cost-30d" class="energy-tile-cost" aria-live="polite"></span><span id="energy-coverage-30d" class="energy-tile-note"></span></div>
+      <div class="energy-tile"><span class="energy-tile-label" data-i18n="energy.all">Depuis le premier relevé</span><strong id="energy-all" class="energy-tile-value">—</strong><span id="energy-cost-all" class="energy-tile-cost" aria-live="polite"></span><span id="energy-coverage-all" class="energy-tile-note"></span></div>
     </div>
     <div class="energy-controls">
       <label><span data-i18n="energy.from">Du</span><input id="energy-from" type="datetime-local"></label>
@@ -1820,7 +1822,31 @@ window.addEventListener("powerwatch:languagechange", () => {
 
 // Cumulative energy and measurement coverage are persisted server-side.
 let powerwatchEnergy = null;
+let powerwatchCosts = null;
+let pwCostFailed = false;
 function pwEnergyText(key) { return t("energy." + key); }
+function pwCostText(energy, cost) {
+  if (!energy || energy.first_seen_epoch == null) return "";
+  if (pwCostFailed) return pwEnergyText("costUnavailable");
+  if (!powerwatchCosts) return "—";
+  if (!powerwatchCosts.enabled) return pwEnergyText("costDisabled");
+  if (!cost || !Number.isFinite(cost.energy_cost_eur) || !Number.isFinite(cost.subscription_eur)) return pwEnergyText("costUnavailable");
+  // Never turn missing tariff slots into a fictional full bill.
+  if (cost.billed_energy_kwh <= 0 && cost.unpriced_kwh > 0.0000001) return pwEnergyText("costUnavailable");
+  const amount = cost.energy_cost_eur + cost.subscription_eur;
+  const money = amount.toLocaleString(PWI18n.language === "en" ? "en-US" : "fr-FR", {style:"currency",currency:"EUR",minimumFractionDigits:2,maximumFractionDigits:2});
+  const partial = cost.unpriced_kwh > 0.0000001 ? ` · ${pwEnergyText("costPartial")}` : "";
+  return `≈ ${money}${partial}`;
+}
+async function pwCostRefresh(params) {
+  try {
+    const response = await fetch("/api/tariffs-fr/overview?" + params, {cache:"no-store"});
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    powerwatchCosts = await response.json();
+    pwCostFailed = false;
+  } catch (error) {powerwatchCosts = null;pwCostFailed = true;console.warn("PowerWatch cost overview:",error);}
+  pwEnergyRender();
+}
 function pwEnergyFormat(entry) {
   if (!entry || entry.first_seen_epoch == null) return "—";
   const v = entry.energy_kwh;
@@ -1831,6 +1857,9 @@ function pwEnergyRender() {
   for (const id of ["24h","7d","30d","all"]) {
     const entry = powerwatchEnergy.windows[id];
     document.getElementById("energy-" + id).textContent = pwEnergyFormat(entry);
+    const costElement = document.getElementById("energy-cost-" + id);
+    costElement.textContent = pwCostText(entry, powerwatchCosts?.windows?.[id]);
+    costElement.classList.toggle("is-muted", !powerwatchCosts?.enabled || pwCostFailed || !powerwatchCosts?.windows?.[id]?.billed_energy_kwh);
     document.getElementById("energy-coverage-" + id).textContent = entry?.first_seen_epoch == null ? "" :
       `${pwEnergyText("coverage")}: ${(entry.coverage_seconds/3600).toFixed(1)} h`;
   }
@@ -1839,7 +1868,8 @@ function pwEnergyRender() {
   const covered = (selected.coverage_seconds/3600).toLocaleString(undefined,{maximumFractionDigits:2});
   const part = selected.first_seen_epoch == null ? pwEnergyText("noData") :
     `${pwEnergyText("selected")}: ${pwEnergyFormat(selected)} · ${pwEnergyText("coverage")}: ${covered} h`;
-  document.getElementById("energy-details").textContent = `${part} · ${pwEnergyText("since")}: ${since == null ? "—" : new Date(since*1000).toLocaleString()} · ${pwEnergyText("estimate")}`;
+  const selectedCost=pwCostText(selected,powerwatchCosts?.selected);
+  document.getElementById("energy-details").textContent = `${part}${selectedCost?` · ${selectedCost}`:""} · ${pwEnergyText("since")}: ${since == null ? "—" : new Date(since*1000).toLocaleString()} · ${pwEnergyText("estimate")}`;
 }
 async function pwEnergyRefresh() {
   const from = document.getElementById("energy-from").value;
@@ -1856,7 +1886,9 @@ async function pwEnergyRefresh() {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     powerwatchEnergy = await response.json();
     pwEnergyRender();
+    await pwCostRefresh(params);
   } catch (error) {
+    powerwatchEnergy=null;powerwatchCosts=null;pwCostFailed=true;
     document.getElementById("energy-details").textContent = `${pwEnergyText("loadError")}: ${error.message}`;
   }
 }
@@ -1867,6 +1899,7 @@ document.getElementById("energy-reset").addEventListener("click",()=>{
   pwEnergyRefresh();
 });
 window.addEventListener("powerwatch:languagechange",pwEnergyRender);
+window.addEventListener("powerwatch:tariffschange",()=>{pwEnergyRefresh();});
 pwEnergyRefresh();
 setInterval(pwEnergyRefresh,60000);
 

@@ -52,7 +52,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Hub energy filter UI tests
-        run: node --test tests/hub-energy-filter.test.cjs
+        run: node --test tests/*.test.cjs
 
       - name: Test workspace
         run: cargo test --workspace
