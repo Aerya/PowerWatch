@@ -631,6 +631,12 @@
 #tariffs-fr-app .tf-advanced{margin-top:16px;border-top:1px solid var(--border);padding-top:12px}
 #tariffs-fr-app .tf-advanced > summary{cursor:pointer;color:var(--muted);font-weight:700}
 #tariffs-fr-app [hidden]{display:none!important}
+#tariffs-fr-app .tf-manual>summary{font-size:.9rem}
+#tariffs-fr-app .tf-manual .tf-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:14px 0}
+#tariffs-fr-app .tf-manual .tf-label{font-size:.82rem}
+#tariffs-fr-app .tf-manual input,#tariffs-fr-app .tf-manual select{width:100%;min-height:38px;box-sizing:border-box}
+#tariffs-fr-app #tf-manual-save{width:100%;min-height:38px;font-weight:700}
+@media(max-width:630px){#tariffs-fr-app .tf-manual .tf-grid{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:630px){#tariffs-fr-app .tf-market-controls,#tariffs-fr-app[data-mode="hub"] .tf-market-controls{grid-template-columns:minmax(0,1fr)}#tariffs-fr-app .tf-market-controls .tf-market-offer-field,#tariffs-fr-app .tf-market-controls #tf-market-import{grid-column:auto}}
 
 </style>

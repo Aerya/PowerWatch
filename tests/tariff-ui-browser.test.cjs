@@ -51,3 +51,42 @@ window.fetch=async(url,opts={})=>{if(opts.method==="PUT"||opts.method==="POST")w
     assert.equal(result.writes,0);assert.equal(result.importDisabled,true);assert.match(result.status,/source indisponible/);
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });
+
+test("manual Online contract replaces an unpriced Tarif Bleu draft only after bill-rate confirmation",{skip:!chromium},()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),"powerwatch-manual-tariff-"));
+  try {
+    const html=`<!doctype html><html lang="fr"><body><div id="tariffs-fr-app"></div><pre id="result">pending</pre>
+<script>
+let writes=0,config={revision:0,enabled:false,country:"FR",include_subscription:false,sites:[{id:"local",name:"Local",nodes:[]}],contracts:[{id:"old",site_id:"local",supplier:"EDF",offer:"Tarif Bleu",option:"hphc",starts_on:"2026-10-11",ends_on:null,kva:6,offpeak:[],revisions:[]}],tempo_days:{}};
+window.fetch=async(url,opts={})=>{if(opts.method==="PUT"){writes++;config=JSON.parse(opts.body);config.revision++;return {ok:true,json:async()=>structuredClone(config)};}if(url.endsWith("/market/suppliers"))return {ok:true,json:async()=>[{slug:"edf",name:"EDF"}]};if(url.includes("/cost?"))return {ok:true,json:async()=>({enabled:true,global:{energy_cost_eur:0,billed_energy_kwh:0,unpriced_kwh:0},sites:{},nodes:{}})};return {ok:true,json:async()=>structuredClone(config)};};
+window.confirm=()=>true;
+</script><script>${source.replace(/<\/script/gi,"<\\/script")}</script><script>
+(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms));await wait(200);document.querySelector(".tf-manual").open=true;
+const set=(key,value)=>{const input=document.querySelector('[data-manual="'+key+'"]');input.value=value;input.dispatchEvent(new Event("input"));};
+set("supplier","TotalEnergies");set("offer","Online Électricité");set("starts_on","2019-07-02");
+document.querySelector("#tf-manual-identity").click();await wait(100);const identity={writes,offer:config.contracts[0].offer,revisions:config.contracts[0].revisions.length,status:document.querySelector("#tf-manual-status").textContent};
+set("price_from","2026-10-05");set("hp","0.2150");set("subscription_monthly","12.345");set("offpeak","22:30-06:30");
+document.querySelector("#tf-manual-save").click();await wait(40);const refused={writes,status:document.querySelector("#tf-manual-status").textContent,old:config.contracts[0].offer};
+set("hc","0.1600");document.querySelector("#tf-manual-save").click();await wait(120);
+const saved={writes,contracts:structuredClone(config.contracts),summary:document.querySelector(".tf-main-contract").textContent,status:document.querySelector("#tf-manual-status").textContent};
+set("price_from","2026-10-10");set("hp","0.2200");document.querySelector("#tf-manual-save").click();await wait(90);
+const revision={writes,contract:structuredClone(config.contracts[0])};
+set("offer","Autre offre");document.querySelector("#tf-manual-identity").click();await wait(40);
+document.querySelector("#result").textContent=JSON.stringify({identity,refused,saved,revision,writes,blockedStatus:document.querySelector("#tf-manual-status").textContent});})();
+</script></body></html>`;
+    const file=path.join(dir,"index.html");fs.writeFileSync(file,html);
+    const output=execFileSync(chromium,["--headless","--no-sandbox","--disable-gpu","--disable-dev-shm-usage","--disable-background-networking","--no-first-run","--no-default-browser-check","--virtual-time-budget=3000","--dump-dom","file://"+file],{encoding:"utf8",timeout:60000,stdio:["ignore","pipe","ignore"]});
+    const match=output.match(/<pre id="result">([^<]+)<\/pre>/);assert.ok(match);
+    const result=JSON.parse(match[1].replaceAll("&quot;",'"').replaceAll("&amp;","&"));
+    assert.equal(result.identity.writes,1);assert.equal(result.identity.offer,"Online Électricité");assert.equal(result.identity.revisions,0);assert.match(result.identity.status,/sans prix/);
+    assert.equal(result.refused.writes,1);assert.equal(result.refused.old,"Online Électricité");assert.match(result.refused.status,/prix TTC/);
+    assert.equal(result.saved.writes,2);assert.equal(result.saved.contracts.length,1);assert.equal(result.saved.contracts[0].offer,"Online Électricité");
+    assert.equal(result.saved.contracts[0].starts_on,"2019-07-02");assert.equal(result.saved.contracts[0].revisions[0].from,"2026-10-05");
+    assert.equal(result.saved.contracts[0].revisions[0].eur_kwh.hc,0.16);assert.equal(result.saved.contracts[0].offpeak[0].from,"22:30");
+    assert.equal(result.saved.contracts[0].revisions[0].annual_subscription_eur,148.14);
+    assert.match(result.saved.summary,/TotalEnergies.*Online/);assert.match(result.saved.status,/enregistrés sur le serveur/);
+    assert.equal(result.revision.writes,3);assert.equal(result.revision.contract.revisions.length,2);
+    assert.equal(result.revision.contract.revisions[0].until,"2026-10-09");assert.equal(result.revision.contract.revisions[1].from,"2026-10-10");
+    assert.equal(result.writes,3);assert.match(result.blockedStatus,/prix historiques/);
+  } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
