@@ -45,7 +45,7 @@ async fn market_import(State(state):State<AppState>,Json(req):Json<MarketImportR
         if offer.option!="hphc" {return Err((StatusCode::BAD_REQUEST,"off-peak windows only apply to HP/HC".into()));}
         if let Some(contract)=config.contracts.iter_mut().find(|c|c.id==req.contract_id){contract.offpeak=windows;}
     }
-    powerwatch_core::tariffs_fr::save(db.tariff_connection(),&config).map_err(|e|(StatusCode::BAD_REQUEST,e))?;
+    let config=powerwatch_core::tariffs_fr::save(db.tariff_connection(),&config).map_err(|e|(StatusCode::CONFLICT,e))?;
     Ok(Json(MarketImportResponse{changed,config}))
 }
 

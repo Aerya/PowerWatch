@@ -21,8 +21,8 @@ async fn tariff_fr_put(
 )->Result<Json<powerwatch_core::tariffs_fr::TariffConfig>,(StatusCode,String)> {
     let locked=state.storage.lock().map_err(|_|(StatusCode::INTERNAL_SERVER_ERROR,"storage poisoned".into()))?;
     let db=locked.as_ref().ok_or((StatusCode::SERVICE_UNAVAILABLE,"history storage unavailable".into()))?;
-    powerwatch_core::tariffs_fr::save(db.tariff_connection(),&config)
-        .map_err(|e|(StatusCode::BAD_REQUEST,e))?;
+    let config=powerwatch_core::tariffs_fr::save(db.tariff_connection(),&config)
+        .map_err(|e|(StatusCode::CONFLICT,e))?;
     Ok(Json(config))
 }
 async fn tariff_fr_sync(
@@ -56,7 +56,7 @@ async fn tariff_fr_sync(
     let count=if let Some(id)=contract_id {tariffs::merge_cre_csv(&mut conf,&id,&content)}
       else {tariffs::merge_tempo_history(&mut conf,&content)}
       .map_err(|e|(StatusCode::BAD_GATEWAY,e))?;
-    tariffs::save(db.tariff_connection(),&conf).map_err(|e|(StatusCode::BAD_REQUEST,e))?;
+    let conf=tariffs::save(db.tariff_connection(),&conf).map_err(|e|(StatusCode::CONFLICT,e))?;
     Ok(Json(FranceSyncResponse{message:format!("{count} source entries updated; manual overrides preserved"),config:conf}))
 }
 async fn tariff_fr_cost(
