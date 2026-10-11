@@ -193,7 +193,20 @@ pub fn import_offer(
     today: NaiveDate,
     replace_contract_id: Option<&str>,
 ) -> Result<bool, String> {
+    import_offer_at(config, contract_id, site_id, offer, today, today, replace_contract_id)
+}
+
+pub fn import_offer_at(
+    config: &mut crate::tariffs_fr::TariffConfig,
+    contract_id: &str,
+    site_id: &str,
+    offer: &MarketOffer,
+    today: NaiveDate,
+    effective_from: NaiveDate,
+    replace_contract_id: Option<&str>,
+) -> Result<bool, String> {
     use crate::tariffs_fr::TariffContract;
+    if effective_from > today { return Err("effective date cannot be in the future".into()); }
     if !config.sites.iter().any(|s| s.id == site_id) {
         return Err("unknown electric site".into());
     }
@@ -208,13 +221,13 @@ pub fn import_offer(
         if replace_contract_id != Some(old.id.as_str()) {
             return Err(format!("replacement confirmation required for active contract {}", old.id));
         }
-        if old.starts_on == today && !old.revisions.is_empty() {
-            return Err("active contract starts today and has price history; choose a later effective date".into());
+        if old.starts_on >= effective_from && !old.revisions.is_empty() {
+            return Err("existing price history overlaps the selected effective date".into());
         }
-        if old.revisions.is_empty() && old.starts_on == today {
+        if old.revisions.is_empty() {
             config.contracts.remove(index);
         } else {
-            config.contracts[index].ends_on = today.pred_opt();
+            config.contracts[index].ends_on = effective_from.pred_opt();
         }
     }
     if target.is_none() {
@@ -223,11 +236,22 @@ pub fn import_offer(
         }
         config.contracts.push(TariffContract {
             id: contract_id.into(), site_id: site_id.into(), supplier: offer.supplier.clone(),
-            offer: offer.offer.clone(), option: offer.option.clone(), starts_on: today,
+            offer: offer.offer.clone(), option: offer.option.clone(), starts_on: effective_from,
             ends_on: None, kva: offer.kva, offpeak: Vec::new(), revisions: Vec::new(),
         });
     }
-    let changed = apply_offer(config, contract_id, offer, today)?;
+    if let Some(contract) = config.contracts.iter_mut().find(|c| c.id == contract_id) {
+        if contract.starts_on > effective_from {
+            if contract.revisions.len() == 1 && !contract.revisions[0].manual &&
+                contract.revisions[0].source == MARKET_SOURCE &&
+                contract.revisions[0].eur_kwh == offer.eur_kwh &&
+                contract.revisions[0].annual_subscription_eur == Some(offer.annual_subscription_eur) {
+                contract.starts_on = effective_from;
+                contract.revisions[0].from = effective_from;
+            } else { return Err("existing contract history cannot be moved to this date".into()); }
+        }
+    }
+    let changed = apply_offer(config, contract_id, offer, effective_from)?;
     config.enabled = true;
     Ok(changed)
 }
@@ -300,6 +324,28 @@ pub fn import_offer(
         import_offer(&mut config,"old","local",&selected("base"),today,None).unwrap();
         let before=serde_json::to_string(&config).unwrap();
         assert!(import_offer(&mut config,"new","local",&selected("hphc"),today,Some("old")).is_err());
+        assert_eq!(serde_json::to_string(&config).unwrap(),before);
+    }
+    #[test] fn confirmed_historical_date_replaces_empty_placeholder_and_prices_that_period(){
+        let today=NaiveDate::from_ymd_opt(2026,10,11).unwrap();
+        let from=NaiveDate::from_ymd_opt(2026,10,5).unwrap();
+        let mut config=crate::tariffs_fr::TariffConfig::default();
+        import_offer(&mut config,"placeholder","local",&selected("base"),today,None).unwrap();
+        config.contracts[0].revisions.clear();
+        import_offer_at(&mut config,"real","local",&selected("hphc"),today,from,Some("placeholder")).unwrap();
+        assert_eq!(config.contracts.len(),1);
+        assert_eq!(config.contracts[0].starts_on,from);
+        assert_eq!(config.contracts[0].revisions[0].from,from);
+        let db=rusqlite::Connection::open_in_memory().unwrap();
+        crate::tariffs_fr::save(&db,&config).unwrap();
+    }
+    #[test] fn historical_date_cannot_overwrite_existing_price_history(){
+        let today=NaiveDate::from_ymd_opt(2026,10,11).unwrap();
+        let from=NaiveDate::from_ymd_opt(2026,10,5).unwrap();
+        let mut config=crate::tariffs_fr::TariffConfig::default();
+        import_offer(&mut config,"old","local",&selected("base"),today,None).unwrap();
+        let before=serde_json::to_string(&config).unwrap();
+        assert!(import_offer_at(&mut config,"real","local",&selected("hphc"),today,from,Some("old")).is_err());
         assert_eq!(serde_json::to_string(&config).unwrap(),before);
     }
 }

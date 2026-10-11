@@ -41,6 +41,7 @@
 let marketSuppliers=[{slug:"totalenergies",name:"TotalEnergies"},{slug:"edf",name:"EDF"},
   {slug:"engie",name:"Engie"},{slug:"octopus-energy",name:"Octopus Energy"}];
 let marketSlug="totalenergies",marketOffers=[],marketError="",marketSelection="",marketSite="",marketBusy=false,marketSaved="",dirty=false;
+let marketOffpeak="",marketEffective="";
 const offerKey=o=>[o.supplier_slug,o.offer,o.option,o.kva].join("\u001f");
 const activeForSite=site=>{const today=todayParis();return conf.contracts.find(c=>c.site_id===site&&c.starts_on<=today&&(!c.ends_on||c.ends_on>=today));};
 function marketMessage(message){marketError=message;const status=root.querySelector("#tf-market-status");if(status)status.textContent=message;}
@@ -49,19 +50,23 @@ function marketEditor(){
   const select=(list,value)=>list.map(([v,l])=>`<option value="${esc(v)}" ${v===value?"selected":""}>${esc(l)}</option>`).join("");
   const details=marketOffers.map(o=>[offerKey(o),`${o.offer} · ${o.option.toUpperCase()} · ${o.kva} kVA · `+
     `${Object.entries(o.eur_kwh).map(([k,v])=>`${k} ${v.toFixed(4)} €/kWh`).join(" / ")} · ${o.annual_subscription_eur.toFixed(2)} €/an`]);
-  return `<details class="tf-section" open><summary>${tr("Catalogue automatique des offres (bêta)","Automatic offer catalogue (beta)")}</summary>
-    <p class="tf-help">${tr("Recherche les grilles publiques TTC sur Kelwatt. Les offres historiques et promotions individuelles peuvent différer. Les prix ne sont jamais inventés.",
-    "Reads published VAT-inclusive grids from Kelwatt. Historical and customer-specific prices can differ. Prices are never invented.")}</p>
+  const selectedOffer=marketOffers.find(o=>offerKey(o)===marketSelection);
+  const savedOffer=activeForSite(marketSite||conf.sites[0]?.id);
+  const alreadySaved=selectedOffer&&savedOffer?.supplier===selectedOffer.supplier&&savedOffer?.offer===selectedOffer.offer&&savedOffer?.option===selectedOffer.option&&savedOffer?.kva===selectedOffer.kva&&savedOffer.revisions.length>0;
+  return `<section class="tf-section tf-setup"><h3>${tr("Configurer mon contrat en 3 étapes","Set up my contract in 3 steps")}</h3>
+    <p class="tf-help">${tr("La sélection ci-dessous ne modifie pas le contrat enregistré tant que vous ne cliquez pas sur Enregistrer ce contrat.","The selection below does not change the saved contract until you save it.")}</p>
     <div class="tf-market-controls"><label class="tf-label">${tr("Fournisseur","Supplier")}<select id="tf-market-supplier">${select(marketSuppliers.map(s=>[s.slug,s.name]),marketSlug)}</select></label>
-    <button type="button" id="tf-market-search">${tr("Charger les offres et prix","Load offers and prices")}</button>
+    <button type="button" id="tf-market-search">${tr("1. Voir les offres","1. Show offers")}</button>
     <label class="tf-label tf-market-offer-field">${tr("Offre, option et puissance","Offer, option and power")}<select id="tf-market-offer">${select(details,marketSelection)}</select></label>
     ${hub?`<label class="tf-label">${tr("Site électrique","Electric site")}<select id="tf-market-site">${select(conf.sites.map(s=>[s.id,s.name]),marketSite||conf.sites[0]?.id||"")}</select></label>`:""}
-    <button id="tf-market-import" type="button" ${!details.length?"disabled":""}>${tr("Importer et suivre automatiquement","Import and track automatically")}</button></div>
+    <label class="tf-label" id="tf-market-offpeak-field">${tr("2. Mes horaires heures creuses (sur ma facture ou Enedis)","2. My off-peak hours (bill or Enedis)")}<input id="tf-market-offpeak" type="text" placeholder="22:30-06:30;13:00-15:00" value="${esc(marketOffpeak)}"></label>
+    <label class="tf-label">${tr("Ces prix sont valables depuis (facultatif, date confirmée par ma facture)","These rates apply since (optional, bill-confirmed date)")}<input id="tf-market-effective" type="date" max="${todayParis()}" value="${esc(marketEffective)}"></label>
+    <button id="tf-market-import" type="button" ${!details.length?"disabled":""}>${tr("3. Enregistrer ce contrat","3. Save this contract")}</button></div>
+    ${selectedOffer?`<p class="tf-help tf-pending">${alreadySaved?tr("Offre actuellement enregistrée :","Currently saved offer:"):tr("Offre sélectionnée, pas encore enregistrée :","Selected offer, not yet saved:")} <strong>${esc(selectedOffer.supplier)} · ${esc(selectedOffer.offer)} · ${esc(selectedOffer.option.toUpperCase())} · ${esc(selectedOffer.kva)} kVA</strong></p>`:""}
     <p class="tf-help" id="tf-market-status">${esc(marketError || tr("Choisir un fournisseur puis charger ses offres.","Choose a supplier and load its offers."))}</p>
     ${marketSaved?`<p class="tf-help" role="status">${esc(marketSaved)}</p>`:""}
-    <p class="tf-help">${tr("HP/HC : les prix sont automatiques, mais vos horaires Linky particuliers doivent être confirmés auprès d'Enedis ou sur votre contrat. Sans plage validée, les kWh HP/HC restent non tarifés.",
-    "HP/HC rates are imported automatically, but your individual Linky off-peak times must be confirmed with Enedis or your bill. Until configured, time-of-use kWh remain unpriced.")}</p>
-    </details>`;
+    <p class="tf-help">${tr("Sans horaires HC confirmés, le coût HP/HC restera indisponible. Sans date confirmée, le nouveau prix commence aujourd'hui et les relevés antérieurs restent sans prix.","Without confirmed off-peak hours, HP/HC cost remains unavailable. Without a confirmed date, the new price starts today and earlier readings remain unpriced.")}</p>
+    </section>`;
 }
 async function marketLoadSuppliers(){
   try {
@@ -85,17 +90,21 @@ async function marketLoadOffers(){
   render();
 }
 function bindMarket(){
+  const updateOffpeak=()=>{const selected=marketOffers.find(o=>offerKey(o)===root.querySelector("#tf-market-offer")?.value);root.querySelector("#tf-market-offpeak-field").hidden=selected?.option!=="hphc";};
   const choose=root.querySelector("#tf-market-supplier");
-  if(choose)choose.onchange=()=>{readEdits();marketSlug=choose.value;marketOffers=[];marketError="";render();};
-  root.querySelector("#tf-market-offer")?.addEventListener("change",e=>{marketSelection=e.target.value;});
-  root.querySelector("#tf-market-site")?.addEventListener("change",e=>{marketSite=e.target.value;});
+  if(choose)choose.onchange=()=>{readEdits();marketSlug=choose.value;marketOffers=[];marketError="";marketSaved="";render();};
+  root.querySelector("#tf-market-offer")?.addEventListener("change",e=>{marketSelection=e.target.value;marketSaved="";render();});
+  root.querySelector("#tf-market-offpeak")?.addEventListener("input",e=>{marketOffpeak=e.target.value;});
+  root.querySelector("#tf-market-effective")?.addEventListener("input",e=>{marketEffective=e.target.value;});
+  updateOffpeak();
+  root.querySelector("#tf-market-site")?.addEventListener("change",e=>{marketSite=e.target.value;marketOffpeak=activeForSite(marketSite)?.offpeak?.map(w=>w.from+"-"+w.to).join(";")||"";render();});
   const load=root.querySelector("#tf-market-search");
   if(load)load.onclick=()=>{readEdits();marketLoadOffers();};
   const importBtn=root.querySelector("#tf-market-import");
   if(importBtn)importBtn.onclick=async()=>{
     try {
       if(marketBusy)return;
-      if(dirty)throw Error(tr("Enregistrez d'abord vos modifications manuelles.","Save your manual changes first."));
+      if(dirty)throw Error(tr("Des modifications avancées restent à enregistrer. Enregistrez-les ou rechargez la page avant de choisir une offre.","Unsaved advanced edits remain. Save them or reload before selecting an offer."));
       marketSelection=root.querySelector("#tf-market-offer").value;
       const offer=marketOffers.find(o=>offerKey(o)===marketSelection);if(!offer)throw Error(tr("Choisissez une offre.","Select an offer."));
       const site_id=hub?root.querySelector("#tf-market-site").value:(conf.sites[0]?.id||"local");
@@ -105,13 +114,14 @@ function bindMarket(){
       if(previous&&!existing&&!window.confirm(tr(`Remplacer le contrat actif ${previous.supplier} · ${previous.offer} ? Son historique sera conservé si possible.`,`Replace active contract ${previous.supplier} · ${previous.offer}? Its history will be preserved where possible.`)))return;
       let offpeak=null;
       if(offer.option==="hphc"){
-        const current=existing?.offpeak?.map(w=>w.from+"-"+w.to).join(";")||"";
-        const answer=window.prompt(tr("Horaires HC réels du compteur (ex. 22:30-06:30;13:00-15:00). Laissez vide si inconnus : le coût en euros restera indisponible.","Actual meter off-peak hours (e.g. 22:30-06:30;13:00-15:00). Leave blank if unknown: euro costs will remain unavailable."),current);
-        if(answer===null)return;
+        const answer=root.querySelector("#tf-market-offpeak").value.trim();
         offpeak=answer.trim()?answer.split(";").map(value=>{const match=/^(\d\d:\d\d)-(\d\d:\d\d)$/.exec(value.trim());if(!match)throw Error(tr("Format des horaires HC invalide.","Invalid off-peak hours format."));return {from:match[1],to:match[2]};}):[];
       }
+      const effective_from=root.querySelector("#tf-market-effective").value||null;
+      if(effective_from && !window.confirm(tr("Confirmez-vous que les prix affichés étaient déjà ceux de votre contrat à cette date ? Vérifiez votre facture avant de continuer.","Do you confirm these displayed rates applied to your contract on that date? Check your bill before continuing.")))return;
       marketLoading(true);marketMessage(tr("Vérification et enregistrement sur le serveur…","Verifying and saving on server…"));
-      const result=await request("/market/import",{method:"POST",body:JSON.stringify({supplier:marketSlug,offer:offer.offer,option:offer.option,kva:offer.kva,site_id,contract_id:existing?.id||id(),replace_contract_id:previous&&!existing?previous.id:null,offpeak})});
+      const include_subscription=root.querySelector("#tf-subscription").checked;
+      const result=await request("/market/import",{method:"POST",body:JSON.stringify({supplier:marketSlug,offer:offer.offer,option:offer.option,kva:offer.kva,site_id,contract_id:existing?.id||id(),replace_contract_id:previous&&!existing?previous.id:null,offpeak,effective_from,historical_price_confirmed:!!effective_from,include_subscription})});
       conf=result.config;dirty=false;
       const saved=conf.contracts.find(c=>c.site_id===site_id&&!c.ends_on&&c.offer===offer.offer);
       const today=todayParis();
@@ -177,7 +187,7 @@ function bindMarket(){
     <button type="button" id="tf-calculate">${tr("Calculer","Calculate")}</button></div><div id="tf-cost"></div></details>`;}
   function render(){
     const today=todayParis();
-    const activeContract=conf.contracts.find(c=>c.starts_on<=today&&(!c.ends_on||c.ends_on>=today));
+    const activeContract=activeForSite(marketSite||conf.sites[0]?.id);
     const activeRevision=activeContract?.revisions.find(r=>r.from<=today&&(!r.until||r.until>=today));
     const summary=activeContract
       ? `${activeContract.supplier} · ${activeContract.offer} · ${activeContract.option.toUpperCase()} · ${activeContract.kva} kVA`
@@ -190,14 +200,17 @@ function bindMarket(){
     <span class="tf-main-contract">${esc(summary)}</span></summary>
     <div class="tf-main-body">
     <p class="tf-help tf-main-disclaimer">${tr("Prix partiels ou périmés possibles. Consommation estimée, non mesurée à la prise. Ne remplace pas une facture.","Prices can be incomplete or outdated. Energy is estimated, not measured at the socket. Not a bill.")}</p>
-    <p class="tf-help"><strong>${esc(summary)}</strong><br>${activeDetails}<br>${esc(pricingReason)}</p>
+    <p class="tf-help tf-current"><strong>${tr("Contrat actuellement enregistré :","Currently saved contract:")} ${esc(summary)}</strong><br>${activeDetails}<br>${esc(pricingReason)}</p>
+    ${marketEditor()}
+    <details class="tf-advanced"><summary>${tr("Réglages avancés (facultatifs)","Advanced settings (optional)")}</summary>
+    <p class="tf-help">${tr("Contrats et grilles : correction manuelle des périodes et prix. Tempo : uniquement pour un contrat Tempo. Estimation de coût : détail technique des kWh tarifés.","Contracts and grids: manual correction of dates and prices. Tempo: only for a Tempo contract. Cost estimate: technical detail of priced energy.")}</p>
     <div class="tf-row"><label class="tf-inline"><input id="tf-enabled" type="checkbox" ${conf.enabled?"checked":""}> ${tr("Activer la tarification","Enable pricing")}</label>
     <label class="tf-inline"><input id="tf-subscription" type="checkbox" ${conf.include_subscription?"checked":""}> ${tr("Inclure abonnement (une fois par site)","Include standing charge once per site")}</label>
     <button id="tf-save" type="button">${tr("Enregistrer les modifications","Save changes")}</button><span id="tf-dirty" class="tf-help">${dirty?tr("Modifications non enregistrées","Unsaved changes"):""}</span>
     <button id="tf-export" type="button">${tr("Exporter JSON","Export JSON")}</button>
     <button id="tf-import" type="button">${tr("Importer JSON","Import JSON")}</button><input type="file" accept="application/json" id="tf-file" hidden></div>
     <p id="tf-status" class="tf-help" role="status"></p>
-    ${marketEditor()}${siteEditor()}${contractEditor()}${tempoEditor()}${costEditor()}
+    ${siteEditor()}${contractEditor()}${tempoEditor()}${costEditor()}</details>
     </div></details>`;
     const panel=root.querySelector("details.tf-main");
     panel.addEventListener("toggle",event=>{
@@ -249,7 +262,7 @@ function bindMarket(){
     bindMarket();
     const act=(selector,handler)=>root.querySelector(selector)?.addEventListener("click",handler);
     act("#tf-save",async()=>{try{readEdits();conf=await request("",{method:"PUT",body:JSON.stringify(conf)});dirty=false;render();editorMsg(tr("Configuration sauvegardée en SQLite.","Saved to SQLite."));}catch(e){editorMsg(e.message);}});
-    root.querySelectorAll('input:not(#tf-from):not(#tf-to),select[data-field]').forEach(input=>input.addEventListener("input",()=>{dirty=true;const status=root.querySelector("#tf-dirty");if(status)status.textContent=tr("Modifications non enregistrées","Unsaved changes");}));
+    root.querySelectorAll('.tf-advanced input:not(#tf-from):not(#tf-to):not(#tf-enabled):not(#tf-subscription),.tf-advanced select[data-field]').forEach(input=>input.addEventListener("input",()=>{dirty=true;const status=root.querySelector("#tf-dirty");if(status)status.textContent=tr("Modifications non enregistrées","Unsaved changes");}));
     act("#tf-export",()=>{try{readEdits();const data=JSON.stringify(conf,null,2);const blob=new Blob([data],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="powerwatch-tarifs-fr.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),3000);}catch(e){editorMsg(e.message)}});
     act("#tf-import",()=>root.querySelector("#tf-file").click());
     root.querySelector("#tf-file")?.addEventListener("change",async event=>{const file=event.target.files?.[0];if(!file)return;try{const incoming=JSON.parse(await file.text());incoming.revision=conf.revision;conf=await request("",{method:"PUT",body:JSON.stringify(incoming)});dirty=false;render();editorMsg(tr("Import enregistré.","Import saved."));}catch(e){editorMsg(e.message)}});
@@ -285,6 +298,8 @@ function bindMarket(){
   }catch(e){editorMsg(e.message)}}
   async function start(){try{
     conf=await request("");
+    const active=activeForSite(conf.sites[0]?.id);
+    if(active){marketSlug=marketSuppliers.find(s=>s.name.toLowerCase()===active.supplier.toLowerCase())?.slug||marketSlug;marketOffpeak=active.offpeak.map(w=>w.from+"-"+w.to).join(";");}
     if(hub){const response=await fetch("/api/hub/snapshot");if(response.ok){const snap=await response.json();nodes=snap.nodes||[];}}
     render();
     void marketLoadSuppliers().then(()=>{const sel=root.querySelector("#tf-market-supplier");if(sel){sel.innerHTML=marketSuppliers.map(s=>`<option value="${esc(s.slug)}">${esc(s.name)}</option>`).join("");sel.value=marketSlug;}const status=root.querySelector("#tf-market-status");if(status&&marketError)status.textContent=marketError;});
