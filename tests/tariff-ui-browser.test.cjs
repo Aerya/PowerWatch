@@ -32,3 +32,21 @@ window.prompt=()=>"22:30-06:30";window.confirm=()=>true;
     assert.match(result.summary,/Access Électricité.*6 kVA/);
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });
+
+test("catalogue outage leaves saved configuration untouched and shows an inline error",{skip:!chromium},()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),"powerwatch-tariff-outage-"));
+  try {
+    const html=`<!doctype html><html lang="fr"><body><div id="tariffs-fr-app"></div><pre id="result">pending</pre>
+<script>
+let writes=0;const config={enabled:false,country:"FR",include_subscription:false,sites:[{id:"local",name:"Local",nodes:[]}],contracts:[],tempo_days:{}};
+window.fetch=async(url,opts={})=>{if(opts.method==="PUT"||opts.method==="POST")writes++;if(url.includes("/market/offers"))return {ok:false,text:async()=>"source indisponible"};if(url.endsWith("/market/suppliers"))return {ok:true,json:async()=>[{slug:"totalenergies",name:"TotalEnergies"}]};return {ok:true,json:async()=>config};};
+</script><script>${source.replace(/<\/script/gi,"<\\/script")}</script><script>
+(async()=>{await new Promise(r=>setTimeout(r,200));document.querySelector("#tf-market-search").click();await new Promise(r=>setTimeout(r,250));document.querySelector("#result").textContent=JSON.stringify({writes,status:document.querySelector("#tf-market-status").textContent,importDisabled:document.querySelector("#tf-market-import").disabled});})();
+</script></body></html>`;
+    const file=path.join(dir,"index.html");fs.writeFileSync(file,html);
+    const output=execFileSync(chromium,["--headless","--no-sandbox","--disable-gpu","--disable-dev-shm-usage","--virtual-time-budget=3000","--dump-dom","file://"+file],{encoding:"utf8",timeout:15000,stdio:["ignore","pipe","ignore"]});
+    const match=output.match(/<pre id="result">([^<]+)<\/pre>/);assert.ok(match);
+    const result=JSON.parse(match[1].replaceAll("&quot;",'"').replaceAll("&amp;","&"));
+    assert.equal(result.writes,0);assert.equal(result.importDisabled,true);assert.match(result.status,/source indisponible/);
+  } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});

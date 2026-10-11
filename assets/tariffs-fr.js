@@ -44,7 +44,7 @@ let marketSlug="totalenergies",marketOffers=[],marketError="",marketSelection=""
 const offerKey=o=>[o.supplier_slug,o.offer,o.option,o.kva].join("\u001f");
 const activeForSite=site=>{const today=todayParis();return conf.contracts.find(c=>c.site_id===site&&c.starts_on<=today&&(!c.ends_on||c.ends_on>=today));};
 function marketMessage(message){marketError=message;const status=root.querySelector("#tf-market-status");if(status)status.textContent=message;}
-function marketLoading(busy){marketBusy=busy;for(const button of root.querySelectorAll("#tf-market-search,#tf-market-import"))button.disabled=busy || (button.id==="tf-market-import"&&!marketOffers.length);}
+function marketLoading(busy){marketBusy=busy;for(const control of root.querySelectorAll("button,input,select"))control.disabled=busy || (control.id==="tf-market-import"&&!marketOffers.length);}
 function marketEditor(){
   const select=(list,value)=>list.map(([v,l])=>`<option value="${esc(v)}" ${v===value?"selected":""}>${esc(l)}</option>`).join("");
   const details=marketOffers.map(o=>[offerKey(o),`${o.offer} · ${o.option.toUpperCase()} · ${o.kva} kVA · `+
