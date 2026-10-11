@@ -1,5 +1,4 @@
 # PowerWatch
-
 <p align="center">
   <img src="docs/images/powerwatch-aerya-logo.png" alt="PowerWatch" width="720">
 </p>
@@ -388,11 +387,14 @@ L'image Docker démarre automatiquement PowerWatch avec l'historique activé et 
 - Date et heure en `Europe/Paris`, avec changement d'heure. La journée Tempo va de 06 h à 06 h, HP de 06 h à 22 h pour Tempo. La grille HP/HC non Tempo est configurable pour chaque contrat.
 - **Agrégats énergétiques de 15 minutes conservés sans limite de durée programmée** pour les nouvelles archives. Les anciens agrégats horaires restent lisibles, avec un avertissement de précision pour leurs coûts. Les périodes inconnues n'ont **jamais de prix inventé**.
 - Abonnements facultatifs, calculés une fois par site et proratisés au jour ; aucun abonnement doublement compté entre plusieurs machines du Hub. Les périodes sans contrat, tarif ou couleur Tempo apparaissent en kWh non chiffrés.
-- Accès WebUI : `/api/tariffs-fr` (GET/PUT), `/api/tariffs-fr/sync` (POST), `/api/tariffs-fr/cost` (GET). Accès Hub : `/api/hub/tariffs-fr` et équivalents `/sync` et `/cost`. Les mutations sont protégées par l'authentification de la WebUI ou l'authentification administrateur du Hub si activée.
+- Accès WebUI : `/api/tariffs-fr` (GET/PUT), `/api/tariffs-fr/sync` (POST), `/api/tariffs-fr/cost` (GET) et `/api/tariffs-fr/overview` (GET, compteurs). Accès Hub : `/api/hub/tariffs-fr` et équivalents `/sync`, `/cost`, `/overview` (`nodes` facultatif pour les instances sélectionnées). Les mutations sont protégées par l'authentification de la WebUI ou l'authentification administrateur du Hub si activée.
 
 Sources : https://www.cre.fr/documents/open-data/historique-des-tarifs-reglementes-de-vente-delectricite-pour-les-consommateurs-residentiels.html et https://www.calendrier-tempo.fr/api-tempo. Aucun tarif n'est codé en dur.
 
 ## Consommation énergétique cumulée (kWh)
+
+> **Coût dans les compteurs (instance et Hub)** : lorsque la tarification française est activée, les quatre compteurs 24 h, 7 j, 30 j et historique affichent automatiquement le montant estimé en euros sous les kWh. Les périodes personnalisées utilisent le même moteur tarifaire. Dans le Hub, le coût suit le filtre des instances et l’abonnement éventuel est compté une seule fois par site électrique. Les tranches sans prix valide restent signalées comme partielles ou indisponibles ; aucun prix n’est inventé.
+
 
 PowerWatch et PowerWatch Hub affichent **24 h, 7 j, 30 j et cumul depuis les premiers relevés**, ainsi qu'une période personnalisée (dates et heures). Le Hub présente aussi les kWh **par machine**.
 

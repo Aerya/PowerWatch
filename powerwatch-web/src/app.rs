@@ -719,6 +719,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/tariffs-fr/market/offers",get(market_offers))
         .route("/api/tariffs-fr/market/import",post(market_import))
         .route("/api/tariffs-fr/cost",get(tariff_fr_cost))
+        .route("/api/tariffs-fr/overview",get(tariff_fr_overview))
         .route("/api/suggestions", get(suggestions_list))
         .route("/api/suggestions/apply", post(suggestions_apply))
         .route("/api/processes/top", get(top_processes))

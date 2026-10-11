@@ -426,6 +426,71 @@ pub fn cost_report(conn:&Connection, config:&TariffConfig, assignments:&[(String
     Ok(report)
 }
 
+/// Dashboard cards: same tariff engine as the detailed estimate, with the
+/// exact observed window and one optional subscription per electricity site.
+#[derive(Debug, Serialize)]
+pub struct CostOverview {
+    pub enabled: bool,
+    pub windows: BTreeMap<&'static str, CostStats>,
+    pub selected: CostStats,
+}
+
+fn overview_period(
+    conn: &Connection,
+    config: &TariffConfig,
+    assignments: &[(String, String, bool)],
+    from: Option<i64>,
+    to: i64,
+) -> Result<CostStats, String> {
+    if !config.enabled || assignments.is_empty() { return Ok(CostStats::default()); }
+    // A subscription must not start before the first recorded energy for a
+    // selected site, including for the lifetime counter (whose start is open).
+    let mut first_by_site = BTreeMap::<String, i64>::new();
+    for (source, site, included) in assignments {
+        if !*included { continue; }
+        let stats = crate::energy::stats(conn, source, from, to).map_err(|e| e.to_string())?;
+        if let Some(first) = stats.first_seen_epoch {
+            let observed_start = first.max(from.unwrap_or(first));
+            first_by_site.entry(site.clone())
+                .and_modify(|v| *v = (*v).min(observed_start))
+                .or_insert(observed_start);
+        }
+    }
+    let Some(earliest) = first_by_site.values().copied().min() else { return Ok(CostStats::default()); };
+    if earliest >= to { return Ok(CostStats::default()); }
+    let included: Vec<_> = assignments.iter().filter(|a| a.2 && first_by_site.contains_key(&a.1)).cloned().collect();
+    let mut report = cost_report(conn, config, &included, earliest, to)?;
+    let mut total = CostStats::default();
+    for (site, part) in report.sites.iter_mut() {
+        if let Some(first) = first_by_site.get(site) {
+            part.subscription_eur = subscription_cost(config, site, *first, to);
+        }
+        total.add(part);
+    }
+    Ok(total)
+}
+
+pub fn cost_overview(
+    conn: &Connection,
+    config: &TariffConfig,
+    assignments: &[(String, String, bool)],
+    now: i64,
+    selected_from: Option<i64>,
+    selected_to: i64,
+) -> Result<CostOverview, String> {
+    if selected_to > now + 60 || selected_from.is_some_and(|from| from >= selected_to)
+        || selected_from.is_some_and(|from| from < 0) || selected_to < 0 {
+        return Err("invalid cost period".into());
+    }
+    let mut windows = BTreeMap::new();
+    for (key, start) in [("24h", Some(now - 86400)), ("7d", Some(now - 7 * 86400)),
+        ("30d", Some(now - 30 * 86400)), ("all", None)] {
+        windows.insert(key, overview_period(conn, config, assignments, start, now)?);
+    }
+    let selected = overview_period(conn, config, assignments, selected_from, selected_to)?;
+    Ok(CostOverview { enabled: config.enabled, windows, selected })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -434,7 +499,48 @@ mod tests {
         let mut c=TariffConfig::default();c.enabled=true;
         c.contracts.push(TariffContract{id:"contract".into(),site_id:"local".into(),supplier:"EDF".into(),offer:"Tarif Bleu".into(),option:"hphc".into(),starts_on:NaiveDate::from_ymd_opt(2026,1,1).unwrap(),ends_on:None,kva:6,offpeak:vec![OffpeakWindow{from:"22:30".into(),to:"06:30".into()}],revisions:vec![PriceRevision{from:NaiveDate::from_ymd_opt(2026,1,1).unwrap(),until:None,eur_kwh:BTreeMap::from([("hp".into(),0.30),("hc".into(),0.15)]),annual_subscription_eur:Some(120.0),source:"manual".into(),source_url:None,manual:true,retrieved_at:None}]});c
     }
-    #[test] fn rejects_overlapping_contracts_and_negative_prices(){let mut c=sample();assert!(validate(&c).is_ok());let duplicate=c.contracts[0].clone();c.contracts.push(duplicate);assert!(validate(&c).is_err());}
+    #[test] fn dashboard_costs_price_observed_hours_and_do_not_double_subscription() {
+        let mut db=Connection::open_in_memory().unwrap();
+        crate::energy::init(&db).unwrap();
+        let mut c=sample();c.contracts[0].option="base".into();
+        c.contracts[0].revisions[0].eur_kwh=BTreeMap::from([("base".into(),0.20)]);
+        c.include_subscription=true;
+        let end=Paris.with_ymd_and_hms(2026,10,10,14,0,0).single().unwrap().with_timezone(&Utc).timestamp();
+        for source in ["n1","n2"] {
+            crate::energy::record(&mut db,source,end-3600,1000.0,false,3600).unwrap();
+            crate::energy::record(&mut db,source,end,1000.0,false,3600).unwrap();
+        }
+        let picks=vec![("n1".into(),"local".into(),true),("n2".into(),"local".into(),true)];
+        let all=cost_overview(&db,&c,&picks,end,Some(end-3600),end).unwrap();
+        let single=cost_overview(&db,&c,&picks[..1],end,Some(end-3600),end).unwrap();
+        assert!((all.windows["24h"].energy_cost_eur-0.4).abs()<1e-8);
+        assert!((all.selected.energy_cost_eur-0.4).abs()<1e-8);
+        assert!((single.windows["24h"].energy_cost_eur-0.2).abs()<1e-8);
+        assert!((single.windows["24h"].subscription_eur-all.windows["24h"].subscription_eur).abs()<1e-8);
+        assert!(all.windows["all"].subscription_eur>0.0);
+        assert!(all.windows["all"].subscription_eur<1.0); // not charged since 1970
+        let empty=cost_overview(&db,&c,&[],end,None,end).unwrap();
+        assert_eq!(empty.windows["all"].energy_cost_eur,0.0);
+        assert_eq!(empty.windows["all"].subscription_eur,0.0);
+    }
+    #[test] fn dashboard_uses_historical_prices_and_marks_missing_prices() {
+        let mut db=Connection::open_in_memory().unwrap();
+        crate::energy::init(&db).unwrap();
+        let mut c=sample();c.include_subscription=false;c.contracts[0].option="base".into();
+        c.contracts[0].revisions[0].eur_kwh=BTreeMap::from([("base".into(),0.20)]);
+        let end=Paris.with_ymd_and_hms(2026,10,10,12,0,0).single().unwrap().with_timezone(&Utc).timestamp();
+        crate::energy::record(&mut db,"local",end-7200,1000.0,false,3600).unwrap();
+        crate::energy::record(&mut db,"local",end-3600,1000.0,false,3600).unwrap();
+        crate::energy::record(&mut db,"local",end,1000.0,false,3600).unwrap();
+        let included=vec![("local".into(),"local".into(),true)];
+        let priced=cost_overview(&db,&c,&included,end,None,end).unwrap();
+        assert!((priced.windows["24h"].energy_cost_eur-0.4).abs()<1e-8);
+        c.contracts[0].revisions[0].eur_kwh.clear();
+        let unpriced=cost_overview(&db,&c,&included,end,None,end).unwrap();
+        assert_eq!(unpriced.windows["24h"].energy_cost_eur,0.0);
+        assert!((unpriced.windows["24h"].unpriced_kwh-2.0).abs()<1e-8);
+    }
+        #[test] fn rejects_overlapping_contracts_and_negative_prices(){let mut c=sample();assert!(validate(&c).is_ok());let duplicate=c.contracts[0].clone();c.contracts.push(duplicate);assert!(validate(&c).is_err());}
     #[test] fn prices_switch_on_half_hour_and_dst(){
         let c=sample();let t=Paris.with_ymd_and_hms(2026,10,10,22,0,0).single().unwrap().with_timezone(&Utc).timestamp();
         let slices=[EnergySlice{start:t,end:t+3600,wh:1000.0,estimated_wh:1000.0,covered_seconds:3600.0,approximate:false}];
