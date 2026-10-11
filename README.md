@@ -31,7 +31,7 @@
   - [NVIDIA](#nvidia)
 - [Disques, partitions et stockage](#disques-partitions-et-stockage)
 - [WebUI](#webui)
-  - [Tarification électrique France — bêta (optionnelle)](#tarification-électrique-france--bêta-optionnelle)
+  - ! NON FONCTIONNEL POUR L'INSTANT ! [Tarification électrique France — bêta (optionnelle)](#tarification-électrique-france--bêta-optionnelle)
 - [Consommation énergétique cumulée (kWh)](#consommation-énergétique-cumulée-kwh)
 - [Historique](#historique)
 - [Alertes et notifications](#alertes-et-notifications)
