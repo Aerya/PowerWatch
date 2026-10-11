@@ -73,6 +73,8 @@ struct NodeConfig {
     include_in_total: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     api_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tariff_token: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -93,6 +95,7 @@ struct NodeConfigView {
     enabled: bool,
     include_in_total: bool,
     has_api_token: bool,
+    has_tariff_token: bool,
 }
 
 impl From<&NodeConfig> for NodeConfigView {
@@ -107,6 +110,7 @@ impl From<&NodeConfig> for NodeConfigView {
                 .api_token
                 .as_deref()
                 .is_some_and(|token| !token.is_empty()),
+            has_tariff_token: node.tariff_token.as_deref().is_some_and(|token| !token.is_empty()),
         }
     }
 }
@@ -239,6 +243,7 @@ struct HubNodeView {
     enabled: bool,
     include_in_total: bool,
     has_api_token: bool,
+    has_tariff_token: bool,
     status: NodeStatus,
     last_seen: Option<DateTime<Utc>>,
     last_error: Option<String>,
@@ -577,6 +582,14 @@ fn preserve_or_clear_token_for_update(existing: &NodeConfig, requested: &mut Nod
         }
         Some(_) => {}
     }
+    match requested.tariff_token.as_deref() {
+        None if normalize_url(&existing.url) == normalize_url(&requested.url) => {
+            requested.tariff_token = existing.tariff_token.clone();
+        }
+        None => requested.tariff_token = None,
+        Some(token) if token.trim().is_empty() => requested.tariff_token = None,
+        Some(_) => {}
+    }
 }
 
 fn load_config(path: &FsPath) -> HubConfig {
@@ -888,6 +901,7 @@ async fn snapshot(State(state): State<AppState>) -> Json<HubSnapshot> {
                 .api_token
                 .as_deref()
                 .is_some_and(|token| !token.is_empty()),
+            has_tariff_token: node.tariff_token.as_deref().is_some_and(|token| !token.is_empty()),
             id: node.id,
             name: node.name,
             url: node.url,
@@ -1158,6 +1172,7 @@ fn build_router(state: AppState) -> Router {
         .route("/api/hub/test", post(probe_node))
         .route("/api/hub/tariffs-fr",get(hub_tariff_get).put(hub_tariff_put))
         .route("/api/hub/tariffs-fr/sync",post(hub_tariff_sync))
+        .route("/api/hub/tariffs-fr/propagate",post(hub_tariff_propagate))
         .route("/api/hub/tariffs-fr/market/suppliers",get(market_suppliers))
         .route("/api/hub/tariffs-fr/market/offers",get(market_offers))
         .route("/api/hub/tariffs-fr/market/import",post(market_import))
@@ -1280,6 +1295,7 @@ async fn main() {
 mod tests {
     use super::*;
     use axum::body::Body;
+    use std::future::IntoFuture;
     use tower::ServiceExt;
 
     fn node_with_token(url: &str, token: Option<&str>) -> NodeConfig {
@@ -1290,6 +1306,7 @@ mod tests {
             enabled: true,
             include_in_total: true,
             api_token: token.map(str::to_string),
+            tariff_token: None,
         }
     }
 
@@ -1317,6 +1334,7 @@ mod tests {
             enabled: true,
             include_in_total: true,
             api_token: None,
+            tariff_token: None,
         };
         assert!(validate_node(&good).is_ok());
 
@@ -1369,23 +1387,28 @@ mod tests {
             enabled: true,
             include_in_total: true,
             api_token: Some("pw_super_secret".into()),
+            tariff_token: Some("pw_tariff_secret".into()),
         };
         let json = serde_json::to_string(&NodeConfigView::from(&node)).unwrap();
         assert!(!json.contains("pw_super_secret"));
+        assert!(!json.contains("pw_tariff_secret"));
         assert!(json.contains("\"has_api_token\":true"));
     }
 
     #[test]
     fn changing_a_node_url_never_carries_the_stored_token_implicitly() {
-        let existing = node_with_token("http://old-node:3000", Some("pw_existing_secret"));
+        let mut existing = node_with_token("http://old-node:3000", Some("pw_existing_secret"));
+        existing.tariff_token = Some("pw_tariff_secret".into());
 
         let mut same_url = node_with_token("http://old-node:3000/", None);
         preserve_or_clear_token_for_update(&existing, &mut same_url);
         assert_eq!(same_url.api_token.as_deref(), Some("pw_existing_secret"));
+        assert_eq!(same_url.tariff_token.as_deref(), Some("pw_tariff_secret"));
 
         let mut changed_url = node_with_token("http://new-node:3000", None);
         preserve_or_clear_token_for_update(&existing, &mut changed_url);
         assert!(changed_url.api_token.is_none());
+        assert!(changed_url.tariff_token.is_none());
 
         let mut explicit_transfer =
             node_with_token("http://new-node:3000", Some("pw_explicit_secret"));
@@ -1394,6 +1417,80 @@ mod tests {
             explicit_transfer.api_token.as_deref(),
             Some("pw_explicit_secret")
         );
+    }
+
+    #[tokio::test]
+    async fn tariff_propagation_updates_only_selected_nodes_and_hub() {
+        use powerwatch_core::tariffs_fr::TariffConfig;
+        let source_config: TariffConfig = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "country": "FR",
+            "sites": [{"id":"local","name":"Local"}],
+            "contracts": [{"id":"online","site_id":"local","supplier":"TotalEnergies",
+                "offer":"Online","option":"hphc","starts_on":"2026-10-11","kva":6,
+                "revisions":[{"from":"2026-10-11","eur_kwh":{"hp":0.2237,"hc":0.1449}}]}]
+        })).unwrap();
+        let source_router = Router::new().route("/api/tariffs-fr", get({
+            let config = source_config.clone();
+            move || async move { Json(config.clone()) }
+        }));
+        let source_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let source_url = format!("http://{}", source_listener.local_addr().unwrap());
+        let source_server = tokio::spawn(axum::serve(source_listener, source_router).into_future());
+
+        let received = Arc::new(Mutex::new(None::<TariffConfig>));
+        let target_router = Router::new().route("/api/tariffs-fr", get(|| async {Json(TariffConfig::default())})
+            .put({
+                let received = received.clone();
+                move |headers: HeaderMap, Json(config): Json<TariffConfig>| {
+                    let received = received.clone();
+                    async move {
+                        if headers.get("authorization").and_then(|value|value.to_str().ok()) != Some("Bearer pw_tariff") {
+                            return StatusCode::FORBIDDEN;
+                        }
+                        *received.lock().unwrap()=Some(config);
+                        StatusCode::OK
+                    }
+                }
+            }));
+        let target_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target_url = format!("http://{}", target_listener.local_addr().unwrap());
+        let target_server = tokio::spawn(axum::serve(target_listener, target_router).into_future());
+
+        let (_directory, state) = router_state(HubAdminAuth::with_token(None));
+        let mut source = node_with_token(&source_url, None);
+        source.id = "source".into();
+        let mut target = node_with_token(&target_url, None);
+        target.id = "target".into();
+        target.tariff_token = Some("pw_tariff".into());
+        let mut untouched = node_with_token("http://127.0.0.1:1", None);
+        untouched.id = "untouched".into();
+        state.config.write().await.nodes = vec![source, target, untouched];
+        let result = hub_tariff_propagate(State(state.clone()), Json(TariffPropagationRequest {
+            source_id: "source".into(), target_ids: vec!["target".into()], include_hub: true,
+        })).await.unwrap().0;
+        assert_eq!(result.updated, vec!["target"]);
+        assert!(result.failed.is_empty());
+        assert!(result.hub_updated);
+        let copy = received.lock().unwrap().clone().unwrap();
+        assert_eq!(copy.contracts[0].offer, "Online");
+        assert_eq!(copy.contracts[0].site_id, "local");
+        let hub = powerwatch_core::tariffs_fr::load(&state.storage.lock().unwrap().conn).unwrap();
+        let shared = hub.sites.iter().find(|site|site.id.starts_with("hub_shared_")).unwrap();
+        assert!(shared.nodes.contains(&"source".into()));
+        assert!(shared.nodes.contains(&"target".into()));
+        assert!(!shared.nodes.contains(&"untouched".into()));
+        let second = hub_tariff_propagate(State(state.clone()), Json(TariffPropagationRequest {
+            source_id: "source".into(), target_ids: vec![], include_hub: true,
+        })).await.unwrap().0;
+        assert!(second.updated.is_empty());
+        let hub = powerwatch_core::tariffs_fr::load(&state.storage.lock().unwrap().conn).unwrap();
+        let target_site = hub.sites.iter().find(|site|site.nodes.contains(&"target".into())).unwrap();
+        let source_site = hub.sites.iter().find(|site|site.nodes.contains(&"source".into())).unwrap();
+        assert_ne!(target_site.id,source_site.id);
+        assert!(hub.contracts.iter().any(|contract|contract.site_id==target_site.id));
+        source_server.abort();
+        target_server.abort();
     }
 
     #[tokio::test]
@@ -1421,6 +1518,7 @@ mod tests {
             ("POST", "/api/hub/nodes/node"),
             ("DELETE", "/api/hub/nodes/node"),
             ("POST", "/api/hub/test"),
+            ("POST", "/api/hub/tariffs-fr/propagate"),
         ] {
             let unauthorized = app
                 .clone()

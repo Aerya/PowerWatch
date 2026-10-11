@@ -154,6 +154,8 @@ pub struct PasswordRequest {
 #[derive(Debug, Deserialize)]
 pub struct TokenRequest {
     name: String,
+    #[serde(default)]
+    scope: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -181,7 +183,7 @@ pub struct CreatedToken {
 enum Authentication {
     Disabled,
     Session { csrf_token: String },
-    ApiToken,
+    ApiToken { scope: String },
     Missing,
 }
 
@@ -368,6 +370,7 @@ impl AuthService {
                     .iter_mut()
                     .find(|token| constant_time_eq(&token.token_hash, &hash))
                 {
+                    let scope = token.scope.clone();
                     if token
                         .last_used_at
                         .is_none_or(|last_used| now - last_used >= 60)
@@ -375,7 +378,7 @@ impl AuthService {
                         token.last_used_at = Some(now);
                         let _ = self.persist(&store);
                     }
-                    return Authentication::ApiToken;
+                    return Authentication::ApiToken { scope };
                 }
                 return Authentication::Missing;
             }
@@ -822,12 +825,16 @@ pub async fn create_api_token(
             "token name must contain 1 to 80 printable characters",
         );
     }
+    let scope = request.scope.as_deref().unwrap_or("read");
+    if !matches!(scope, "read" | "tariffs_write") {
+        return json_error(StatusCode::BAD_REQUEST, "unsupported token scope");
+    }
     let raw = format!("pw_{}", random_token(32));
     let token = ApiToken {
         id: random_token(8),
         name: name.to_string(),
         token_hash: token_hash(&raw),
-        scope: "read".to_string(),
+        scope: scope.to_string(),
         created_at: Utc::now().timestamp(),
         last_used_at: None,
     };
@@ -876,12 +883,13 @@ impl From<&ApiToken> for ApiTokenView {
     }
 }
 
-fn bearer_route_allowed(method: &Method, path: &str) -> bool {
-    matches!(*method, Method::GET | Method::HEAD)
+fn bearer_route_allowed(scope: &str, method: &Method, path: &str) -> bool {
+    (scope == "tariffs_write" && *method == Method::PUT && path == "/api/tariffs-fr")
+        || (matches!(scope, "read" | "tariffs_write") && matches!(*method, Method::GET | Method::HEAD)
         && matches!(
             path,
-            "/api/snapshot" | "/api/history" | "/api/history/range" | "/api/instance"
-        )
+            "/api/snapshot" | "/api/history" | "/api/history/range" | "/api/instance" | "/api/tariffs-fr"
+        ))
 }
 
 pub async fn require_auth(
@@ -892,14 +900,14 @@ pub async fn require_auth(
     let authentication = state.auth.authenticate(request.headers());
     match authentication {
         Authentication::Disabled => next.run(request).await,
-        Authentication::ApiToken
-            if bearer_route_allowed(request.method(), request.uri().path()) =>
+        Authentication::ApiToken { ref scope }
+            if bearer_route_allowed(scope, request.method(), request.uri().path()) =>
         {
             next.run(request).await
         }
-        Authentication::ApiToken => json_error(
+        Authentication::ApiToken { .. } => json_error(
             StatusCode::FORBIDDEN,
-            "the API token is read-only and cannot access this endpoint",
+            "the API token cannot access this endpoint",
         ),
         Authentication::Session { csrf_token } => {
             let safe = matches!(
@@ -926,6 +934,16 @@ pub async fn require_auth(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tariff_token_can_only_read_and_write_tariff_configuration() {
+        assert!(bearer_route_allowed("tariffs_write", &Method::GET, "/api/tariffs-fr"));
+        assert!(bearer_route_allowed("tariffs_write", &Method::PUT, "/api/tariffs-fr"));
+        assert!(!bearer_route_allowed("read", &Method::PUT, "/api/tariffs-fr"));
+        assert!(!bearer_route_allowed("tariffs_write", &Method::POST, "/api/tariffs-fr/sync"));
+        assert!(!bearer_route_allowed("tariffs_write", &Method::PUT, "/api/instance"));
+        assert!(!bearer_route_allowed("unknown", &Method::GET, "/api/tariffs-fr"));
+    }
 
     #[test]
     fn password_hash_is_argon2id_and_verifies() {

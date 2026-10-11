@@ -24,7 +24,20 @@ body {
   padding: 14px 16px;
 }
 main { width: 100%; }
-header { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+header { display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+.tariff-control { position:relative; font-size:.78rem; }
+.tariff-control > summary { cursor:pointer; list-style:none; border:1px solid var(--border); border-radius:4px; padding:4px 8px; color:var(--text); white-space:nowrap; }
+.tariff-control > summary::-webkit-details-marker { display:none; }
+.tariff-control[open] > summary { border-color:var(--accent,var(--measured)); }
+.tariff-control-panel { position:absolute; z-index:60; right:0; top:calc(100% + 4px); width:min(420px,92vw); max-height:min(75vh,650px); overflow:auto; padding:12px; background:var(--panel); border:1px solid var(--border); border-radius:6px; box-shadow:0 8px 24px #0005; }
+.tariff-control-panel label { display:block; margin:8px 0; }
+.tariff-control-panel select { width:100%; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:6px; }
+.tariff-control-panel .energy-instance-choices { display:grid; gap:4px; margin:8px 0; }
+.tariff-control-panel .actions { margin-top:10px; }
+.node-tariff-access { display:inline-block; position:relative; }
+.node-tariff-access > summary { cursor:pointer; color:var(--muted); }
+.node-tariff-access[open] { display:flex; gap:5px; align-items:center; flex-wrap:wrap; }
+.node-tariff-access input { max-width:170px; }
 h1 { font-size:1.1rem; margin:0; color:var(--text); }
 .subtitle { color:var(--muted); font-size:.8rem; }
 button,input,select { font:inherit; }
@@ -356,6 +369,17 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
     <button type="button" id="lang-fr" data-lang="fr">🇫🇷 FR</button>
     <button type="button" id="lang-en" data-lang="en">🇬🇧 EN</button>
   </div>
+  <details class="tariff-control" id="tariff-propagation">
+  <summary id="tariff-propagation-title" title="Copier les tarifs entre instances">⇄ Tarifs</summary>
+  <div class="tariff-control-panel">
+    <p id="tariff-propagation-help" class="notice"></p>
+    <label><span id="tariff-source-label">Source</span><select id="tariff-source"></select></label>
+    <div id="tariff-targets" class="energy-instance-choices"></div>
+    <label><input type="checkbox" id="tariff-include-hub"> <span id="tariff-hub-label">Copier aussi vers le Hub</span></label>
+    <div class="actions"><button class="action-btn" id="tariff-propagate">Copier les tarifs sélectionnés</button></div>
+    <div id="tariff-propagation-result" role="status" aria-live="polite"></div>
+  </div>
+</details>
 </header>
 
 <div class="hero">
@@ -415,6 +439,7 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 </section>
 
 <div id="tariffs-fr-app" data-mode="hub"></div>
+
 
 <details class="panel management">
   <summary><strong data-i18n="manage">Machines / instances</strong><span class="manage-count" id="manage-count"></span></summary>
@@ -494,6 +519,7 @@ function applyLanguage(){
   document.getElementById("lang-fr").classList.toggle("active",lang==="fr");
   document.getElementById("lang-en").classList.toggle("active",lang==="en");
   if(snapshot)renderSnapshot(snapshot);
+  renderTariffPropagation();
   drawHistory(lastHistory);
   renderHubEnergy();
 }
@@ -502,7 +528,7 @@ function fmtSeen(value){if(!value)return tr("never");return new Date(value).toLo
 async function api(url,options={}){
   const method=String(options.method||"GET").toUpperCase();
   const path=new URL(url,location.href).pathname;
-  const administrative=path==="/api/hub/test"||path==="/api/hub/nodes"||path.startsWith("/api/hub/nodes/");
+  const administrative=path==="/api/hub/test"||path==="/api/hub/nodes"||path.startsWith("/api/hub/nodes/")||path==="/api/hub/tariffs-fr/propagate";
   const headers=new Headers(options.headers||{});
   if(options.body)headers.set("Content-Type","application/json");
   if(hubAdminEnabled&&administrative){
@@ -612,6 +638,12 @@ function renderSnapshot(data){
   document.getElementById("global-status").textContent=`${data.online_nodes}/${data.configured_nodes} ${tr("nodes")}`;
   document.getElementById("manage-count").textContent=`${data.configured_nodes} ${tr("configured")}`;
   const root=document.getElementById("nodes");
+  if(root.contains(document.activeElement) && document.activeElement.matches(".node-token,.node-tariff-token")){
+    drawHistory(lastHistory);renderHubEnergy();return;
+  }
+  const tokenDrafts=new Map([...root.querySelectorAll(".node-card")].map(card=>[
+    card.dataset.id,{read:card.querySelector(".node-token")?.value||"",tariff:card.querySelector(".node-tariff-token")?.value||"",tariffOpen:card.querySelector(".node-tariff-access")?.open||false}
+  ]));
   if(!data.nodes.length){root.innerHTML=`<div class="panel empty">${esc(tr("noNodes"))}</div>`;renderHubEnergy();return;}
   root.innerHTML=data.nodes.map(node=>{
     const color=nodeColor(node.id);
@@ -661,6 +693,8 @@ function renderSnapshot(data){
           <label><input type="checkbox" class="toggle-total" ${node.include_in_total?"checked":""}> ${esc(tr("included"))}</label>
           <input type="password" class="node-token" autocomplete="off" placeholder="${esc(node.has_api_token?tr("tokenConfigured"):"pw_...")}">
           <button class="action-btn save-token">${esc(tr("saveToken"))}</button>
+          <details class="node-tariff-access"><summary>${lang==="fr"?"Accès aux tarifs":"Tariff access"}</summary><input type="password" class="node-tariff-token" autocomplete="off" aria-label="${lang==="fr"?"Jeton de copie des tarifs":"Tariff copy token"}" placeholder="${node.has_tariff_token?"••••••••":"pw_..."}">
+          <button class="action-btn save-tariff-token">${lang==="fr"?"Enregistrer le jeton tarifs":"Save tariff token"}</button></details>
           <button class="action-btn danger remove">${esc(tr("remove"))}</button>
         </div>
         ${node.last_error?`<div class="error-text" style="font-size:.72rem;margin-bottom:5px">${esc(node.last_error)}</div>`:""}
@@ -668,6 +702,10 @@ function renderSnapshot(data){
       </div>
     </details>`;
   }).join("");
+  for(const card of root.querySelectorAll(".node-card")){
+    const draft=tokenDrafts.get(card.dataset.id);
+    if(draft){card.querySelector(".node-token").value=draft.read;card.querySelector(".node-tariff-token").value=draft.tariff;card.querySelector(".node-tariff-access").open=draft.tariffOpen;}
+  }
   bindNodeActions();
   drawHistory(lastHistory);
   renderHubEnergy();
@@ -680,12 +718,47 @@ function bindNodeActions(){
     card.querySelector(".toggle-enabled").addEventListener("change",async e=>{await api(`/api/hub/nodes/${encodeURIComponent(id)}`,{method:"POST",body:JSON.stringify(nodePayload(node,{enabled:e.target.checked}))});await refreshSnapshot();await refreshHistory();});
     card.querySelector(".toggle-total").addEventListener("change",async e=>{await api(`/api/hub/nodes/${encodeURIComponent(id)}`,{method:"POST",body:JSON.stringify(nodePayload(node,{include_in_total:e.target.checked}))});await refreshSnapshot();await refreshHistory();});
     card.querySelector(".save-token").addEventListener("click",async()=>{const input=card.querySelector(".node-token");await api(`/api/hub/nodes/${encodeURIComponent(id)}`,{method:"POST",body:JSON.stringify(nodePayload(node,{api_token:input.value.trim()}))});input.value="";await refreshSnapshot();await refreshHistory();});
+    card.querySelector(".save-tariff-token").addEventListener("click",async()=>{const input=card.querySelector(".node-tariff-token");await api(`/api/hub/nodes/${encodeURIComponent(id)}`,{method:"POST",body:JSON.stringify(nodePayload(node,{tariff_token:input.value.trim()}))});input.value="";await refreshSnapshot();});
     card.querySelector(".remove").addEventListener("click",async()=>{await api(`/api/hub/nodes/${encodeURIComponent(id)}`,{method:"DELETE"});await refreshSnapshot();await refreshHistory();});
   });
+}
+function renderTariffPropagation(){
+  if(!snapshot)return;
+  const fr=lang==="fr";
+  const source=document.getElementById("tariff-source");
+  const targets=document.getElementById("tariff-targets");
+  const signature=lang+":"+snapshot.nodes.map(node=>node.id+"="+node.name).join("|");
+  if(source.dataset.signature===signature && targets.dataset.source===source.value)return;
+  const oldSource=source.value;
+  const selected=new Set([...targets.querySelectorAll("input:checked")].map(input=>input.value));
+  document.getElementById("tariff-propagation-title").textContent=fr?"⇄ Tarifs":"⇄ Tariffs";
+  document.getElementById("tariff-propagation-title").title=fr?"Copier les tarifs entre instances":"Copy tariffs between nodes";
+  document.getElementById("tariff-propagation-help").textContent=fr?"Choisissez l’instance qui possède les bons tarifs, puis cochez uniquement les machines qui ont le même contrat et les mêmes horaires HC. La copie remplace leurs tarifs actuels. Une machine protégée nécessite un jeton « tarifs » créé dans sa page Sécurité et enregistré ci-dessous. Le Hub reçoit les mêmes tarifs seulement si vous le cochez.":"Choose the node with the correct tariffs, then select only nodes with the same contract and off-peak hours. Copying replaces their current tariffs. Protected nodes need a tariff token created on their Security page and saved below. The Hub receives these tariffs only if selected.";
+  document.getElementById("tariff-source-label").textContent=fr?"Tarifs à copier depuis":"Copy tariffs from";
+  document.getElementById("tariff-hub-label").textContent=fr?"Copier aussi vers le Hub":"Copy to Hub too";
+  document.getElementById("tariff-propagate").textContent=fr?"Copier les tarifs sélectionnés":"Copy selected tariffs";
+  source.innerHTML='<option value="">'+(fr?"Choisir une instance":"Choose a node")+'</option>'+snapshot.nodes.map(node=>`<option value="${esc(node.id)}">${esc(node.name)}</option>`).join("");
+  source.value=snapshot.nodes.some(node=>node.id===oldSource)?oldSource:"";
+  targets.innerHTML=snapshot.nodes.filter(node=>node.id!==source.value).map(node=>`<label><input type="checkbox" value="${esc(node.id)}" ${selected.has(node.id)?"checked":""}> ${esc(node.name)}</label>`).join("");
+  source.dataset.signature=signature;
+  targets.dataset.source=source.value;
+}
+async function propagateTariffs(){
+  const result=document.getElementById("tariff-propagation-result");
+  const source_id=document.getElementById("tariff-source").value;
+  const target_ids=[...document.querySelectorAll("#tariff-targets input:checked")].map(input=>input.value);
+  const include_hub=document.getElementById("tariff-include-hub").checked;
+  if(!source_id||(!target_ids.length&&!include_hub)){result.textContent=lang==="fr"?"Choisissez une source et au moins une destination.":"Choose a source and at least one destination.";return;}
+  result.textContent="…";
+  try{
+    const response=await api("/api/hub/tariffs-fr/propagate",{method:"POST",body:JSON.stringify({source_id,target_ids,include_hub})});
+    result.textContent=(lang==="fr"?"Mis à jour : ":"Updated: ")+[...response.updated,...(response.hub_updated?["Hub"]:[])].join(", ")+(response.failed.length?" · "+(lang==="fr"?"Échecs : ":"Failed: ")+response.failed.join(" ; "):"");
+  }catch(error){result.textContent=error.message;}
 }
 async function refreshSnapshot(){try{
   const oldIds=hubEnergyChosenIds().join(",");
   renderSnapshot(await api("/api/hub/snapshot"));
+  renderTariffPropagation();
   if (hubEnergy && oldIds!==hubEnergyChosenIds().join(",")) void refreshHubCosts();
 }catch(e){console.error(e);}}
 async function probe(){
@@ -1106,6 +1179,8 @@ historyCanvas.addEventListener("mouseleave",()=>{
 window.addEventListener("resize",()=>drawHistory(lastHistory));
 window.addEventListener("powerwatch:themechange",()=>drawHistory(lastHistory));
 window.addEventListener("powerwatch:tariffschange",()=>{if(hubEnergy)void refreshHubCosts();});
+document.getElementById("tariff-source").addEventListener("change",renderTariffPropagation);
+document.getElementById("tariff-propagate").addEventListener("click",propagateTariffs);
 async function boot(){await initHubAdmin();applyLanguage();await refreshSnapshot();await refreshHistory();await refreshHubEnergy();setInterval(refreshSnapshot,2000);setInterval(refreshHistory,60000);setInterval(refreshHubEnergy,60000);}boot();
 </script>
 <script src="/static/tariffs-fr.js" defer></script>
