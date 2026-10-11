@@ -4,6 +4,9 @@
     supplier: String, offer: String, option: String, kva: u32, contract_id: String, site_id: String,
     replace_contract_id: Option<String>,
     offpeak: Option<Vec<powerwatch_core::tariffs_fr::OffpeakWindow>>,
+    effective_from: Option<chrono::NaiveDate>,
+    #[serde(default)] historical_price_confirmed: bool,
+    include_subscription: Option<bool>,
 }
 #[derive(Serialize)] struct MarketImportResponse { changed: bool, config:powerwatch_core::tariffs_fr::TariffConfig }
 async fn market_public_fetch(url:&str)->Result<String,(StatusCode,String)> {
@@ -37,13 +40,19 @@ async fn market_import(State(state):State<AppState>,Json(req):Json<MarketImportR
        .ok_or((StatusCode::BAD_REQUEST,"offer no longer available at source".into()))?;
     let db=state.storage.lock().map_err(|_|(StatusCode::INTERNAL_SERVER_ERROR,"storage poisoned".into()))?;
     let mut config=powerwatch_core::tariffs_fr::load(&db.conn).map_err(|e|(StatusCode::INTERNAL_SERVER_ERROR,e))?;
-    let changed=powerwatch_core::market_fr::import_offer(&mut config,&req.contract_id,&req.site_id,offer,
-        powerwatch_core::market_fr::today_fr(),req.replace_contract_id.as_deref())
+    let today=powerwatch_core::market_fr::today_fr();
+    let effective_from=req.effective_from.unwrap_or(today);
+    if effective_from<today && !req.historical_price_confirmed {
+        return Err((StatusCode::BAD_REQUEST,"historical tariff date requires explicit confirmation".into()));
+    }
+    let changed=powerwatch_core::market_fr::import_offer_at(&mut config,&req.contract_id,&req.site_id,offer,
+        today,effective_from,req.replace_contract_id.as_deref())
        .map_err(|e|(StatusCode::BAD_REQUEST,e))?;
     if let Some(windows)=req.offpeak {
         if offer.option!="hphc" {return Err((StatusCode::BAD_REQUEST,"off-peak windows only apply to HP/HC".into()));}
         if let Some(contract)=config.contracts.iter_mut().find(|c|c.id==req.contract_id){contract.offpeak=windows;}
     }
+    if let Some(include_subscription)=req.include_subscription {config.include_subscription=include_subscription;}
     let config=powerwatch_core::tariffs_fr::save(&db.conn,&config).map_err(|e|(StatusCode::CONFLICT,e))?;
     Ok(Json(MarketImportResponse{changed,config}))
 }

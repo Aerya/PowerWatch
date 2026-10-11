@@ -618,6 +618,20 @@
   #tariffs-fr-app .tf-main-status {margin-left:auto;font-size:.7rem;}
 }
 /* End PowerWatch tariff UI polish. */
+#tariffs-fr-app .tf-current{padding:12px;border:1px solid var(--border);border-radius:6px;line-height:1.6}
+#tariffs-fr-app .tf-current strong{font-size:.9rem;color:var(--text)}
+#tariffs-fr-app .tf-setup h3{margin:0 0 8px;font-size:1rem}
+#tariffs-fr-app .tf-setup .tf-help{line-height:1.5}
+#tariffs-fr-app .tf-market-controls,#tariffs-fr-app[data-mode="hub"] .tf-market-controls{grid-template-columns:repeat(2,minmax(0,1fr));align-items:end}
+#tariffs-fr-app .tf-market-controls .tf-market-offer-field,#tariffs-fr-app .tf-market-controls #tf-market-import{grid-column:1/-1}
+#tariffs-fr-app .tf-market-controls > .tf-label{grid-template-rows:auto 38px;font-size:.82rem}
+#tariffs-fr-app .tf-market-controls .tf-label input,#tariffs-fr-app .tf-market-controls .tf-label select{width:100%;height:38px;box-sizing:border-box}
+#tariffs-fr-app .tf-market-controls > button{height:38px;white-space:normal}
+#tariffs-fr-app #tf-market-import{justify-self:stretch;font-weight:700}
+#tariffs-fr-app .tf-advanced{margin-top:16px;border-top:1px solid var(--border);padding-top:12px}
+#tariffs-fr-app .tf-advanced > summary{cursor:pointer;color:var(--muted);font-weight:700}
+#tariffs-fr-app [hidden]{display:none!important}
+@media(max-width:630px){#tariffs-fr-app .tf-market-controls,#tariffs-fr-app[data-mode="hub"] .tf-market-controls{grid-template-columns:minmax(0,1fr)}#tariffs-fr-app .tf-market-controls .tf-market-offer-field,#tariffs-fr-app .tf-market-controls #tf-market-import{grid-column:auto}}
 
 </style>
 </head>
