@@ -74,6 +74,15 @@ Ce fork est pensé en priorité pour les **serveurs, mini-PC, machines desktop L
 
 ## Mesures
 
+### Cartes ARM et couverture des mesures
+
+Sur Linux ARM64 ou ARMv7, `POWERWATCH_BOARD_IDLE_W` et `POWERWATCH_BOARD_MAX_W` activent un modèle **Board** calibré à la prise. Mesurez vous-même la puissance au repos et en charge avec un wattmètre ; aucune valeur n'est déduite automatiquement. Le modèle est estimé et inclut RAM, stockage et pertes présents pendant la calibration. Il ne s'ajoute jamais à RAPL/MSR.
+
+Sur Raspberry Pi 5, le PMIC lit les rails via `/dev/vcio_gencmd` (groupe `video`). Dans Docker, passez ce périphérique avec les droits de lecture correspondants ; montez aussi les informations de carte de l'hôte si elles sont masquées, afin de permettre les nouvelles tentatives après un échec initial. Le PMIC mesure les rails, mais ne couvre pas les périphériques alimentés directement en 5 V (USB, PCIe/NVMe, ventilateur) ni les pertes de l'alimentation. Le total, les kWh et les euros fondés sur cette seule source sont donc **partiels, en borne basse**, sans extrapolation des watts manquants. Les estimations USB/NVMe peuvent s'ajouter ; RAM et carte SD ne sont pas ajoutées deux fois.
+
+Les images publiées sont amd64 et arm64. ARMv7 peut être compilé nativement avec une toolchain Rust adaptée, mais aucune image ARMv7 n'est publiée tant qu'une compilation et un essai sur matériel ARMv7 ne sont pas validés.
+
+
 | Composant | Source | Type |
 |---|---|---|
 | CPU | RAPL Linux (`powercap` ou MSR `/dev/cpu/0/msr`) | Mesurée |

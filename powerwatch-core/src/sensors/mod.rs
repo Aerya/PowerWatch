@@ -1,3 +1,4 @@
+pub mod cpu_load_model;
 pub mod disk;
 pub mod gpu_power;
 pub mod macos;
@@ -6,4 +7,5 @@ pub mod nvme_power_states;
 pub mod ram;
 pub mod rapl;
 pub mod rapl_msr;
+pub mod rpi_pmic;
 pub mod windows;

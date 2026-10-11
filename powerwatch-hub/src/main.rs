@@ -118,6 +118,8 @@ struct RemoteReading {
 struct RemoteSensor {
     name: String,
     #[serde(default)]
+    coverage: Option<String>,
+    #[serde(default)]
     display_name: Option<String>,
     #[serde(default)]
     reading: Option<RemoteReading>,

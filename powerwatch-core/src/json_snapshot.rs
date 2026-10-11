@@ -7,6 +7,8 @@ use serde::Serialize;
 pub struct JsonSensorResult {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reading: Option<SensorReading>,
@@ -19,6 +21,8 @@ pub struct JsonSnapshot {
     pub timestamp: chrono::DateTime<chrono::Utc>,
     pub sensors: Vec<JsonSensorResult>,
     pub total: Option<SensorReading>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<&'static str>,
 }
 
 fn error_message(error: &SensorError) -> String {
@@ -37,12 +41,14 @@ pub fn build_json_snapshot(snapshot: &Snapshot) -> JsonSnapshot {
         .map(|(name, result)| match result {
             Ok(reading) => JsonSensorResult {
                 name: name.clone(),
+                coverage: (name == "board:pmic").then_some("partial"),
                 display_name: Some(component_display_label(&reading.component)),
                 reading: Some(reading.clone()),
                 error: None,
             },
             Err(error) => JsonSensorResult {
                 name: name.clone(),
+                coverage: None,
                 display_name: name.strip_prefix("disk:").map(|device| {
                     component_display_label(&crate::model::Component::Disk(device.to_string()))
                 }),
@@ -56,6 +62,11 @@ pub fn build_json_snapshot(snapshot: &Snapshot) -> JsonSnapshot {
         timestamp: snapshot.timestamp,
         sensors,
         total: snapshot.total(),
+        coverage: snapshot
+            .results
+            .iter()
+            .any(|(name, result)| name == "board:pmic" && result.is_ok())
+            .then_some("partial"),
     }
 }
 

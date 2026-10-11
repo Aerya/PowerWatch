@@ -57,9 +57,12 @@ impl Snapshot {
     pub fn total(&self) -> Option<SensorReading> {
         let mut count = 0;
         let mut any_estimated = false;
+        let mut partial_pmic = false;
 
-        for reading in self.readings() {
+        for (name, result) in &self.results {
+            let Ok(reading) = result else { continue };
             count += 1;
+            partial_pmic |= name == "board:pmic";
             if reading.confidence == Confidence::Estimated {
                 any_estimated = true;
             }
@@ -72,7 +75,7 @@ impl Snapshot {
         Some(SensorReading {
             component: Component::Total,
             watts: self.total_watts(),
-            confidence: if any_estimated {
+            confidence: if any_estimated || partial_pmic {
                 Confidence::Estimated
             } else {
                 Confidence::Measured
@@ -218,6 +221,26 @@ mod tests {
         let snapshot = sampler.sample_all();
 
         assert_eq!(snapshot.total().unwrap().confidence, Confidence::Estimated);
+    }
+
+    #[test]
+    fn measured_pmic_rails_keep_a_partial_total() {
+        let mut sampler = Sampler::new();
+        sampler.add_sensor(
+            "board:pmic",
+            Box::new(FixedSensor {
+                reading: measured_reading(Component::Board, 2.1),
+            }),
+        );
+        let snapshot = sampler.sample_all();
+        assert_eq!(
+            snapshot.readings().next().unwrap().confidence,
+            Confidence::Measured
+        );
+        assert_eq!(snapshot.total().unwrap().confidence, Confidence::Estimated);
+        assert_eq!(snapshot.total().unwrap().watts, 2.1);
+        let json = crate::json_snapshot::build_json_snapshot(&snapshot);
+        assert_eq!(serde_json::to_value(json).unwrap()["coverage"], "partial");
     }
 
     #[test]

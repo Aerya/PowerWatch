@@ -74,6 +74,15 @@ This fork is primarily designed for **servers, mini PCs, Linux desktop machines,
 
 ## Measurements
 
+### ARM boards and measurement coverage
+
+On Linux ARM64 or ARMv7, `POWERWATCH_BOARD_IDLE_W` and `POWERWATCH_BOARD_MAX_W` enable a **Board** model calibrated at the wall socket. Measure idle and loaded power with a meter; no coefficients are guessed. The estimate includes RAM, storage and supply losses present during calibration, and never replaces available RAPL/MSR measurements.
+
+On Raspberry Pi 5, the PMIC reads rails through `/dev/vcio_gencmd` (the `video` group). In Docker, pass that device with suitable read permissions; expose host board identification when container isolation hides it so initial failures can be retried. The PMIC measures rails but excludes devices powered directly from 5 V (USB, PCIe/NVMe, fan) and supply losses. Totals, kWh and euros based only on this source are therefore **partial lower bounds**, with no invented power for uncovered loads. USB/NVMe estimates can be added; RAM and SD card are not counted twice.
+
+Published images support amd64 and arm64. ARMv7 may be compiled natively with a suitable Rust toolchain, but no ARMv7 image is published until build and hardware validation are completed.
+
+
 | Component | Source | Type |
 |---|---|---|
 | CPU | Linux RAPL (`powercap` or MSR `/dev/cpu/0/msr`) | Measured |

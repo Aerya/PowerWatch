@@ -44,6 +44,7 @@ for(const label of ["local","hub"]){
     assert.match(cost(energy,partial),/horaires HC du compteur manquants/);
     assert.doesNotMatch(cost(energy,partial),/0,25/);
     assert.match(cost(energy,absent),/aucun contrat pour cette période historique/);
+    assert.match(cost({...energy,estimated_kwh:0.001},rated),/partiel/);
     assert.equal(cost({first_seen_epoch:null},rated),"");
     context[label==="local"?"powerwatchCosts":"hubEnergyCosts"]={enabled:false};
     assert.equal(cost(energy,rated),"Tarif non configuré");
