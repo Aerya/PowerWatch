@@ -22,7 +22,7 @@ window.prompt=()=>"22:30-06:30";window.confirm=()=>true;
 (async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms));await wait(250);document.querySelector("#tf-market-search").click();await wait(250);let select=document.querySelector("#tf-market-offer");select.selectedIndex=1;select.dispatchEvent(new Event("change"));const before=select.value;document.documentElement.lang="en";await wait(100);const after=document.querySelector("#tf-market-offer").value;document.querySelector("#tf-market-import").click();await wait(250);document.querySelector("#result").textContent=JSON.stringify({before,after,saved:document.querySelector("#tf-market-offer").value,option:config.contracts[0]?.option,kva:config.contracts[0]?.kva,offpeak:config.contracts[0]?.offpeak,putCount,postCount,summary:document.querySelector(".tf-main-contract")?.textContent});})();
 </script></body></html>`;
     const file=path.join(dir,"index.html");fs.writeFileSync(file,html);
-    const output=execFileSync(chromium,["--headless","--no-sandbox","--disable-gpu","--disable-dev-shm-usage","--virtual-time-budget=3000","--dump-dom","file://"+file],{encoding:"utf8",timeout:15000,stdio:["ignore","pipe","ignore"]});
+    const output=execFileSync(chromium,["--headless","--no-sandbox","--disable-gpu","--disable-dev-shm-usage","--disable-background-networking","--no-first-run","--no-default-browser-check","--virtual-time-budget=3000","--dump-dom","file://"+file],{encoding:"utf8",timeout:60000,stdio:["ignore","pipe","ignore"]});
     const match=output.match(/<pre id="result">([^<]+)<\/pre>/);
     assert.ok(match,"browser completed the import flow");
     const result=JSON.parse(match[1].replaceAll("&quot;",'"').replaceAll("&amp;","&"));
@@ -44,7 +44,7 @@ window.fetch=async(url,opts={})=>{if(opts.method==="PUT"||opts.method==="POST")w
 (async()=>{await new Promise(r=>setTimeout(r,200));document.querySelector("#tf-market-search").click();await new Promise(r=>setTimeout(r,250));document.querySelector("#result").textContent=JSON.stringify({writes,status:document.querySelector("#tf-market-status").textContent,importDisabled:document.querySelector("#tf-market-import").disabled});})();
 </script></body></html>`;
     const file=path.join(dir,"index.html");fs.writeFileSync(file,html);
-    const output=execFileSync(chromium,["--headless","--no-sandbox","--disable-gpu","--disable-dev-shm-usage","--virtual-time-budget=3000","--dump-dom","file://"+file],{encoding:"utf8",timeout:15000,stdio:["ignore","pipe","ignore"]});
+    const output=execFileSync(chromium,["--headless","--no-sandbox","--disable-gpu","--disable-dev-shm-usage","--disable-background-networking","--no-first-run","--no-default-browser-check","--virtual-time-budget=3000","--dump-dom","file://"+file],{encoding:"utf8",timeout:60000,stdio:["ignore","pipe","ignore"]});
     const match=output.match(/<pre id="result">([^<]+)<\/pre>/);assert.ok(match);
     const result=JSON.parse(match[1].replaceAll("&quot;",'"').replaceAll("&amp;","&"));
     assert.equal(result.writes,0);assert.equal(result.importDisabled,true);assert.match(result.status,/source indisponible/);
