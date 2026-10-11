@@ -15,7 +15,7 @@ pub const TEMPO_TOMORROW: &str = "https://www.calendrier-tempo.fr/api/tomorrow";
 
 fn default_local() -> String { "local".into() }
 fn default_fr() -> String { "FR".into() }
-fn default_hp() -> Vec<OffpeakWindow> { vec![OffpeakWindow { from: "22:00".into(), to: "06:00".into() }] }
+fn default_hp() -> Vec<OffpeakWindow> { Vec::new() }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OffpeakWindow { pub from: String, pub to: String }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,7 +111,7 @@ fn validate(config:&TariffConfig)->Result<(),String> {
         if !["base","hphc","tempo","custom"].contains(&c.option.as_str()) || !(1..=36).contains(&c.kva) {return Err("invalid option or kVA".into());}
         if c.ends_on.is_some_and(|end|end<c.starts_on) {return Err("contract end before start".into());}
         if c.offpeak.len()>12 {return Err("too many HP/HC windows".into());}
-        for w in &c.offpeak {parse_time(&w.from)?;parse_time(&w.to)?;}
+        for w in &c.offpeak {if parse_time(&w.from)?==parse_time(&w.to)? {return Err("off-peak window has zero duration".into());}}
         if c.revisions.len()>250 {return Err("too many price revisions".into());}
         for rev in &c.revisions {
             if rev.until.is_some_and(|end|end<rev.from) {return Err("price revision end before start".into());}
@@ -359,11 +359,20 @@ pub fn price_slices(config:&TariffConfig,site:&str,slices:&[EnergySlice])->CostS
             if let Some(price)=price {
                 result.billed_energy_kwh+=wh/1000.0;
                 result.energy_cost_eur+=wh/1000.0*price;
-            }else{result.unpriced_kwh+=wh/1000.0;}
+            }else{
+                result.unpriced_kwh+=wh/1000.0;
+                let reason=match contract {
+                    None=>"no contract for this historical period",
+                    Some(c) if price_at(c,date).is_none()=>"no price revision for this historical period",
+                    Some(c) if ["hphc","custom"].contains(&c.option.as_str()) && c.offpeak.is_empty()=>"meter off-peak hours are missing",
+                    Some(c) if c.option=="tempo" && category(config,c,at).is_none()=>"official Tempo color is missing",
+                    Some(_)=>"price missing for this tariff category",
+                };
+                if !result.warnings.iter().any(|w|w==reason){result.warnings.push(reason.into());}
+            }
             cursor=next;
         }
     }
-    if result.unpriced_kwh>1e-10 {result.warnings.push("unpriced periods: missing contracts, prices or official Tempo colors".into());}
     if result.approximate_kwh>1e-10 {result.warnings.push("legacy hourly energy: price breakdown approximate".into());}
     result
 }

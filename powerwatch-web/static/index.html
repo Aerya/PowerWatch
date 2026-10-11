@@ -1827,16 +1827,18 @@ let pwCostFailed = false;
 function pwEnergyText(key) { return t("energy." + key); }
 function pwCostText(energy, cost) {
   if (!energy || energy.first_seen_epoch == null) return "";
-  if (pwCostFailed) return pwEnergyText("costUnavailable");
+  if (pwCostFailed) return `${pwEnergyText("costUnavailable")} · API`;
   if (!powerwatchCosts) return "—";
   if (!powerwatchCosts.enabled) return pwEnergyText("costDisabled");
   if (!cost || !Number.isFinite(cost.energy_cost_eur) || !Number.isFinite(cost.subscription_eur)) return pwEnergyText("costUnavailable");
   // Never turn missing tariff slots into a fictional full bill.
-  if (cost.billed_energy_kwh <= 0 && cost.unpriced_kwh > 0.0000001) return pwEnergyText("costUnavailable");
+  if (cost.unpriced_kwh > 0.0000001) {
+    const reasons={"no contract for this historical period":"aucun contrat pour cette période historique","no price revision for this historical period":"aucun prix pour cette période historique","meter off-peak hours are missing":"horaires HC du compteur manquants","official Tempo color is missing":"couleur Tempo officielle manquante","price missing for this tariff category":"prix manquant pour cette catégorie"};
+    return `${pwEnergyText("costUnavailable")} · ${(cost.warnings||[]).map(w=>PWI18n.language==="fr"?(reasons[w]||w):w).join(", ")}`;
+  }
   const amount = cost.energy_cost_eur + cost.subscription_eur;
   const money = amount.toLocaleString(PWI18n.language === "en" ? "en-US" : "fr-FR", {style:"currency",currency:"EUR",minimumFractionDigits:2,maximumFractionDigits:2});
-  const partial = cost.unpriced_kwh > 0.0000001 ? ` · ${pwEnergyText("costPartial")}` : "";
-  return `≈ ${money}${partial}`;
+  return `≈ ${money}`;
 }
 async function pwCostRefresh(params) {
   try {

@@ -979,13 +979,16 @@ function hubCostParams() {
 }
 function hubCostText(energy,cost){
   if (!energy || energy.first_seen_epoch==null) return "";
-  if (hubCostFailed) return tr("energyCostUnavailable");
+  if (hubCostFailed) return `${tr("energyCostUnavailable")} · API`;
   if (!hubEnergyCosts) return "—";
   if (!hubEnergyCosts.enabled) return tr("energyCostDisabled");
   if (!cost || !Number.isFinite(cost.energy_cost_eur) || !Number.isFinite(cost.subscription_eur)) return tr("energyCostUnavailable");
-  if (cost.billed_energy_kwh<=0 && cost.unpriced_kwh>0.0000001) return tr("energyCostUnavailable");
+  if (cost.unpriced_kwh>0.0000001) {
+    const reasons={"no contract for this historical period":"aucun contrat pour cette période historique","no price revision for this historical period":"aucun prix pour cette période historique","meter off-peak hours are missing":"horaires HC du compteur manquants","official Tempo color is missing":"couleur Tempo officielle manquante","price missing for this tariff category":"prix manquant pour cette catégorie"};
+    return `${tr("energyCostUnavailable")} · ${(cost.warnings||[]).map(w=>lang==="fr"?(reasons[w]||w):w).join(", ")}`;
+  }
   const money=(cost.energy_cost_eur+cost.subscription_eur).toLocaleString(lang==="fr"?"fr-FR":"en-US",{style:"currency",currency:"EUR",minimumFractionDigits:2,maximumFractionDigits:2});
-  return `≈ ${money}${cost.unpriced_kwh>0.0000001?` · ${tr("energyCostPartial")}`:""}`;
+  return `≈ ${money}`;
 }
 async function refreshHubCosts() {
   const qs=hubCostParams();

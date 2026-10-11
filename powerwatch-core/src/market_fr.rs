@@ -183,6 +183,55 @@ pub fn apply_offer(
     Ok(true)
 }
 
+/// Prepare a confirmed import in memory. The caller persists the complete result
+/// only after this function and tariff validation have both succeeded.
+pub fn import_offer(
+    config: &mut crate::tariffs_fr::TariffConfig,
+    contract_id: &str,
+    site_id: &str,
+    offer: &MarketOffer,
+    today: NaiveDate,
+    replace_contract_id: Option<&str>,
+) -> Result<bool, String> {
+    use crate::tariffs_fr::TariffContract;
+    if !config.sites.iter().any(|s| s.id == site_id) {
+        return Err("unknown electric site".into());
+    }
+    if config.contracts.iter().any(|c| c.id == contract_id && c.site_id != site_id) {
+        return Err("contract belongs to another site".into());
+    }
+    let active = config.contracts.iter().position(|c| c.site_id == site_id
+        && c.starts_on <= today && c.ends_on.is_none_or(|end| end >= today));
+    let target = config.contracts.iter().position(|c| c.id == contract_id);
+    if let Some(index) = active.filter(|index| Some(*index) != target) {
+        let old = &config.contracts[index];
+        if replace_contract_id != Some(old.id.as_str()) {
+            return Err(format!("replacement confirmation required for active contract {}", old.id));
+        }
+        if old.starts_on == today && !old.revisions.is_empty() {
+            return Err("active contract starts today and has price history; choose a later effective date".into());
+        }
+        if old.revisions.is_empty() && old.starts_on == today {
+            config.contracts.remove(index);
+        } else {
+            config.contracts[index].ends_on = today.pred_opt();
+        }
+    }
+    if target.is_none() {
+        if config.contracts.iter().any(|c| c.id == contract_id) {
+            return Err("duplicate contract ID".into());
+        }
+        config.contracts.push(TariffContract {
+            id: contract_id.into(), site_id: site_id.into(), supplier: offer.supplier.clone(),
+            offer: offer.offer.clone(), option: offer.option.clone(), starts_on: today,
+            ends_on: None, kva: offer.kva, offpeak: Vec::new(), revisions: Vec::new(),
+        });
+    }
+    let changed = apply_offer(config, contract_id, offer, today)?;
+    config.enabled = true;
+    Ok(changed)
+}
+
 #[cfg(test)]mod tests {
     use super::*;
     const PAGE:&str=r#"<h3>Heures Eco Electricité</h3><h4>Grille tarifaire de l'offre Heures Eco Electricité de TotalEnergies en octobre 2026 Option heures pleines heures creuses</h4>
@@ -202,4 +251,55 @@ pub fn apply_offer(
     }
     #[test] fn forbids_invalid_slugs(){assert!(tariff_url("../../evil").is_err());assert!(tariff_url("totalenergies").is_ok());}
     #[test] fn supplier_list_from_links(){let v=parse_suppliers(r#"<a href="/fournisseurs/totalenergies">TotalEnergies</a><a href="/fournisseurs/edf/prix">EDF</a>"#);assert_eq!(v.len(),2);}
+    fn selected(option:&str)->MarketOffer {
+        MarketOffer{supplier:"TotalEnergies".into(),supplier_slug:"totalenergies".into(),offer:"Access Électricité".into(),
+            option:option.into(),kva:6,eur_kwh:if option=="base" {BTreeMap::from([("base".into(),0.2)])}
+                else {BTreeMap::from([("hp".into(),0.23),("hc".into(),0.17)])},
+            annual_subscription_eur:190.0,source_url:tariff_url("totalenergies").unwrap(),fetched_at:"2026-10-11T10:00:00Z".into()}
+    }
+    #[test] fn imports_base_and_hphc_without_guessing_meter_hours(){
+        let today=NaiveDate::from_ymd_opt(2026,10,11).unwrap();
+        for option in ["base","hphc"] {
+            let mut config=crate::tariffs_fr::TariffConfig::default();
+            assert!(import_offer(&mut config,"new","local",&selected(option),today,None).unwrap());
+            let contract=&config.contracts[0];
+            assert_eq!(contract.kva,6);assert_eq!(contract.option,option);
+            assert!(contract.offpeak.is_empty());assert_eq!(contract.revisions[0].eur_kwh,selected(option).eur_kwh);
+            let db=rusqlite::Connection::open_in_memory().unwrap();
+            crate::tariffs_fr::save(&db,&config).unwrap();
+            assert_eq!(crate::tariffs_fr::load(&db).unwrap().contracts[0].offer,"Access Électricité");
+        }
+    }
+    #[test] fn replacement_requires_confirmation_and_preserves_dated_history(){
+        let today=NaiveDate::from_ymd_opt(2026,10,11).unwrap();
+        let mut config=crate::tariffs_fr::TariffConfig::default();
+        import_offer(&mut config,"old","local",&selected("base"),today.pred_opt().unwrap(),None).unwrap();
+        let before=serde_json::to_string(&config).unwrap();
+        assert!(import_offer(&mut config,"new","local",&selected("hphc"),today,None).is_err());
+        assert_eq!(serde_json::to_string(&config).unwrap(),before);
+        assert!(import_offer(&mut config,"new","local",&selected("hphc"),today,Some("old")).unwrap());
+        assert_eq!(config.contracts[0].ends_on,today.pred_opt());
+        assert_eq!(config.contracts[0].revisions[0].eur_kwh["base"],0.2);
+        let db=rusqlite::Connection::open_in_memory().unwrap();
+        crate::tariffs_fr::save(&db,&config).unwrap();
+    }
+    #[test] fn confirmed_empty_contract_is_replaced_without_a_ghost_active_contract(){
+        let today=NaiveDate::from_ymd_opt(2026,10,11).unwrap();
+        let mut config=crate::tariffs_fr::TariffConfig::default();
+        import_offer(&mut config,"old","local",&selected("base"),today,None).unwrap();
+        config.contracts[0].revisions.clear();
+        assert!(import_offer(&mut config,"new","local",&selected("hphc"),today,Some("old")).unwrap());
+        assert_eq!(config.contracts.len(),1);
+        assert_eq!(config.contracts[0].id,"new");
+        let db=rusqlite::Connection::open_in_memory().unwrap();
+        crate::tariffs_fr::save(&db,&config).unwrap();
+    }
+    #[test] fn same_day_history_blocks_replacement_without_changing_config(){
+        let today=NaiveDate::from_ymd_opt(2026,10,11).unwrap();
+        let mut config=crate::tariffs_fr::TariffConfig::default();
+        import_offer(&mut config,"old","local",&selected("base"),today,None).unwrap();
+        let before=serde_json::to_string(&config).unwrap();
+        assert!(import_offer(&mut config,"new","local",&selected("hphc"),today,Some("old")).is_err());
+        assert_eq!(serde_json::to_string(&config).unwrap(),before);
+    }
 }
