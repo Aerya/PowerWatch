@@ -15,7 +15,7 @@ pub const TEMPO_TOMORROW: &str = "https://www.calendrier-tempo.fr/api/tomorrow";
 
 fn default_local() -> String { "local".into() }
 fn default_fr() -> String { "FR".into() }
-fn default_hp() -> Vec<OffpeakWindow> { vec![OffpeakWindow { from: "22:00".into(), to: "06:00".into() }] }
+fn default_hp() -> Vec<OffpeakWindow> { Vec::new() }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OffpeakWindow { pub from: String, pub to: String }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,6 +56,7 @@ pub struct TempoColor {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TariffConfig {
+    #[serde(default)] pub revision: u64,
     #[serde(default)] pub enabled: bool,
     #[serde(default = "default_fr")] pub country: String,
     #[serde(default)] pub include_subscription: bool,
@@ -67,7 +68,7 @@ pub struct TariffConfig {
 }
 impl Default for TariffConfig {
     fn default() -> Self {
-        Self { enabled:false,country:default_fr(),include_subscription:false,
+        Self { revision:0,enabled:false,country:default_fr(),include_subscription:false,
           sites:vec![TariffSite{id:"local".into(),name:"Local".into(),nodes:vec![]}],
           contracts:vec![],tempo_days:BTreeMap::new(),cre_last_sync:None,tempo_last_sync:None }
     }
@@ -84,14 +85,22 @@ pub fn load(conn:&Connection)->Result<TariffConfig,String> {
         .optional().map_err(|e|e.to_string())?;
     match json { Some(v)=>serde_json::from_str(&v).map_err(|e|e.to_string()),None=>Ok(TariffConfig::default()) }
 }
-pub fn save(conn:&Connection,config:&TariffConfig)->Result<(),String> {
+pub fn save(conn:&Connection,config:&TariffConfig)->Result<TariffConfig,String> {
     init(conn).map_err(|e|e.to_string())?;
     validate(config)?;
-    let json=serde_json::to_string(config).map_err(|e|e.to_string())?;
-    conn.execute("INSERT INTO tariffs_fr_config(singleton,json) VALUES(1,?1)
-         ON CONFLICT(singleton) DO UPDATE SET json=excluded.json",[json])
+    let previous:Option<String>=conn.query_row("SELECT json FROM tariffs_fr_config WHERE singleton=1",[],|r|r.get(0))
+        .optional().map_err(|e|e.to_string())?;
+    let current=previous.as_deref().map(serde_json::from_str::<TariffConfig>).transpose().map_err(|e|e.to_string())?;
+    if current.as_ref().map_or(0,|c|c.revision)!=config.revision {return Err("tariff configuration changed on server; reload before saving".into());}
+    let mut updated=config.clone();
+    updated.revision=config.revision.checked_add(1).ok_or("tariff revision overflow")?;
+    let json=serde_json::to_string(&updated).map_err(|e|e.to_string())?;
+    let written=if let Some(previous)=previous {
+        conn.execute("UPDATE tariffs_fr_config SET json=?1 WHERE singleton=1 AND json=?2",params![json,previous])
+    } else {conn.execute("INSERT OR IGNORE INTO tariffs_fr_config(singleton,json) VALUES(1,?1)",[json])}
         .map_err(|e|e.to_string())?;
-    Ok(())
+    if written!=1 {return Err("tariff configuration changed on server; reload before saving".into());}
+    Ok(updated)
 }
 fn key_valid(s:&str)->bool { !s.is_empty()&&s.len()<=96&&s.chars().all(|c|c.is_ascii_alphanumeric()||"_-".contains(c)) }
 fn parse_time(s:&str)->Result<NaiveTime,String> { NaiveTime::parse_from_str(s,"%H:%M").map_err(|_|format!("invalid time {s}; HH:MM required")) }
@@ -111,7 +120,7 @@ fn validate(config:&TariffConfig)->Result<(),String> {
         if !["base","hphc","tempo","custom"].contains(&c.option.as_str()) || !(1..=36).contains(&c.kva) {return Err("invalid option or kVA".into());}
         if c.ends_on.is_some_and(|end|end<c.starts_on) {return Err("contract end before start".into());}
         if c.offpeak.len()>12 {return Err("too many HP/HC windows".into());}
-        for w in &c.offpeak {parse_time(&w.from)?;parse_time(&w.to)?;}
+        for w in &c.offpeak {if parse_time(&w.from)?==parse_time(&w.to)? {return Err("off-peak window has zero duration".into());}}
         if c.revisions.len()>250 {return Err("too many price revisions".into());}
         for rev in &c.revisions {
             if rev.until.is_some_and(|end|end<rev.from) {return Err("price revision end before start".into());}
@@ -359,11 +368,20 @@ pub fn price_slices(config:&TariffConfig,site:&str,slices:&[EnergySlice])->CostS
             if let Some(price)=price {
                 result.billed_energy_kwh+=wh/1000.0;
                 result.energy_cost_eur+=wh/1000.0*price;
-            }else{result.unpriced_kwh+=wh/1000.0;}
+            }else{
+                result.unpriced_kwh+=wh/1000.0;
+                let reason=match contract {
+                    None=>"no contract for this historical period",
+                    Some(c) if price_at(c,date).is_none()=>"no price revision for this historical period",
+                    Some(c) if ["hphc","custom"].contains(&c.option.as_str()) && c.offpeak.is_empty()=>"meter off-peak hours are missing",
+                    Some(c) if c.option=="tempo" && category(config,c,at).is_none()=>"official Tempo color is missing",
+                    Some(_)=>"price missing for this tariff category",
+                };
+                if !result.warnings.iter().any(|w|w==reason){result.warnings.push(reason.into());}
+            }
             cursor=next;
         }
     }
-    if result.unpriced_kwh>1e-10 {result.warnings.push("unpriced periods: missing contracts, prices or official Tempo colors".into());}
     if result.approximate_kwh>1e-10 {result.warnings.push("legacy hourly energy: price breakdown approximate".into());}
     result
 }
@@ -572,6 +590,17 @@ mod tests {
         let db = Connection::open(&path).unwrap();
         let d = load(&db).unwrap();
         assert_eq!(d.contracts[0].revisions[0].eur_kwh["hc"], 0.15);
+    }
+    #[test] fn stale_manual_save_cannot_overwrite_newer_import(){
+        let db=Connection::open_in_memory().unwrap();
+        let stale=TariffConfig::default();
+        let current=save(&db,&stale).unwrap();
+        assert_eq!(current.revision,1);
+        let mut newer=current.clone();newer.enabled=true;
+        let saved=save(&db,&newer).unwrap();
+        assert_eq!(saved.revision,2);
+        assert!(save(&db,&current).is_err());
+        assert!(load(&db).unwrap().enabled);
     }
     #[test] fn parses_cre_prices_and_keeps_manual_override(){
         let mut c=sample();c.contracts[0].revisions.clear();

@@ -31,7 +31,7 @@
   - [NVIDIA](#nvidia)
 - [Disques, partitions et stockage](#disques-partitions-et-stockage)
 - [WebUI](#webui)
-  - [Tarification électrique France — bêta (optionnelle)](#tarification-électrique-france--bêta-optionnelle)
+  - ! NON FONCTIONNEL POUR L'INSTANT ! [Tarification électrique France — bêta (optionnelle)](#tarification-électrique-france--bêta-optionnelle)
 - [Consommation énergétique cumulée (kWh)](#consommation-énergétique-cumulée-kwh)
 - [Historique](#historique)
 - [Alertes et notifications](#alertes-et-notifications)
@@ -392,6 +392,7 @@ L'image Docker démarre automatiquement PowerWatch avec l'historique activé et 
 - Versions de tarifs datées par contrat : Base, heures pleines/creuses personnalisables, Tempo avec ses six prix, offre personnalisée. Chaque prix TTC, abonnement annuel et date restent éditables ; toute correction manuelle prime sur la source automatique.
 - Synchronisation des **tarifs réglementés EDF Tarif Bleu** via fichiers CSV officiels de la CRE (Base, HP/HC, Tempo), selon la puissance souscrite ; synchronisation des **couleurs Tempo confirmées** via l'API tierce calendrier-tempo.fr (CC BY 4.0 ; ce n'est pas une API officielle EDF/RTE). D'abord manuellement par bouton, puis chaque jour côté serveur lorsque l'option est activée. L'indisponibilité d'une source n'efface jamais les tarifs existants.
 - **Catalogue automatique bêta (France)** : sélection fournisseur → offre → option Base / HP-HC → puissance souscrite ; récupération en direct des grilles publiques TTC (prix du kWh et abonnement) publiées par Kelwatt, avec source et date de consultation. Mise à jour côté serveur chaque jour pour les offres importées, sans clé API ni saisie des prix. Si la structure du site change, l'import échoue explicitement sans inventer de prix ; les anciennes grilles restent enregistrées.
+- **Parcours simple** : ouvrez « Tarification électrique France », chargez les offres du fournisseur, choisissez la grille correspondant à votre contrat, puis cliquez sur « Importer et suivre automatiquement ». Le serveur revérifie l'offre et enregistre le contrat et ses prix ensemble. Si un autre contrat est actif, confirmez son remplacement ; un historique incompatible bloque l'import. L'écran confirme l'offre, les prix, la source et la date enregistrés. Pour HP/HC, saisissez les horaires réels de votre compteur lorsque l'interface les demande. Les changements manuels utilisent séparément « Enregistrer les modifications ».
 - **Limites importantes** : les offres à plusieurs plages spéciales (ex. Heures Eco+ ou Charge'Heures) ne sont pas interprétées comme de simples contrats HP/HC. Les grilles publiques courantes ne garantissent pas les prix d'un ancien contrat fixe ou une promotion personnelle ; les tarifs historiques ne sont pas reconstitués. Les heures creuses **attribuées au compteur Linky** ne sont pas déductibles d'un catalogue de fournisseurs : elles doivent être vérifiées auprès d'Enedis / du fournisseur. Sans horaires validés, aucun calcul HP/HC fictif. Une saisie et des corrections manuelles restent possibles.
 - Date et heure en `Europe/Paris`, avec changement d'heure. La journée Tempo va de 06 h à 06 h, HP de 06 h à 22 h pour Tempo. La grille HP/HC non Tempo est configurable pour chaque contrat.
 - **Agrégats énergétiques de 15 minutes conservés sans limite de durée programmée** pour les nouvelles archives. Les anciens agrégats horaires restent lisibles, avec un avertissement de précision pour leurs coûts. Les périodes inconnues n'ont **jamais de prix inventé**.
@@ -402,7 +403,7 @@ Sources : https://www.cre.fr/documents/open-data/historique-des-tarifs-reglement
 
 ## Consommation énergétique cumulée (kWh)
 
-> **Coût dans les compteurs (instance et Hub)** : lorsque la tarification française est activée, les quatre compteurs 24 h, 7 j, 30 j et historique affichent automatiquement le montant estimé en euros sous les kWh. Les périodes personnalisées utilisent le même moteur tarifaire. Dans le Hub, le coût suit le filtre des instances et l’abonnement éventuel est compté une seule fois par site électrique. Les tranches sans prix valide restent signalées comme partielles ou indisponibles ; aucun prix n’est inventé.
+> **Coût dans les compteurs (instance et Hub)** : lorsque la tarification française est activée, les quatre compteurs 24 h, 7 j, 30 j et historique affichent automatiquement le montant estimé en euros sous les kWh. Les périodes personnalisées utilisent le même moteur tarifaire. Dans le Hub, le coût suit le filtre des instances et l’abonnement éventuel est compté une seule fois par site électrique. Si une tranche manque de contrat, de prix, d'horaire HC ou de couleur Tempo, aucun total en euros incomplet n'est présenté comme un coût complet ; la raison est affichée.
 
 
 PowerWatch et PowerWatch Hub affichent **24 h, 7 j, 30 j et cumul depuis les premiers relevés**, ainsi qu'une période personnalisée (dates et heures). Le Hub présente aussi les kWh **par machine**.

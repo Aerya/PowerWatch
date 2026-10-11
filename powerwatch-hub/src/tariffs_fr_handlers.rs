@@ -13,7 +13,7 @@ async fn hub_tariff_get(State(state):State<AppState>)
 async fn hub_tariff_put(State(state):State<AppState>,Json(config):Json<powerwatch_core::tariffs_fr::TariffConfig>)
  ->Result<Json<powerwatch_core::tariffs_fr::TariffConfig>,(StatusCode,String)> {
     let db=state.storage.lock().map_err(|_|(StatusCode::INTERNAL_SERVER_ERROR,"storage poisoned".into()))?;
-    powerwatch_core::tariffs_fr::save(&db.conn,&config).map_err(|e|(StatusCode::BAD_REQUEST,e))?;
+    let config=powerwatch_core::tariffs_fr::save(&db.conn,&config).map_err(|e|(StatusCode::CONFLICT,e))?;
     Ok(Json(config))
 }
 async fn hub_tariff_sync(State(state):State<AppState>,Json(req):Json<HubTariffSyncRequest>)
@@ -38,7 +38,7 @@ async fn hub_tariff_sync(State(state):State<AppState>,Json(req):Json<HubTariffSy
     let mut config=tariffs::load(&db.conn).map_err(|e|(StatusCode::INTERNAL_SERVER_ERROR,e))?;
     let count=match contract_id {Some(id)=>tariffs::merge_cre_csv(&mut config,&id,&body),None=>tariffs::merge_tempo_history(&mut config,&body)}
         .map_err(|e|(StatusCode::BAD_GATEWAY,e))?;
-    tariffs::save(&db.conn,&config).map_err(|e|(StatusCode::BAD_REQUEST,e))?;
+    let config=tariffs::save(&db.conn,&config).map_err(|e|(StatusCode::CONFLICT,e))?;
     Ok(Json(HubTariffSyncResponse{message:format!("{count} entries updated; manual edits retained"),config}))
 }
 async fn hub_tariff_cost(State(state):State<AppState>,Query(params):Query<HubTariffCostParams>)
