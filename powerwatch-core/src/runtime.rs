@@ -58,8 +58,8 @@ pub fn build_default_sampler() -> Sampler {
     use crate::sensors::rapl::{RaplPackageMinusDomainSensor, RaplSensor};
     use crate::sensors::rapl_msr::RaplMsrSensor;
     use crate::sensors::rpi_pmic::{
-        parse_pmic_adc, GencmdSource, RpiPmicSensor, VcioGencmd, DEFAULT_GENCMD_DEVICE,
-        GENCMD_DEVICE_ENV, PMIC_COMMAND,
+        read_pmic_power, running_on_pi5_family, RpiPmicSensor, VcioGencmd, DEFAULT_GENCMD_DEVICE,
+        GENCMD_DEVICE_ENV,
     };
     use std::path::{Path, PathBuf};
 
@@ -160,18 +160,24 @@ pub fn build_default_sampler() -> Sampler {
     // Raspberry Pi 5: measured rail power from the PMIC, through the firmware
     // mailbox. An explicitly configured board model takes precedence, since
     // it is calibrated at the wall and covers the whole board. The sensor is
-    // only registered when a first read returns real rails, so other boards
-    // (where the firmware does not know pmic_read_adc) are left untouched.
+    // registered when a first read returns a complete set of rails, so other
+    // boards (where the firmware does not know pmic_read_adc) are left
+    // untouched. On a board that identifies itself as a Raspberry Pi 5, a
+    // failed first read is not final: the sensor is registered anyway and
+    // retries a few times at regular intervals.
     if cpu_source == CpuSource::None {
         let gencmd_path = std::env::var(GENCMD_DEVICE_ENV)
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from(DEFAULT_GENCMD_DEVICE));
         if let Ok(mut gencmd) = VcioGencmd::open(&gencmd_path) {
-            let has_pmic = gencmd
-                .run(PMIC_COMMAND)
-                .is_ok_and(|answer| parse_pmic_adc(&answer).is_ok());
-            if has_pmic {
+            if read_pmic_power(&mut gencmd).is_ok() {
                 sampler.add_sensor("cpu", Box::new(RpiPmicSensor::new(gencmd)));
+                cpu_source = CpuSource::RpiPmic;
+            } else if running_on_pi5_family() {
+                sampler.add_sensor(
+                    "cpu",
+                    Box::new(RpiPmicSensor::pending(gencmd, std::time::Instant::now())),
+                );
                 cpu_source = CpuSource::RpiPmic;
             }
         }
