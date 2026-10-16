@@ -391,7 +391,7 @@ The main page displays:
 - total power consumption;
 - every detected sensor;
 - the **measured / estimated** distinction;
-- historical data;
+- the history chart at the top, beside the total, with Live, 1 h, 6 h, 24 h, 7 d, 30 d, 180 d and 400 d presets plus a custom range;
 - average, minimum, maximum, and energy;
 - preset and custom time ranges;
 - enriched disk labels including capacity;

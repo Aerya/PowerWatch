@@ -197,6 +197,19 @@
   #app-footer a { color: var(--text); text-decoration: none; border-bottom: 1px dotted var(--muted); }
   #app-footer a:hover { color: var(--measured); border-bottom-color: var(--measured); }
 
+  .dashboard-hero { display:grid; grid-template-columns:minmax(250px,340px) minmax(0,1fr); gap:8px; margin-bottom:8px; }
+  .dashboard-hero .total { margin:0; }
+  .history-stack { min-width:0; }
+  .history-actions { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+  .history-actions > select, .history-custom > summary { background:var(--bg); border:1px solid var(--border); border-radius:4px; color:var(--text); font:inherit; font-size:.82rem; padding:6px 9px; cursor:pointer; }
+  .history-custom { position:relative; }
+  .history-custom > summary { list-style:none; }
+  .history-custom > summary::-webkit-details-marker { display:none; }
+  .history-custom[open] > summary { border-color:var(--measured); }
+  .history-custom form { position:absolute; z-index:30; right:0; top:calc(100% + 4px); min-width:max-content; padding:9px; background:var(--panel); border:1px solid var(--border); border-radius:6px; box-shadow:0 8px 24px #0005; }
+  .history-stack .stats-grid { margin-top:8px; margin-bottom:0; }
+  @media(max-width:850px) { .dashboard-hero { grid-template-columns:1fr; } }
+  @media(max-width:600px) { .history-custom form { right:auto; left:0; min-width:0; width:min(310px,90vw); } }
 
   .history-toolbar {
     display: flex;
@@ -210,39 +223,17 @@
     border: 1px solid var(--border);
     border-radius: 6px;
   }
-  .range-buttons,
-  .custom-range {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
+  .custom-range { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .range-submit, .custom-range input, .custom-range select {
+    background:var(--bg); border:1px solid var(--border); color:var(--text);
+    border-radius:4px; font:inherit; font-size:.82rem; padding:6px 9px;
   }
-  .range-btn,
-  .range-submit,
-  .custom-range input,
-  .custom-range select {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    color: var(--text);
-    border-radius: 4px;
-    font: inherit;
-    font-size: 0.82rem;
-    padding: 6px 9px;
-  }
-  .range-btn,
-  .range-submit { cursor: pointer; }
-  .range-btn:hover,
-  .range-submit:hover,
-  .range-btn.active {
-    border-color: var(--measured);
-  }
-  .range-btn.active {
-    color: var(--measured);
-  }
-  .custom-range input { width: 74px; }
+  .range-submit { cursor:pointer; }
+  .range-submit:hover { border-color:var(--measured); }
+  .custom-range input { width:74px; }
   .stats-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(130px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
     gap: 8px;
     margin-bottom: 8px;
   }
@@ -661,7 +652,52 @@
     <details class="settings-control" id="mqtt-control"><summary>MQTT</summary><div class="settings-panel"><div id="pw-ha-mount"></div></div></details>
     <details class="settings-control" id="tariffs-control"><summary data-settings-tariffs>Tarifs</summary><div class="settings-panel"><div id="tariffs-fr-app" data-mode="local"></div></div></details>
   </div>
-  <div class="total" id="total" data-i18n="common.loading">Loading...</div>
+  <div class="dashboard-hero">
+    <div class="total" id="total" data-i18n="common.loading">Loading...</div>
+    <section class="history-stack">
+      <div class="history-toolbar">
+        <strong data-i18n="dashboard.history">History</strong>
+        <div class="history-actions">
+          <select id="history-range" aria-label="History duration">
+            <option value="live" data-i18n="dashboard.live">Live</option>
+            <option value="1h">1 h</option>
+            <option value="6h">6 h</option>
+            <option value="24h" selected>24 h</option>
+            <option value="7d" data-i18n="dashboard.range7d">7 d</option>
+            <option value="30d" data-i18n="dashboard.range30d">30 d</option>
+            <option value="180d" data-i18n="dashboard.range180d">180 d</option>
+            <option value="400d" data-i18n="dashboard.range400d">400 d</option>
+            <option value="custom" data-i18n="dashboard.customRange">Custom range</option>
+          </select>
+          <details class="history-custom" id="history-custom">
+            <summary data-i18n="dashboard.customRange">Custom range</summary>
+            <form class="custom-range" id="history-form">
+              <input id="history-amount" type="number" min="1" max="10000" value="7" required aria-label="Amount">
+              <select id="history-unit" aria-label="Unit">
+                <option value="hours" data-i18n="dashboard.hours">hours</option>
+                <option value="days" selected data-i18n="dashboard.days">days</option>
+                <option value="weeks" data-i18n="dashboard.weeks">weeks</option>
+                <option value="months" data-i18n="dashboard.months">months</option>
+                <option value="years" data-i18n="dashboard.years">years</option>
+              </select>
+              <button class="range-submit" type="submit" data-i18n="common.show">Show</button>
+            </form>
+          </details>
+        </div>
+      </div>
+      <div class="chart-panel">
+        <canvas id="chart"></canvas>
+        <div class="legend" id="legend"></div>
+        <div class="chart-caption" id="chart-caption"></div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card"><span class="stat-label" data-i18n="dashboard.average">Average</span><span class="stat-value" id="stat-avg">—</span></div>
+        <div class="stat-card"><span class="stat-label" data-i18n="dashboard.minimum">Minimum</span><span class="stat-value" id="stat-min">—</span></div>
+        <div class="stat-card"><span class="stat-label" data-i18n="dashboard.maximum">Maximum</span><span class="stat-value" id="stat-max">—</span></div>
+        <div class="stat-card"><span class="stat-label" data-i18n="dashboard.energy">Energy</span><span class="stat-value" id="stat-energy">—</span></div>
+      </div>
+    </section>
+  </div>
 
   <section class="energy-panel" aria-labelledby="energy-heading">
     <div class="energy-heading"><h2 id="energy-heading" data-i18n="energy.title">Consommation énergétique cumulée</h2>
@@ -705,43 +741,6 @@
     </thead>
     <tbody id="sensors-body"></tbody>
   </table>
-
-  <div class="history-toolbar">
-    <div class="range-buttons">
-      <button class="range-btn active" id="range-live" type="button" data-i18n="dashboard.live">Live</button>
-      <button class="range-btn" type="button" data-range-amount="1" data-range-unit="hours" data-range-label="1 hour">1 h</button>
-      <button class="range-btn" type="button" data-range-amount="24" data-range-unit="hours" data-range-label="24 hours">24 h</button>
-      <button class="range-btn" type="button" data-range-amount="7" data-range-unit="days" data-range-label="7 days">7 d</button>
-      <button class="range-btn" type="button" data-range-amount="30" data-range-unit="days" data-range-label="30 days">30 d</button>
-      <button class="range-btn" type="button" data-range-amount="1" data-range-unit="years" data-range-label="1 year">1 y</button>
-    </div>
-
-    <form class="custom-range" id="history-form">
-      <span style="color:var(--muted);font-size:.8rem;" data-i18n="dashboard.custom">Custom:</span>
-      <input id="history-amount" type="number" min="1" max="10000" value="7" required>
-      <select id="history-unit">
-        <option value="hours" data-i18n="dashboard.hours">hours</option>
-        <option value="days" selected data-i18n="dashboard.days">days</option>
-        <option value="weeks" data-i18n="dashboard.weeks">weeks</option>
-        <option value="months" data-i18n="dashboard.months">months</option>
-        <option value="years" data-i18n="dashboard.years">years</option>
-      </select>
-      <button class="range-submit" type="submit" data-i18n="common.show">Show</button>
-    </form>
-  </div>
-
-  <div class="stats-grid">
-    <div class="stat-card"><span class="stat-label" data-i18n="dashboard.average">Average</span><span class="stat-value" id="stat-avg">—</span></div>
-    <div class="stat-card"><span class="stat-label" data-i18n="dashboard.minimum">Minimum</span><span class="stat-value" id="stat-min">—</span></div>
-    <div class="stat-card"><span class="stat-label" data-i18n="dashboard.maximum">Maximum</span><span class="stat-value" id="stat-max">—</span></div>
-    <div class="stat-card"><span class="stat-label" data-i18n="dashboard.energy">Energy</span><span class="stat-value" id="stat-energy">—</span></div>
-  </div>
-
-  <div class="chart-panel">
-    <canvas id="chart"></canvas>
-    <div class="legend" id="legend"></div>
-    <div class="chart-caption" id="chart-caption"></div>
-  </div>
 
   <div id="status"></div>
   <footer id="app-footer">
@@ -833,6 +832,7 @@ let componentDisplayLabels = new Map();
 let hoverClientX = null;
 let liveMode = true;
 let currentRange = null;
+let historyRequestSeq = 0;
 let currentSystemInfo = {
   name: "",
   cpu_model: null,
@@ -1244,7 +1244,7 @@ function renderSnapshot(data) {
   const totalEl = document.getElementById("total");
   if (data.total) {
     const cls = confidenceClass(data.total.confidence);
-    totalEl.innerHTML = `total: <span class="value ${cls}">${data.total.watts.toFixed(1)} W</span> (${PWI18n.confidence(data.total.confidence)})`;
+    totalEl.innerHTML = `${t("dashboard.total")}: <span class="value ${cls}">${data.total.watts.toFixed(1)} W</span> (${PWI18n.confidence(data.total.confidence)})`;
   } else {
     totalEl.innerHTML = `<span class="error-text">${t("dashboard.totalNoData")}</span>`;
   }
@@ -1479,6 +1479,7 @@ applySuggestion = function(token, actionLabel) {
 async function loadHistory(amount, unit, label, showStatus = true) {
   liveMode = false;
   currentRange = { amount, unit, label };
+  const requestSeq = ++historyRequestSeq;
 
   if (showStatus) {
     setStatus(t("dashboard.loadingHistory", { label }));
@@ -1496,6 +1497,7 @@ async function loadHistory(amount, unit, label, showStatus = true) {
     }
 
     const payload = await res.json();
+    if (requestSeq !== historyRequestSeq) return;
     lastReadings = (payload.points || []).map((point) => ({
       component: point.component,
       confidence: point.confidence,
@@ -1518,6 +1520,7 @@ async function loadHistory(amount, unit, label, showStatus = true) {
     renderChart();
     setStatus("");
   } catch (err) {
+    if (requestSeq !== historyRequestSeq) return;
     setStatus(t("dashboard.historyError", { error: err.message }));
   }
 }
@@ -1533,15 +1536,12 @@ async function refreshHistory() {
   }
 }
 
-function activateRangeButton(button) {
-  document.querySelectorAll(".range-btn").forEach((btn) => btn.classList.remove("active"));
-  if (button) button.classList.add("active");
-}
-
 function enterLiveMode() {
   liveMode = true;
   currentRange = null;
-  activateRangeButton(document.getElementById("range-live"));
+  historyRequestSeq++;
+  document.getElementById("history-range").value = "live";
+  document.getElementById("history-custom").open = false;
   lastReadings = liveReadings;
   historyMeta = { label: t("dashboard.live10m"), bucketSeconds: 0, rangeSeconds: 600 };
   renderLiveSummary();
@@ -1550,31 +1550,35 @@ function enterLiveMode() {
 }
 
 function setupHistoryControls() {
-  document.getElementById("range-live").addEventListener("click", enterLiveMode);
-
-  document.querySelectorAll("[data-range-amount]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      activateRangeButton(button);
-      const amount = Number(button.dataset.rangeAmount);
-      const unit = button.dataset.rangeUnit;
-      const label = PWI18n.rangeLabel(amount, unit);
-      await loadHistory(amount, unit, label);
-    });
+  const picker = document.getElementById("history-range");
+  const custom = document.getElementById("history-custom");
+  picker.setAttribute("aria-label", t("dashboard.historyDuration"));
+  document.getElementById("history-amount").setAttribute("aria-label", t("dashboard.rangeAmount"));
+  document.getElementById("history-unit").setAttribute("aria-label", t("dashboard.rangeUnit"));
+  picker.addEventListener("change", async () => {
+    if (picker.value === "live") { enterLiveMode(); return; }
+    if (picker.value === "custom") { custom.open = true; return; }
+    const match = /^(\d+)([hd])$/.exec(picker.value);
+    if (!match) return;
+    custom.open = false;
+    const amount = Number(match[1]);
+    const unit = match[2] === "h" ? "hours" : "days";
+    await loadHistory(amount, unit, PWI18n.rangeLabel(amount, unit));
   });
-
   document.getElementById("history-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const amount = Number(document.getElementById("history-amount").value);
     const unit = document.getElementById("history-unit").value;
     if (!Number.isFinite(amount) || amount < 1) return;
-
-    activateRangeButton(null);
+    picker.value = "custom";
+    custom.open = false;
     await loadHistory(amount, unit, PWI18n.rangeLabel(amount, unit));
   });
+  void loadHistory(24, "hours", PWI18n.rangeLabel(24, "hours"), false);
 }
 
 function formatBucket(seconds) {
-  if (!seconds) return "live";
+  if (!seconds) return t("dashboard.live");
   if (seconds < 60) return `${seconds}s`;
   if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
   if (seconds < 86400) return `${Math.round(seconds / 3600)}h`;
@@ -1841,6 +1845,9 @@ function setupChartInteractions() {
 }
 
 window.addEventListener("powerwatch:languagechange", () => {
+  document.getElementById("history-range").setAttribute("aria-label", t("dashboard.historyDuration"));
+  document.getElementById("history-amount").setAttribute("aria-label", t("dashboard.rangeAmount"));
+  document.getElementById("history-unit").setAttribute("aria-label", t("dashboard.rangeUnit"));
   if (liveMode) {
     historyMeta.label = t("dashboard.live10m");
   } else if (currentRange) {
