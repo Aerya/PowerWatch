@@ -391,7 +391,7 @@ La page principale affiche :
 - la consommation totale ;
 - chaque capteur détecté ;
 - la distinction **mesurée / estimée** ;
-- les historiques ;
+- l’historique graphique en haut de page, à côté du total, avec les durées Direct, 1 h, 6 h, 24 h, 7 j, 30 j, 180 j et 400 j ainsi qu’une période personnalisée ;
 - moyenne, minimum, maximum et énergie ;
 - des périodes prédéfinies et personnalisables ;
 - les libellés enrichis des disques avec leur capacité ;
