@@ -1,8 +1,23 @@
 use crate::model::{Component, Confidence, GpuVendor, PowerSensor, SensorError, SensorReading};
+use nvml_wrapper::enum_wrappers::device::Sampling;
+use nvml_wrapper::enums::device::SampleValue;
+use nvml_wrapper::struct_wrappers::device::Sample;
 use nvml_wrapper::Nvml;
 
 pub fn milliwatts_to_watts(mw: u32) -> f64 {
     mw as f64 / 1000.0
+}
+
+fn latest_power_sample_watts(samples: &[Sample]) -> Option<f64> {
+    let sample = samples.iter().max_by_key(|sample| sample.timestamp)?;
+    let milliwatts = match sample.value {
+        SampleValue::U32(value) => value as f64,
+        SampleValue::U64(value) => value as f64,
+        SampleValue::I64(value) if value >= 0 => value as f64,
+        SampleValue::F64(value) if value.is_finite() && value >= 0.0 => value,
+        _ => return None,
+    };
+    Some(milliwatts / 1000.0)
 }
 
 pub struct NvidiaSensor {
@@ -60,9 +75,23 @@ impl PowerSensor for NvidiaSensor {
             .device_by_index(self.device_index)
             .map_err(|e| SensorError::ReadFailed(e.to_string()))?;
 
-        let power_mw = device
-            .power_usage()
-            .map_err(|e| SensorError::ReadFailed(e.to_string()))?;
+        let watts = match device.power_usage() {
+            Ok(power_mw) => milliwatts_to_watts(power_mw),
+            Err(direct_error) => {
+                let samples = device
+                    .samples(Sampling::Power, None)
+                    .map_err(|sample_error| {
+                        SensorError::ReadFailed(format!(
+                            "direct power read: {direct_error}; power samples: {sample_error}"
+                        ))
+                    })?;
+                latest_power_sample_watts(&samples).ok_or_else(|| {
+                    SensorError::ReadFailed(format!(
+                        "direct power read: {direct_error}; no valid power samples"
+                    ))
+                })?
+            }
+        };
 
         Ok(SensorReading {
             component: Component::GpuDevice {
@@ -70,7 +99,7 @@ impl PowerSensor for NvidiaSensor {
                 index: self.device_index,
                 name: self.device_name.clone(),
             },
-            watts: milliwatts_to_watts(power_mw),
+            watts,
             confidence: Confidence::Measured,
             timestamp: chrono::Utc::now(),
         })
@@ -84,6 +113,22 @@ mod tests {
     #[test]
     fn converts_milliwatts_to_watts() {
         assert_eq!(milliwatts_to_watts(80_000), 80.0);
+    }
+
+    #[test]
+    fn uses_newest_power_sample_in_milliwatts() {
+        let samples = [
+            Sample {
+                timestamp: 20,
+                value: SampleValue::U32(47_050),
+            },
+            Sample {
+                timestamp: 10,
+                value: SampleValue::U32(46_830),
+            },
+        ];
+        assert_eq!(latest_power_sample_watts(&samples), Some(47.05));
+        assert_eq!(latest_power_sample_watts(&[]), None);
     }
 
     #[test]

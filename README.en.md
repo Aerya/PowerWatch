@@ -343,6 +343,8 @@ On Ubuntu/Debian, if `nvidia-container-toolkit` is not available from your curre
 
 `NVIDIA_DRIVER_CAPABILITIES: utility` is sufficient for PowerWatch to access NVML; no graphics stack is required. Multiple GPUs and mixed AMD/Intel/NVIDIA systems are supported whenever the corresponding counters are readable.
 
+PowerWatch first reads direct power through NVML. If that read fails but the driver provides power samples, it uses the newest sample to measure the GPU and include it in the total. To check this case, compare `nvidia-smi --query-gpu=power.draw --format=csv` with the “Power Samples” section of `nvidia-smi -q -d POWER`. If neither source is available, PowerWatch reports a read error.
+
 ## Disks, partitions, and storage
 
 PowerWatch creates a power sensor only for each **physical disk**. Layers such as mdraid, LVM, and dm-crypt are not added as fake disks and therefore are not counted a second time.
