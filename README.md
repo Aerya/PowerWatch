@@ -42,6 +42,7 @@
 - [PowerWatch Hub](#powerwatch-hub--plusieurs-machines-un-seul-dashboard)
   - [Sélection des instances pour les cumuls](#sélection-des-instances-pour-les-cumuls)
   - [Démarrage du Hub](#démarrage-du-hub)
+- [Home Assistant — découverte MQTT](#home-assistant--découverte-mqtt-facultative)
 - [Sécurité](#sécurité)
 - [Attribution](#attribution)
 - [Licence](#licence)
@@ -73,6 +74,7 @@ Ce fork est pensé en priorité pour les **serveurs, mini-PC, machines desktop L
 - Inventaire RAM best-effort : **capacité installée, nombre de modules occupés et détails de chaque module** via SMBIOS lorsque disponibles.
 - Informations alimentation best-effort via **SMBIOS Type 39** : puissance nominale maximale, fabricant/modèle, emplacement, type et état lorsque le firmware les publie.
 - **PowerWatch Hub** : agrégation de plusieurs machines dans un dashboard fédéré unique.
+- **Home Assistant (MQTT Discovery)** : capteurs W/kWh automatiques depuis une instance ou le Hub, facultatif.
 
 ## Mesures
 
@@ -670,6 +672,29 @@ DockerLab    http://192.168.0.2:3064
 La configuration est stockée dans `hub-data/powerwatch-hub.json` et l'historique fédéré dans `hub-data/powerwatch-hub.db`.
 
 > Au démarrage du Hub et lors de l’ajout/réactivation d’une instance, PowerWatch Hub récupère via `/api/history/range` l’historique agrégé disponible sur le nœud (jusqu’à 400 jours). L’import est idempotent : les mêmes points ne sont pas dupliqués dans SQLite.
+
+## Home Assistant — découverte MQTT (facultative)
+
+PowerWatch et PowerWatch Hub peuvent désormais **publier directement leurs capteurs dans Home Assistant** via **MQTT Discovery** : aucun YAML ni composant HACS n'est nécessaire. Dans **chaque WebUI**, ouvrez le panneau repliable **« Home Assistant · MQTT »**, puis activez le commutateur. L'intégration est **désactivée par défaut** et ne lance aucune connexion au broker tant qu'elle reste désactivée.
+
+1. Dans Home Assistant, installez/configurez l'intégration **MQTT** ainsi qu'un broker (par exemple l'add-on Mosquitto). Le broker doit être joignable **depuis le conteneur PowerWatch/Hub** : utilisez son IP ou son nom DNS réseau (pas `localhost`, sauf si le broker est dans le même conteneur).
+2. Dans PowerWatch ou le Hub, renseignez **adresse, port** (1883 en clair, généralement 8883 en TLS), identifiant et mot de passe si nécessaires. Cochez **TLS** si le broker a un certificat valide reconnu par le système ; les certificats auto-signés non approuvés ne sont pas acceptés par défaut.
+3. Choisissez la fréquence (10–600 s), l'export des composants et des cumuls kWh, puis, dans le Hub, la portée : **Hub + machines**, **Hub uniquement** ou **machines uniquement**. Enregistrez et cliquez sur **Tester la connexion** : ce bouton teste la négociation MQTT et les identifiants, pas seulement l'ouverture du port.
+4. Les équipements « PowerWatch » apparaissent automatiquement sous **Paramètres → Appareils et services → MQTT** dans Home Assistant, avec les capteurs **W** (puissance totale et composants) et **kWh** historiques par machine, dès que PowerWatch dispose de données.
+
+### Comportement et limites
+
+- **Instance autonome** : un appareil Home Assistant, puissance totale, composants optionnels, compteur énergétique historique lorsque la base SQLite contient des échantillons. Le cumul requiert que la journalisation `--log` soit activée (déjà le cas dans le Compose fourni).
+- **Hub** : un appareil Hub pour la puissance globale instantanée **et son propre compteur kWh cumulatif persistant**, et/ou un appareil par machine fédérée (W, composants, kWh issus de l'historique du Hub). Les machines hors ligne passent en **indisponible**, jamais artificiellement à `0 W`. Une machine doit avoir des données valides pour publier ses capteurs.
+- **Cumul kWh global Home Assistant du Hub** : un compteur **distinct du cumul historique filtrable actuel**, enregistré dans `powerwatch-hub.db`. Il démarre à **0 kWh à l’installation de cette version**, puis ajoute les kWh de chaque nouvel intervalle réellement observé (machine active, disponible et incluse dans le total), sans jamais soustraire les kWh passés. Exclure, supprimer ou éteindre une machine suspend ses contributions sans faire baisser le compteur ; son retour ou l'ajout d'une nouvelle machine ne comptabilise que les nouveaux intervalles. Un redémarrage du Hub conserve sa valeur ; les interruptions de plus de 180 secondes ne sont pas interpolées. **Ce compteur ne reprend pas rétroactivement l'historique antérieur** et continue d'être comptabilisé même lorsque MQTT est désactivé.
+- **Le cumul historique du Hub reste inchangé** : ses filtres « total habituel / toutes / sélection personnalisée » peuvent recalculer une somme différente selon le périmètre ; ceci ne modifie jamais le compteur global MQTT. Pour éviter le double comptage dans le tableau Énergie Home Assistant, choisissez **soit** le compteur global Hub, **soit** les compteurs des machines, mais pas les deux ensemble.
+- Les watts peuvent être **mesurés, estimés ou partiels** selon le matériel (PMIC, RAPL, etc.) ; les données **ne représentent pas nécessairement la consommation à la prise**. Le tarif et les coûts en euros ne sont **pas** exportés dans cette première intégration.
+- **Disponibilité** : message LWT du client MQTT en cas de coupure, disponibilité par machine, et expiration automatique des données de puissance en l'absence de nouveaux relevés. La découverte et les compteurs kWh sont publiés en **retained**, les relevés de puissance ne le sont pas.
+- **Sécurité** : les mots de passe ne sont pas renvoyés par l'API ; champ vide = conservation du secret, option distincte pour l'effacer. Les réglages sont persistés en JSON avec permissions restreintes (`0600` sous Linux), dans le volume de données. Les routes de configuration respectent l'authentification WebUI et le jeton administrateur facultatif du Hub. Utilisez un compte MQTT dédié avec permissions minimales sur les topics choisis.
+- **Double export** : si le Hub et une instance publient la même machine, Home Assistant affiche deux équipements distincts pour cette machine ; choisissez idéalement le Hub **ou** l'instance comme source afin d'éviter les doubles comptages dans vos tableaux.
+- Les identifiants Discovery restent stables grâce à un identifiant enregistré localement. **Évitez de modifier les préfixes** après intégration : les anciens topics retained peuvent subsister si le broker est indisponible au moment du changement/désactivation et demander un nettoyage MQTT manuel.
+
+**Fichiers persistants :** compteur global MQTT du Hub dans `hub-data/powerwatch-hub.db` (sauvegarder ce fichier avec la base historique) ; instance `~/.local/share/powerwatch/home-assistant-mqtt.json` (dans Docker : `/data/.local/share/powerwatch/home-assistant-mqtt.json`) ; Hub : `hub-data/powerwatch-hub.mqtt.json` pour le Compose fourni. L'intégration est désactivée tant que vous ne l'activez pas dans la WebUI. L'export fonctionne vers n'importe quel broker MQTT compatible, sans dépendance de Home Assistant pour les mesures PowerWatch elles-mêmes.
 
 ## Sécurité
 

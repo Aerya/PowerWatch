@@ -58,6 +58,10 @@ async fn theme_js() -> impl IntoResponse {
 async fn theme_css() -> impl IntoResponse {
     ([(header::CONTENT_TYPE,"text/css; charset=utf-8")],THEME_CSS)
 }
+const HA_JS: &str = include_str!("../../assets/home-assistant.js");
+const HA_CSS: &str = include_str!("../../assets/home-assistant.css");
+async fn ha_js() -> impl IntoResponse { ([(header::CONTENT_TYPE,"application/javascript; charset=utf-8")], HA_JS) }
+async fn ha_css() -> impl IntoResponse { ([(header::CONTENT_TYPE,"text/css; charset=utf-8")], HA_CSS) }
 const SECURITY_HTML: &str = include_str!("../static/security.html");
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -709,6 +713,11 @@ fn instance_info() -> InstanceInfo {
     }
 }
 
+pub(crate) fn ha_instance_name() -> String {
+    let name=load_instance_settings().name;
+    if name.is_empty() { "PowerWatch".into() } else { name }
+}
+
 pub fn build_router(state: AppState) -> Router {
     let protected = Router::new()
         .route(
@@ -718,6 +727,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/alerts/test", post(crate::alerts::test_notification))
         .route("/api/instance", get(instance).put(update_instance))
         .route("/api/snapshot", get(snapshot))
+        .route("/api/home-assistant",get(crate::ha_handlers::get_config).put(crate::ha_handlers::put_config))
+        .route("/api/home-assistant/test",post(crate::ha_handlers::test_config))
         .route("/api/history", get(history))
         .route("/api/history/range", get(history_range))
         .route("/api/energy",get(energy_overview))
@@ -753,6 +764,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/static/i18n.js", get(i18n_js))
         .route("/static/auth.js", get(auth_js))
         .route("/static/tariffs-fr.js",get(tariff_fr_js))
+        .route("/static/home-assistant.js",get(ha_js))
+        .route("/static/home-assistant.css",get(ha_css))
         .route("/static/theme.js",get(theme_js))
         .route("/static/theme.css",get(theme_css))
         .route("/alerts", get(crate::alerts::page))

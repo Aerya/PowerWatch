@@ -2,6 +2,7 @@ mod alerts;
 mod app;
 mod auth;
 mod state;
+mod ha_handlers;
 mod suggestions;
 
 use clap::Parser;
@@ -104,6 +105,11 @@ async fn main() {
     tokio::spawn(app::tariff_fr_refresh_background(app_state.clone()));
     tokio::spawn(app::market_fr_refresh_background(app_state.clone()));
     let setup_required = app_state.auth.setup_required();
+    let ha_state = app_state.clone();
+    tokio::spawn(powerwatch_core::home_assistant::run(
+        powerwatch_core::home_assistant::instance_path(),
+        move || { let state=ha_state.clone(); async move { ha_handlers::devices(axum::extract::State(state)).await } },
+    ));
     let router = app::build_router(app_state);
     let addr = (args.host, args.port);
 

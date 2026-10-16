@@ -21,8 +21,14 @@ use tokio::task::JoinSet;
 
 const INDEX_HTML: &str = include_str!("../static/index.html");
 const TARIFF_FR_JS: &str = include_str!("../../assets/tariffs-fr.js");
+const HA_JS: &str = include_str!("../../assets/home-assistant.js");
+const HA_CSS: &str = include_str!("../../assets/home-assistant.css");
+async fn ha_js() -> impl IntoResponse { ([(header::CONTENT_TYPE,"application/javascript; charset=utf-8")],HA_JS) }
+async fn ha_css() -> impl IntoResponse { ([(header::CONTENT_TYPE,"text/css; charset=utf-8")],HA_CSS) }
 const THEME_JS: &str = include_str!("../../assets/theme.js");
 const THEME_CSS: &str = include_str!("../../assets/theme.css");
+mod ha_handlers;
+mod ha_energy;
 include!("tariffs_fr_handlers.rs");
 include!("market_fr_handlers.rs");
 async fn hub_tariff_js() -> impl IntoResponse {
@@ -424,6 +430,7 @@ impl HubStorage {
         )?;
         let mut storage=Self { conn };
         energy::init(&storage.conn)?;
+        ha_energy::init(&storage.conn)?;
         powerwatch_core::tariffs_fr::init(&storage.conn)?;
         // Upgrade pre-existing Hub history, with no duplicate kWh on restarts.
         let migration_needed:bool=storage.conn.query_row(
@@ -453,6 +460,7 @@ impl HubStorage {
         &mut self,
         timestamp: DateTime<Utc>,
         totals: &[(String, f64)],
+        included_nodes: &HashSet<String>,
     ) -> rusqlite::Result<()> {
         let tx = self.conn.transaction()?;
         {
@@ -464,6 +472,9 @@ impl HubStorage {
             }
         }
 
+        // This incremental ledger is separate from the historical, selectable Hub totals.
+        // It is committed atomically with the just-observed Hub samples.
+        ha_energy::record(&tx, timestamp.timestamp(), totals, included_nodes)?;
         let cutoff = timestamp - chrono::Duration::days(BACKFILL_DAYS as i64);
         tx.execute(
             "DELETE FROM node_totals WHERE timestamp < ?1",
@@ -820,12 +831,15 @@ async fn history_loop(state: AppState, history_interval: Duration) {
             })
             .collect::<Vec<_>>();
 
-        if totals.is_empty() {
-            continue;
-        }
+        // A completely offline tick still clears the HA meter's cursors.
+        // Otherwise an offline node could be interpolated into a future tick.
+        let included_nodes = config.nodes.iter()
+            .filter(|node| node.enabled && node.include_in_total)
+            .map(|node| node.id.clone())
+            .collect::<HashSet<_>>();
 
         if let Ok(mut storage) = state.storage.lock() {
-            if let Err(error) = storage.write_totals(now, &totals) {
+            if let Err(error) = storage.write_totals(now, &totals, &included_nodes) {
                 eprintln!("warning: failed to persist hub history: {error}");
             }
             if last_energy_compaction.elapsed() >= Duration::from_secs(3600) {
@@ -1170,6 +1184,8 @@ fn build_router(state: AppState) -> Router {
         .route("/api/hub/nodes", get(list_nodes).post(add_node))
         .route("/api/hub/nodes/:id", post(update_node).delete(delete_node))
         .route("/api/hub/test", post(probe_node))
+        .route("/api/hub/home-assistant",get(ha_handlers::get_config).put(ha_handlers::put_config))
+        .route("/api/hub/home-assistant/test",post(ha_handlers::test_config))
         .route("/api/hub/tariffs-fr",get(hub_tariff_get).put(hub_tariff_put))
         .route("/api/hub/tariffs-fr/sync",post(hub_tariff_sync))
         .route("/api/hub/tariffs-fr/propagate",post(hub_tariff_propagate))
@@ -1191,6 +1207,8 @@ fn build_router(state: AppState) -> Router {
         .route("/api/hub/tariffs-fr/cost",get(hub_tariff_cost))
         .route("/api/hub/tariffs-fr/overview",get(hub_tariff_overview))
         .route("/static/tariffs-fr.js",get(hub_tariff_js))
+        .route("/static/home-assistant.js",get(ha_js))
+        .route("/static/home-assistant.css",get(ha_css))
         .route("/static/theme.js",get(theme_js))
         .route("/static/theme.css",get(theme_css))
         .merge(administration)
@@ -1248,6 +1266,12 @@ async fn main() {
         client,
         admin_auth,
     };
+
+    let ha_state = state.clone();
+    tokio::spawn(powerwatch_core::home_assistant::run(
+        powerwatch_core::home_assistant::hub_path(&args.config),
+        move || { let state=ha_state.clone(); async move { ha_handlers::devices(state).await } },
+    ));
 
     tokio::spawn(poll_loop(
         state.clone(),
@@ -1353,8 +1377,8 @@ mod tests {
         let path=dir.path().join("hub-energy.db");
         let mut db=HubStorage::open(&path).unwrap();
         let start=DateTime::<Utc>::from_timestamp(1_700_000_100,0).unwrap();
-        db.write_totals(start,&[("first".to_string(),20.0),("second".to_string(),30.0)]).unwrap();
-        db.write_totals(start+chrono::Duration::seconds(60),&[("first".to_string(),20.0),("second".to_string(),30.0)]).unwrap();
+        db.write_totals(start,&[("first".to_string(),20.0),("second".to_string(),30.0)], &HashSet::new()).unwrap();
+        db.write_totals(start+chrono::Duration::seconds(60),&[("first".to_string(),20.0),("second".to_string(),30.0)], &HashSet::new()).unwrap();
         let first=energy::stats(&db.conn,"first",None,start.timestamp()+120).unwrap();
         let second=energy::stats(&db.conn,"second",None,start.timestamp()+120).unwrap();
         assert!(second.energy_kwh>first.energy_kwh);
@@ -1563,6 +1587,7 @@ mod tests {
             .write_totals(
                 now,
                 &[("garuda".into(), 70.0), ("lincstation".into(), 20.0)],
+                &HashSet::new(),
             )
             .unwrap();
         storage

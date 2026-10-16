@@ -42,6 +42,7 @@
 - [PowerWatch Hub](#powerwatch-hub--multiple-machines-one-dashboard)
   - [Selecting instances for energy totals](#selecting-instances-for-energy-totals)
   - [Start the Hub](#start-the-hub)
+- [Home Assistant — MQTT Discovery](#home-assistant--optional-mqtt-discovery)
 - [Security](#security)
 - [Attribution](#attribution)
 - [License](#license)
@@ -73,6 +74,7 @@ This fork is primarily designed for **servers, mini PCs, Linux desktop machines,
 - Best-effort RAM inventory: **installed capacity, populated memory-device count, and per-module details** through SMBIOS when available.
 - Best-effort power-supply information through **SMBIOS Type 39**: nominal maximum capacity, manufacturer/model, location, type, and status when firmware reports them.
 - **PowerWatch Hub**: aggregate multiple machines into one federated dashboard.
+- **Home Assistant (MQTT Discovery)**: optional automatic W/kWh sensors from standalone nodes or Hub.
 
 ## Measurements
 
@@ -668,6 +670,29 @@ DockerLab    http://192.168.0.2:3064
 Configuration is stored in `hub-data/powerwatch-hub.json` and federated history in `hub-data/powerwatch-hub.db`.
 
 > On Hub startup and when an instance is added or re-enabled, PowerWatch Hub retrieves the aggregated history available from the node through `/api/history/range` (up to 400 days). The import is idempotent, so the same points are not duplicated in SQLite.
+
+## Home Assistant — optional MQTT Discovery
+
+PowerWatch and PowerWatch Hub can **publish sensors directly to Home Assistant** through **MQTT Discovery**. No YAML or HACS custom integration is required. Open the collapsible **“Home Assistant · MQTT”** panel in either Web UI and enable the integration. It is **off by default** and makes no broker connections until enabled.
+
+1. Configure the **MQTT** integration and an accessible MQTT broker in Home Assistant (for example, the Mosquitto add-on). The broker must be reachable **from the PowerWatch/Hub container**: provide its LAN IP/DNS name, not `localhost` unless the broker runs in the same container.
+2. Set broker **host and port** (usually 1883 for plain MQTT or 8883 for TLS), credentials if required, and **TLS** if the broker uses a trusted certificate. Untrusted/self-signed certificates require installation of the issuing CA into the container's trust store.
+3. Pick the publishing interval (10–600 seconds), optional component and lifetime-energy sensors, and, in the Hub, the **Hub + machines**, **Hub only**, or **machines only** scope. Save, then select **Test connection** to verify MQTT negotiation and authentication, not merely TCP reachability.
+4. Devices appear automatically under **Settings → Devices & services → MQTT** in Home Assistant. Power sensors use **W** and historical per-machine energy sensors use **kWh**, once valid data has been recorded.
+
+### Behavior and limitations
+
+- **Standalone instance**: one HA device containing total power, optional hardware component power and lifetime energy when the SQLite history has samples. Energy export requires `--log` (already enabled in the supplied Compose file).
+- **Hub**: a Hub device for current total power **and its own persistent cumulative kWh meter**, and/or one device per federated machine (W, hardware components, historic per-machine kWh from the Hub database). Offline machines become **unavailable**, never incorrectly reported as `0 W`. Sensors require valid source readings.
+- **Hub-wide Home Assistant kWh meter**: a durable counter **separate from the existing filterable historical Hub sum**, stored in `powerwatch-hub.db`. It starts at **0 kWh upon first installation of this version**, then adds only energy over newly observed intervals for active, online nodes included in the Hub total. Removing, excluding or powering off a node never subtracts past energy; when a node returns or is added, only new observed intervals count. The counter survives Hub restarts, never interpolates gaps longer than 180 seconds, **does not retroactively import old history**, and keeps accumulating while MQTT is disabled.
+- **The existing Hub historical totals remain unchanged**: default/all/custom node filters can change the displayed sum without affecting the independent MQTT meter. In Home Assistant Energy, select **either** the Hub global kWh sensor **or** the individual node sensors, not both, to avoid double counting.
+- Power readings may be **measured, estimated or partial** depending on hardware and availability. They are **not necessarily wall-plug measurements**. Tariff prices and estimated euro costs are **not included** in this initial integration.
+- **Availability**: MQTT Last Will for broker disconnects, per-machine availability and expiry of power sensors when reporting stops. Discovery and lifetime kWh state topics are **retained**; live power readings are not.
+- **Security**: passwords are never returned via the API. An empty password field retains the existing credential; use the explicit checkbox to clear it. Settings are stored in the data volume as JSON with restrictive file permissions (`0600` on Linux). API configuration routes use the existing Web UI authorization and optional Hub administrator token. Prefer a dedicated, least-privilege MQTT user.
+- **Duplicate sources**: exporting the same machine from both its instance and the Hub creates two distinct HA devices. Choose either the Hub or instance as the source to avoid double-counting.
+- Stable Discovery IDs use an identifier saved in the local config file. **Avoid changing MQTT topic prefixes** after onboarding: old retained discovery topics may need manual cleanup if the broker was offline when you changed or disabled the integration.
+
+**Persistent settings:** Hub MQTT global energy meter in `hub-data/powerwatch-hub.db` (back this database up with the existing history); instance `~/.local/share/powerwatch/home-assistant-mqtt.json` (Docker: `/data/.local/share/powerwatch/home-assistant-mqtt.json`); Hub `hub-data/powerwatch-hub.mqtt.json` with the supplied Compose. Both remain disabled unless enabled in their respective WebUI. PowerWatch measurement and history continue to operate independently of Home Assistant or MQTT availability.
 
 ## Security
 

@@ -47,6 +47,14 @@ When configured, use this Bearer token for `/api/hub/nodes`, `/api/hub/nodes/:id
 
 Behind HTTPS, the proxy must overwrite and send `X-Forwarded-Proto: https`; this makes PowerWatch set the session cookie's `Secure` attribute. Health remains public at `/api/health`.
 
+## Home Assistant MQTT Discovery (PowerWatch / Hub)
+
+Both Web UIs include an optional **Home Assistant · MQTT** panel, disabled by default. It connects to a broker reachable from the container; set host, port, optional credentials and verified TLS in the WebUI (no extra container network privileges needed). In Home Assistant, enable the built-in MQTT integration. Power (W) and accumulated energy (kWh) sensors appear automatically through retained MQTT Discovery configuration. The Hub can publish its own aggregate power and **persistent cumulative kWh** plus per-node sensors.
+
+**Important:** The Hub's Home Assistant global kWh counter is distinct from the historical total filtered by node selection. The new counter **starts at zero upon upgrade**, is stored in the existing `hub-data/powerwatch-hub.db`, and adds only new energy for online nodes currently included in the Hub total. It does not decrease if nodes are removed or excluded, survives restarts and does not backfill previous history or gaps over 180 seconds. The historical Hub view and its filters are unchanged. Do not add both the aggregate Hub meter and its constituent node meters to the same Home Assistant Energy total.
+
+Settings persist in the existing bind mounts (`./data/home-assistant-mqtt.json` for the standalone instance with `HOME=/data` and its mount; `./hub-data/powerwatch-hub.mqtt.json` for the Hub), passwords are never exposed by GET, and both Web UIs offer **Test connection**. Back up the Hub database for the durable global energy ledger. See README.md / README.en.md for setup details and sensor limitations.
+
 ## SMBIOS / RAM / PSU
 
 Docker masks `/sys/firmware` inside containers by default, so the generic `/sys:/sys:ro` bind is not enough for SMBIOS inventory.
@@ -367,6 +375,12 @@ Maintenance runs automatically while logging is enabled. The WebUI can query arb
 ## Multi-architecture image
 
 GitHub Actions publishes `linux/amd64` and `linux/arm64` images to `ghcr.io/aerya/powerwatch`.
+
+## Home Assistant / MQTT Discovery
+
+Available as an **opt-in** panel in both the PowerWatch and Hub dashboards. No extra Docker service is deployed by PowerWatch, but you must provide a reachable MQTT broker (plain or trusted TLS) and enable Home Assistant MQTT Discovery. Configuration survives container restarts through the existing `/data` mounts. See [README (FR)](README.md#home-assistant--découverte-mqtt-facultative) or [README (EN)](README.en.md#home-assistant--optional-mqtt-discovery).
+
+Disponible en option depuis les WebUI PowerWatch et Hub. Un broker MQTT séparé doit être accessible depuis le conteneur, et l’intégration MQTT doit être activée dans Home Assistant. Aucune modification de `compose.yaml` ni de `compose.hub.yaml` n’est requise. Le volume `/data` conserve les paramètres.
 
 ## Attribution
 

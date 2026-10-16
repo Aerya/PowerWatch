@@ -358,6 +358,7 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 
 </style>
 <link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/home-assistant.css">
 <script src="/static/theme.js"></script>
 </head>
 <body>
@@ -439,6 +440,7 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 </section>
 
 <div id="tariffs-fr-app" data-mode="hub"></div>
+<div id="pw-ha-mount"></div>
 
 
 <details class="panel management">
@@ -528,7 +530,7 @@ function fmtSeen(value){if(!value)return tr("never");return new Date(value).toLo
 async function api(url,options={}){
   const method=String(options.method||"GET").toUpperCase();
   const path=new URL(url,location.href).pathname;
-  const administrative=path==="/api/hub/test"||path==="/api/hub/nodes"||path.startsWith("/api/hub/nodes/")||path==="/api/hub/tariffs-fr/propagate";
+  const administrative=path.startsWith("/api/hub/home-assistant")||path==="/api/hub/test"||path==="/api/hub/nodes"||path.startsWith("/api/hub/nodes/")||path==="/api/hub/tariffs-fr/propagate";
   const headers=new Headers(options.headers||{});
   if(options.body)headers.set("Content-Type","application/json");
   if(hubAdminEnabled&&administrative){
@@ -1184,5 +1186,7 @@ document.getElementById("tariff-propagate").addEventListener("click",propagateTa
 async function boot(){await initHubAdmin();applyLanguage();await refreshSnapshot();await refreshHistory();await refreshHubEnergy();setInterval(refreshSnapshot,2000);setInterval(refreshHistory,60000);setInterval(refreshHubEnergy,60000);}boot();
 </script>
 <script src="/static/tariffs-fr.js" defer></script>
+<script src="/static/home-assistant.js" defer></script>
+<script>window.addEventListener("DOMContentLoaded",()=>window.PowerWatchHA?.init({endpoint:"/api/hub/home-assistant",hub:true,request:api,}));</script>
 </body>
 </html>
