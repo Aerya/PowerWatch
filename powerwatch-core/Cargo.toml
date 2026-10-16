@@ -11,6 +11,9 @@ scraper = "0.20"
 nvml-wrapper = "0.10"
 rusqlite = { version = "0.31", features = ["bundled"] }
 serde_json = "1"
+rand = "0.8"
+rumqttc = { version = "0.24", default-features = false, features = ["use-rustls"] }
+tokio = { version = "1", features = ["sync", "time", "rt", "net", "macros", "io-util"] }
 
 [dev-dependencies]
 tempfile = "=3.10.1"

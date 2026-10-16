@@ -1,0 +1,33 @@
+/* Shared, opt-in MQTT integration panel; harmonises with PowerWatch light/dark themes. */
+.pw-ha{margin:12px 0;border:1px solid var(--border);border-radius:9px;background:var(--panel);color:var(--text);overflow:hidden}
+.pw-ha>summary{display:flex;align-items:center;gap:12px;cursor:pointer;list-style:none;padding:14px 16px;font-size:.92rem;transition:background .15s}
+.pw-ha>summary::-webkit-details-marker{display:none}
+.pw-ha>summary:hover{background:rgba(125,125,125,.065)}
+.pw-ha-icon{width:36px;height:36px;border:1px solid var(--border);border-radius:9px;background:rgba(0,190,160,.07);display:grid;place-items:center;color:var(--measured)}
+.pw-ha-icon svg{width:21px;height:21px}
+.pw-ha-head{display:grid;gap:3px;min-width:0}.pw-ha-head strong{font-size:.95rem}.pw-ha-head small{font-size:.75rem;color:var(--muted);font-weight:400;line-height:1.4}
+.pw-ha-tag{margin-left:auto;padding:5px 10px;border-radius:40px;font-size:.72rem;white-space:nowrap;border:1px solid var(--border);color:var(--muted)}
+.pw-ha-tag[data-status="online"]{color:var(--measured);border-color:var(--measured)}
+.pw-ha-chevron{color:var(--muted);transition:transform .2s}.pw-ha[open] .pw-ha-chevron{transform:rotate(180deg)}
+.pw-ha-body{border-top:1px solid var(--border);padding:16px;display:grid;gap:16px}
+.pw-ha-switch-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.pw-ha-label{display:block;color:var(--muted);font-size:.77rem;line-height:1.45;margin-bottom:6px}
+.pw-ha-desc{color:var(--muted);font-size:.78rem;line-height:1.6;margin:0}
+.pw-ha-toggle{appearance:none;width:42px;height:23px;border-radius:50px;background:var(--border);position:relative;cursor:pointer;flex-shrink:0;border:1px solid var(--border)}
+.pw-ha-toggle::before{content:"";position:absolute;top:2px;left:2px;width:17px;height:17px;border-radius:50%;background:var(--text);transition:transform .2s}
+.pw-ha-toggle:checked{background:var(--measured)}.pw-ha-toggle:checked::before{transform:translateX(19px);background:var(--bg)}
+.pw-ha-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.pw-ha-field{min-width:0}
+.pw-ha-field input,.pw-ha-field select{width:100%;box-sizing:border-box;min-height:39px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;color:var(--text);background:var(--bg);font-size:.84rem}
+.pw-ha-field input:focus,.pw-ha-field select:focus{outline:2px solid var(--measured);outline-offset:1px}
+.pw-ha-span{grid-column:1/-1}
+.pw-ha-subtitle{font-size:.83rem;font-weight:700;border-top:1px solid var(--border);padding-top:14px;margin:0}
+.pw-ha-option{display:flex;align-items:center;gap:9px;font-size:.83rem;line-height:1.5;cursor:pointer}.pw-ha-option input{accent-color:var(--measured);width:16px;height:16px}
+.pw-ha-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;align-items:center;gap:9px;border-top:1px solid var(--border);padding-top:14px}
+.pw-ha-actions button{min-height:37px;border:1px solid var(--border);border-radius:6px;padding:8px 13px;background:var(--bg);color:var(--text);font:inherit;font-size:.82rem;cursor:pointer}
+.pw-ha-actions button:hover{border-color:var(--measured)}
+.pw-ha-actions .pw-ha-primary{border-color:var(--measured);background:var(--measured);color:var(--bg);font-weight:700}
+.pw-ha-actions button:disabled{opacity:.65;cursor:progress}
+.pw-ha-feedback{font-size:.79rem;line-height:1.4;min-height:20px;color:var(--muted)}
+.pw-ha-feedback[data-kind="error"]{color:var(--error)}.pw-ha-feedback[data-kind="success"]{color:var(--measured)}
+.pw-ha-settings[hidden]{display:none!important}
+@media(max-width:650px){.pw-ha-grid{grid-template-columns:1fr}.pw-ha-span{grid-column:auto}.pw-ha-body{padding:12px}.pw-ha-head small{font-size:.7rem}}
