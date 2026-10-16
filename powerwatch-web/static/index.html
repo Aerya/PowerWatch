@@ -524,6 +524,7 @@
 .energy-tile-label {color:var(--muted);font-size:.77rem;display:block;margin-bottom:5px;}
 .energy-tile-value {font-size:1.3rem;font-weight:700;display:block;color:var(--text);overflow-wrap:anywhere;}
 .energy-tile-cost {display:block;margin-top:5px;font-size:.92rem;font-weight:600;color:var(--text);min-height:1em;}
+.energy-tile-cost[hidden] {display:none;}
 .energy-tile-cost.is-muted {color:var(--muted);font-size:.77rem;font-weight:400;}
 .energy-tile-note {color:var(--muted);font-size:.8rem;display:block;margin-top:3px;}
 .energy-controls {display:flex;align-items:end;gap:9px;flex-wrap:wrap;margin-top:12px;}
@@ -656,7 +657,9 @@
       <button type="button" data-lang="fr" onclick="setPowerWatchLanguage('fr')">🇫🇷 FR</button>
       <button type="button" data-lang="en" onclick="setPowerWatchLanguage('en')">🇬🇧 EN</button>
     </div>
-    <a href="/alerts" data-i18n="nav.alerts" style="color:var(--text);text-decoration:none;border-bottom:1px dotted var(--muted);">Alerts</a>
+    <a class="settings-link" href="/alerts" data-i18n="nav.alerts">Alerts</a>
+    <details class="settings-control" id="mqtt-control"><summary>MQTT</summary><div class="settings-panel"><div id="pw-ha-mount"></div></div></details>
+    <details class="settings-control" id="tariffs-control"><summary data-settings-tariffs>Tarifs</summary><div class="settings-panel"><div id="tariffs-fr-app" data-mode="local"></div></div></details>
   </div>
   <div class="total" id="total" data-i18n="common.loading">Loading...</div>
 
@@ -679,8 +682,7 @@
     <div id="energy-details" class="energy-detail" aria-live="polite">—</div>
   </section>
 
-  <div id="tariffs-fr-app" data-mode="local"></div>
-<div id="pw-ha-mount"></div>
+
 
   <div id="alerts-summary" style="margin:-6px 0 16px;color:var(--muted);font-size:.82rem;"></div>
 
@@ -1859,6 +1861,7 @@ let pwCostFailed = false;
 function pwEnergyText(key) { return t("energy." + key); }
 function pwCostText(energy, cost) {
   if (!energy || energy.first_seen_epoch == null) return "";
+  if (powerwatchCosts && !powerwatchCosts.enabled) return "";
   if (pwCostFailed) return `${pwEnergyText("costUnavailable")} · API`;
   if (!powerwatchCosts) return "—";
   if (!powerwatchCosts.enabled) return pwEnergyText("costDisabled");
@@ -1895,6 +1898,7 @@ function pwEnergyRender() {
     document.getElementById("energy-" + id).textContent = pwEnergyFormat(entry);
     const costElement = document.getElementById("energy-cost-" + id);
     costElement.textContent = pwCostText(entry, powerwatchCosts?.windows?.[id]);
+    costElement.hidden = powerwatchCosts?.enabled === false;
     costElement.classList.toggle("is-muted", !powerwatchCosts?.enabled || pwCostFailed || !(powerwatchCosts?.windows?.[id]?.billed_energy_kwh || powerwatchCosts?.windows?.[id]?.projected_kwh));
     document.getElementById("energy-coverage-" + id).textContent = entry?.first_seen_epoch == null ? "" :
       `${pwEnergyText("coverage")}: ${(entry.coverage_seconds/3600).toFixed(1)} h`;
@@ -1951,6 +1955,7 @@ setInterval(refreshSuggestions, 5000);
 setInterval(refreshAlertsSummary, 3000);
 </script>
 <script src="/static/tariffs-fr.js" defer></script>
+<script>document.addEventListener("DOMContentLoaded",()=>{const label=document.querySelector("[data-settings-tariffs]");const update=()=>{label.textContent=document.documentElement.lang==="en"?"Tariffs":"Tarifs"};update();new MutationObserver(update).observe(document.documentElement,{attributes:true,attributeFilter:["lang"]});});</script>
 <script src="/static/home-assistant.js" defer></script>
 <script>window.addEventListener("DOMContentLoaded",()=>window.PowerWatchHA?.init({endpoint:"/api/home-assistant",hub:false,}));</script>
 </body>

@@ -397,14 +397,15 @@ The main page displays:
 - enriched disk labels including capacity;
 - CPU model with a CPU Benchmark / PassMark link;
 - an editable instance name reused as the suggested name when adding the instance to PowerWatch Hub;
-- FR / EN language selection.
+- FR / EN language selection;
+- top-right **Alerts**, **MQTT**, and **Tariffs** buttons: Home Assistant and pricing settings no longer occupy the dashboard;
 - Light / Dark / Auto appearance control with separate day and night palettes inspired by Dockge-Enhanced. Browser preferences are stored separately for each WebUI or Hub origin.
 
 The Docker image automatically starts PowerWatch with history enabled and NAS/headless mode.
 
 ### French electricity tariffs — beta (optional)
 
-**Beta: prices may be incomplete, stale or inaccurate. Costs are estimates, not meter readings or invoices.** Disabled by default. SQLite keeps every contract and manual override on the server.
+**Beta: prices may be incomplete, stale or inaccurate. Costs are estimates, not meter readings or invoices.** Disabled by default. Open **Tariffs** in the top-right menu of a standalone instance or the Hub; “Enable pricing and show costs” saves the choice immediately. Disabling it hides euro amounts from the dashboard while keeping saved contracts. SQLite keeps every contract and manual override on the server.
 
 - Dated contracts, multiple suppliers across distinct time ranges, independent electric sites and Hub node assignments.
 - Editable price revisions for Base, HP/HC (custom time windows), Tempo (six rates), and custom offers; edited values override external imports.
@@ -418,7 +419,7 @@ The Docker image automatically starts PowerWatch with history enabled and NAS/he
 - Europe/Paris local time, DST, Tempo 06:00-to-06:00 day. 15-minute lifetime archives for newly compacted energy; legacy hourly energy is still supported and its price breakdown is flagged approximate.
 - Optional prorated subscription counted **once per electric site**, not per node. The historical projection is opt-in and uses the first later documented rate; missing contracts, missing Tempo colors and unmonitored time are never assigned invented consumption or a tariff.
 - Endpoints `/api/tariffs-fr` and `/api/hub/tariffs-fr` (plus `/sync`, `/cost`, and `/overview` for counter pricing; the Hub overview accepts an optional `nodes` filter); writes require the existing WebUI/Hub admin protection when enabled.
-- **Opt-in copy between nodes**: from the Hub top menu, open “⇄ Tariffs”, choose the source node, and select only nodes with the same electricity contract and off-peak hours. Select “Copy to Hub too” to price those nodes in the Hub. Copying replaces tariff settings on selected nodes only. If PowerWatch authentication is enabled, create a “Read and update electricity tariffs” token on each destination node's Security page and save it on that node's Hub card. The ordinary read-only token remains separate. Copying runs when you press the button and reports each node's result.
+- **Opt-in copy between nodes**: from the Hub top **Tariffs** menu, open “⇄ Tariffs”, choose the source node, and select only nodes with the same electricity contract and off-peak hours. Select “Copy to Hub too” to price those nodes in the Hub. Copying replaces tariff settings on selected nodes only. If PowerWatch authentication is enabled, create a “Read and update electricity tariffs” token on each destination node's Security page and save it on that node's Hub card. The ordinary read-only token remains separate. Copying runs when you press the button and reports each node's result.
 
 Sources: https://www.cre.fr/documents/open-data/historique-des-tarifs-reglementes-de-vente-delectricite-pour-les-consommateurs-residentiels.html and https://www.calendrier-tempo.fr/api-tempo.
 
@@ -615,7 +616,7 @@ The Hub provides:
 - a **global infrastructure total** labeled **“Measured + estimated”**;
 - one collapsible card per machine with CPU, GPU, RAM, and disks;
 - **online / stale / offline / disabled** states;
-- adding, testing, enabling, and removing instances directly from the Web UI;
+- adding, testing, enabling, and removing instances from the top-right **Machines / instances** menu;
 - the ability to exclude a machine from the global total;
 - energy totals filtered by one, multiple, or all instances independently of the global total;
 - federated SQLite history, stored every 60 seconds by default;
@@ -673,10 +674,10 @@ Configuration is stored in `hub-data/powerwatch-hub.json` and federated history 
 
 ## Home Assistant — optional MQTT Discovery
 
-PowerWatch and PowerWatch Hub can **publish sensors directly to Home Assistant** through **MQTT Discovery**. No YAML or HACS custom integration is required. Open the collapsible **“Home Assistant · MQTT”** panel in either Web UI and enable the integration. It is **off by default** and makes no broker connections until enabled.
+PowerWatch and PowerWatch Hub can **publish sensors directly to Home Assistant** through **MQTT Discovery**. No YAML or HACS custom integration is required. Open **MQTT** in the top-right menu of either Web UI and enable the integration. It is **off by default** and makes no broker connections until enabled.
 
 1. Configure the **MQTT** integration and an accessible MQTT broker in Home Assistant (for example, the Mosquitto add-on). The broker must be reachable **from the PowerWatch/Hub container**: provide its LAN IP/DNS name, not `localhost` unless the broker runs in the same container.
-2. Set broker **host and port** (usually 1883 for plain MQTT or 8883 for TLS), credentials if required, and **TLS** if the broker uses a trusted certificate. Untrusted/self-signed certificates require installation of the issuing CA into the container's trust store.
+2. In the **MQTT** menu, set broker **host and port** (usually 1883 for plain MQTT or 8883 for TLS), credentials if required, and **TLS** if the broker uses a trusted certificate. Untrusted/self-signed certificates require installation of the issuing CA into the container's trust store.
 3. Pick the publishing interval (10–600 seconds), optional component, lifetime-energy, and **estimated EUR cost** sensors (only with enabled French tariffs), and, in the Hub, the **Hub + machines**, **Hub only** (the default to reduce duplicate sensors), or **machines only** scope. Save, then select **Test connection** to verify MQTT negotiation and authentication, not merely TCP reachability.
 4. Devices appear automatically under **Settings → Devices & services → MQTT** in Home Assistant. Power sensors use **W**, historical per-machine energy sensors use **kWh**, and priced historical costs are shown in **EUR**, once valid data has been recorded.
 

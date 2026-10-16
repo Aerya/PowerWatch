@@ -226,6 +226,7 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 .energy-tile-label {color:var(--muted);font-size:.77rem;display:block;margin-bottom:5px;}
 .energy-tile-value {font-size:1.3rem;font-weight:700;display:block;color:var(--text);overflow-wrap:anywhere;}
 .energy-tile-cost {display:block;margin-top:5px;font-size:.92rem;font-weight:600;color:var(--text);min-height:1em;}
+.energy-tile-cost[hidden] {display:none;}
 .energy-tile-cost.is-muted {color:var(--muted);font-size:.77rem;font-weight:400;}
 .energy-tile-note {color:var(--muted);font-size:.8rem;display:block;margin-top:3px;}
 .energy-controls {display:flex;align-items:end;gap:9px;flex-wrap:wrap;margin-top:12px;}
@@ -370,6 +371,8 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
     <button type="button" id="lang-fr" data-lang="fr">🇫🇷 FR</button>
     <button type="button" id="lang-en" data-lang="en">🇬🇧 EN</button>
   </div>
+  <details class="settings-control" id="mqtt-control"><summary>MQTT</summary><div class="settings-panel"><div id="pw-ha-mount"></div></div></details>
+  <details class="settings-control" id="tariffs-control"><summary data-settings-tariffs>Tarifs</summary><div class="settings-panel"><div id="tariffs-fr-app" data-mode="hub"></div>
   <details class="tariff-control" id="tariff-propagation">
   <summary id="tariff-propagation-title" title="Copier les tarifs entre instances">⇄ Tarifs</summary>
   <div class="tariff-control-panel">
@@ -380,7 +383,26 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
     <div class="actions"><button class="action-btn" id="tariff-propagate">Copier les tarifs sélectionnés</button></div>
     <div id="tariff-propagation-result" role="status" aria-live="polite"></div>
   </div>
-</details>
+</details></div></details>
+  <details class="settings-control" id="instances-control"><summary data-i18n="manage">Machines / instances</summary><div class="settings-panel"><details class="panel management">
+  <summary><strong data-i18n="manage">Machines / instances</strong><span class="manage-count" id="manage-count"></span></summary>
+  <div class="management-body">
+    <p class="notice" data-i18n="security">Les URLs doivent rester privées et être accessibles depuis le conteneur Hub. Le Hub n'a pas d'authentification intégrée.</p>
+    <div class="hub-admin" id="hub-admin" hidden>
+      <label><span data-i18n="hubAdminToken">Jeton administrateur du Hub</span><input id="hub-admin-token" type="password" autocomplete="off" placeholder="••••••••"></label>
+      <button class="action-btn" id="save-hub-admin-token" data-i18n="useForSession">Utiliser pour cet onglet</button>
+      <span class="hub-admin-status" id="hub-admin-status"></span>
+    </div>
+    <div class="management-grid">
+      <label><span data-i18n="name">Nom</span><input id="node-name" placeholder="LincStation"></label>
+      <label><span>URL PowerWatch</span><input id="node-url" placeholder="http://192.168.0.196:3064"></label>
+      <label><span data-i18n="apiToken">Jeton API (facultatif)</span><input id="node-token" type="password" autocomplete="off" placeholder="pw_..."></label>
+      <button class="action-btn" id="probe" data-i18n="test">Tester</button>
+      <button class="action-btn" id="add" data-i18n="add">Ajouter</button>
+    </div>
+    <div id="probe-result"></div>
+  </div>
+</details></div></details>
 </header>
 
 <div class="hero">
@@ -439,29 +461,8 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
   <div id="hub-energy-detail" class="energy-detail" aria-live="polite">—</div>
 </section>
 
-<div id="tariffs-fr-app" data-mode="hub"></div>
-<div id="pw-ha-mount"></div>
 
 
-<details class="panel management">
-  <summary><strong data-i18n="manage">Machines / instances</strong><span class="manage-count" id="manage-count"></span></summary>
-  <div class="management-body">
-    <p class="notice" data-i18n="security">Les URLs doivent rester privées et être accessibles depuis le conteneur Hub. Le Hub n'a pas d'authentification intégrée.</p>
-    <div class="hub-admin" id="hub-admin" hidden>
-      <label><span data-i18n="hubAdminToken">Jeton administrateur du Hub</span><input id="hub-admin-token" type="password" autocomplete="off" placeholder="••••••••"></label>
-      <button class="action-btn" id="save-hub-admin-token" data-i18n="useForSession">Utiliser pour cet onglet</button>
-      <span class="hub-admin-status" id="hub-admin-status"></span>
-    </div>
-    <div class="management-grid">
-      <label><span data-i18n="name">Nom</span><input id="node-name" placeholder="LincStation"></label>
-      <label><span>URL PowerWatch</span><input id="node-url" placeholder="http://192.168.0.196:3064"></label>
-      <label><span data-i18n="apiToken">Jeton API (facultatif)</span><input id="node-token" type="password" autocomplete="off" placeholder="pw_..."></label>
-      <button class="action-btn" id="probe" data-i18n="test">Tester</button>
-      <button class="action-btn" id="add" data-i18n="add">Ajouter</button>
-    </div>
-    <div id="probe-result"></div>
-  </div>
-</details>
 
 <section class="nodes" id="nodes"></section>
 
@@ -475,8 +476,8 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 
 <script>
 const I18N={
-  fr:{"board":"Carte","pmicPartial":"Rails PMIC mesurés ; USB, PCIe/NVMe, ventilateur et pertes d’alimentation non couverts","energyInstances":"Instances pour les cumuls","energyPresetIncluded":"Total habituel","energyPresetAll":"Toutes","energyFilterHelp":"Le filtre concerne uniquement les cumuls ci-dessus. « Toutes » inclut aussi les instances exclues du total habituel.","energyNoneSelected":"Sélectionnez au moins une instance","energySelectedCount":"sélectionnée(s)","energyTitle":"Consommation énergétique cumulée","energyDisclaimer":"Partiellement estimée · non mesurée à la prise","energy24h":"Dernières 24 h","energy7d":"7 derniers jours","energy30d":"30 derniers jours","energyAll":"Cumul historique","energyFrom":"Du","energyTo":"Au","energyApply":"Afficher la période","energyReset":"Effacer les dates","energySelected":"Période choisie","energyCoverage":"Couverture","energyNodeHours":"heures-machine","energySince":"Depuis","energyInvalidDates":"Dates invalides","energyLoadError":"Énergie indisponible","energyCostDisabled":"Tarif non configuré","energyCostUnavailable":"Coût indisponible","energyCostPartial":"partiel","energyCostEstimated":"estimé",subtitle:"Dashboard fédéré multi-machines",globalTotal:"TOTAL INFRASTRUCTURE",totalMixed:"Mesures + estimations",history:"Historique fédéré",manage:"Machines / instances",security:"Les URLs doivent rester privées et accessibles depuis le conteneur Hub. Utilisez un jeton API en lecture seule si l'authentification PowerWatch est activée.",hubAdminToken:"Jeton administrateur du Hub",useForSession:"Utiliser pour cet onglet",adminReady:"authentification prête",adminMissing:"jeton administrateur requis",name:"Nom",apiToken:"Jeton API (facultatif)",saveToken:"Enregistrer le jeton",tokenConfigured:"jeton configuré",test:"Tester",add:"Ajouter",online:"en ligne",stale:"stale",offline:"hors ligne",disabled:"désactivé",included:"compter dans le total",enabled:"activé",remove:"supprimer",open:"ouvrir l'instance",nodes:"machines en ligne",configured:"configurées",noNodes:"Aucune instance configurée. Ajoute ton premier PowerWatch ci-dessus.",lastSeen:"vu",never:"jamais",disks:"Disques",psu:"Alimentation",module:"module",modules:"modules",nominal:"nominale",psuUnverified:"SMBIOS non vérifié",usable:"utilisables",smbiosUnavailable:"SMBIOS inaccessible",psuNotReported:"non fournie par le firmware SMBIOS",notReportedSmbios:"non reportée par SMBIOS",reportedBySmbios:"reportée par SMBIOS",measured:"Mesurée",estimated:"Estimée",global:"Total global",noHistory:"Pas encore d'historique",footerBasedOn:"Basé sur",footerThanks:"merci pour le projet d’origine."},
-  en:{"board":"Board","pmicPartial":"PMIC rails measured; USB, PCIe/NVMe, fan and supply losses are not covered","energyInstances":"Energy instances","energyPresetIncluded":"Normal total","energyPresetAll":"All","energyFilterHelp":"Only the energy totals above are filtered. “All” also includes nodes excluded from the normal total.","energyNoneSelected":"Select at least one instance","energySelectedCount":"selected","energyTitle":"Cumulative energy consumption","energyDisclaimer":"Partly estimated · not measured at the socket","energy24h":"Last 24 hours","energy7d":"Last 7 days","energy30d":"Last 30 days","energyAll":"Lifetime energy","energyFrom":"From","energyTo":"To","energyApply":"Show period","energyReset":"Clear dates","energySelected":"Selected period","energyCoverage":"Observed coverage","energyNodeHours":"machine-hours","energySince":"Since","energyInvalidDates":"Invalid dates","energyLoadError":"Energy unavailable","energyCostDisabled":"Tariff not configured","energyCostUnavailable":"Cost unavailable","energyCostPartial":"partial","energyCostEstimated":"estimated",subtitle:"Federated multi-machine dashboard",globalTotal:"INFRASTRUCTURE TOTAL",totalMixed:"Measured + estimated",history:"Federated history",manage:"Machines / instances",security:"URLs must stay private and reachable from the Hub container. Use a read-only API token when PowerWatch authentication is enabled.",hubAdminToken:"Hub administrator token",useForSession:"Use for this tab",adminReady:"authentication ready",adminMissing:"administrator token required",name:"Name",apiToken:"API token (optional)",saveToken:"Save token",tokenConfigured:"token configured",test:"Test",add:"Add",online:"online",stale:"stale",offline:"offline",disabled:"disabled",included:"include in total",enabled:"enabled",remove:"remove",open:"open instance",nodes:"nodes online",configured:"configured",noNodes:"No instance configured. Add your first PowerWatch above.",lastSeen:"seen",never:"never",disks:"Disks",psu:"Power supply",module:"module",modules:"modules",nominal:"nominal",psuUnverified:"SMBIOS unverified",usable:"usable",smbiosUnavailable:"SMBIOS unavailable",psuNotReported:"not exposed by SMBIOS firmware",notReportedSmbios:"not reported by SMBIOS",reportedBySmbios:"reported by SMBIOS",measured:"Measured",estimated:"Estimated",global:"Global total",noHistory:"No history yet",footerBasedOn:"Based on",footerThanks:"thank you for the original project."}
+  fr:{"board":"Carte","pmicPartial":"Rails PMIC mesurés ; USB, PCIe/NVMe, ventilateur et pertes d’alimentation non couverts","energyInstances":"Instances pour les cumuls","energyPresetIncluded":"Total habituel","energyPresetAll":"Toutes","energyFilterHelp":"Le filtre concerne uniquement les cumuls ci-dessus. « Toutes » inclut aussi les instances exclues du total habituel.","energyNoneSelected":"Sélectionnez au moins une instance","energySelectedCount":"sélectionnée(s)","energyTitle":"Consommation énergétique cumulée","energyDisclaimer":"Partiellement estimée · non mesurée à la prise","energy24h":"Dernières 24 h","energy7d":"7 derniers jours","energy30d":"30 derniers jours","energyAll":"Cumul historique","energyFrom":"Du","energyTo":"Au","energyApply":"Afficher la période","energyReset":"Effacer les dates","energySelected":"Période choisie","energyCoverage":"Couverture","energyNodeHours":"heures-machine","energySince":"Depuis","energyInvalidDates":"Dates invalides","energyLoadError":"Énergie indisponible","energyCostDisabled":"Tarif non configuré","energyCostUnavailable":"Coût indisponible","energyCostPartial":"partiel","energyCostEstimated":"estimé",subtitle:"Dashboard fédéré multi-machines",globalTotal:"TOTAL INFRASTRUCTURE",totalMixed:"Mesures + estimations",history:"Historique fédéré",manage:"Machines / instances",security:"Les URLs doivent rester privées et accessibles depuis le conteneur Hub. Utilisez un jeton API en lecture seule si l'authentification PowerWatch est activée.",hubAdminToken:"Jeton administrateur du Hub",useForSession:"Utiliser pour cet onglet",adminReady:"authentification prête",adminMissing:"jeton administrateur requis",name:"Nom",apiToken:"Jeton API (facultatif)",saveToken:"Enregistrer le jeton",tokenConfigured:"jeton configuré",test:"Tester",add:"Ajouter",online:"en ligne",stale:"stale",offline:"hors ligne",disabled:"désactivé",included:"compter dans le total",enabled:"activé",remove:"supprimer",open:"ouvrir l'instance",nodes:"machines en ligne",configured:"configurées",noNodes:"Aucune instance configurée. Utilise le menu Machines / instances pour ajouter un PowerWatch.",lastSeen:"vu",never:"jamais",disks:"Disques",psu:"Alimentation",module:"module",modules:"modules",nominal:"nominale",psuUnverified:"SMBIOS non vérifié",usable:"utilisables",smbiosUnavailable:"SMBIOS inaccessible",psuNotReported:"non fournie par le firmware SMBIOS",notReportedSmbios:"non reportée par SMBIOS",reportedBySmbios:"reportée par SMBIOS",measured:"Mesurée",estimated:"Estimée",global:"Total global",noHistory:"Pas encore d'historique",footerBasedOn:"Basé sur",footerThanks:"merci pour le projet d’origine."},
+  en:{"board":"Board","pmicPartial":"PMIC rails measured; USB, PCIe/NVMe, fan and supply losses are not covered","energyInstances":"Energy instances","energyPresetIncluded":"Normal total","energyPresetAll":"All","energyFilterHelp":"Only the energy totals above are filtered. “All” also includes nodes excluded from the normal total.","energyNoneSelected":"Select at least one instance","energySelectedCount":"selected","energyTitle":"Cumulative energy consumption","energyDisclaimer":"Partly estimated · not measured at the socket","energy24h":"Last 24 hours","energy7d":"Last 7 days","energy30d":"Last 30 days","energyAll":"Lifetime energy","energyFrom":"From","energyTo":"To","energyApply":"Show period","energyReset":"Clear dates","energySelected":"Selected period","energyCoverage":"Observed coverage","energyNodeHours":"machine-hours","energySince":"Since","energyInvalidDates":"Invalid dates","energyLoadError":"Energy unavailable","energyCostDisabled":"Tariff not configured","energyCostUnavailable":"Cost unavailable","energyCostPartial":"partial","energyCostEstimated":"estimated",subtitle:"Federated multi-machine dashboard",globalTotal:"INFRASTRUCTURE TOTAL",totalMixed:"Measured + estimated",history:"Federated history",manage:"Machines / instances",security:"URLs must stay private and reachable from the Hub container. Use a read-only API token when PowerWatch authentication is enabled.",hubAdminToken:"Hub administrator token",useForSession:"Use for this tab",adminReady:"authentication ready",adminMissing:"administrator token required",name:"Name",apiToken:"API token (optional)",saveToken:"Save token",tokenConfigured:"token configured",test:"Test",add:"Add",online:"online",stale:"stale",offline:"offline",disabled:"disabled",included:"include in total",enabled:"enabled",remove:"remove",open:"open instance",nodes:"nodes online",configured:"configured",noNodes:"No instance configured. Use the Machines / instances menu to add a PowerWatch.",lastSeen:"seen",never:"never",disks:"Disks",psu:"Power supply",module:"module",modules:"modules",nominal:"nominal",psuUnverified:"SMBIOS unverified",usable:"usable",smbiosUnavailable:"SMBIOS unavailable",psuNotReported:"not exposed by SMBIOS firmware",notReportedSmbios:"not reported by SMBIOS",reportedBySmbios:"reported by SMBIOS",measured:"Measured",estimated:"Estimated",global:"Global total",noHistory:"No history yet",footerBasedOn:"Based on",footerThanks:"thank you for the original project."}
 };
 const GLOBAL_COLOR="#ffd166";
 const NODE_COLORS=[
@@ -1078,6 +1079,7 @@ function hubCostParams() {
 }
 function hubCostText(energy,cost){
   if (!energy || energy.first_seen_epoch==null) return "";
+  if (hubEnergyCosts && !hubEnergyCosts.enabled) return "";
   if (hubCostFailed) return `${tr("energyCostUnavailable")} · API`;
   if (!hubEnergyCosts) return "—";
   if (!hubEnergyCosts.enabled) return tr("energyCostDisabled");
@@ -1120,6 +1122,7 @@ function renderHubEnergy() {
     document.getElementById("hub-energy-"+period).textContent=hubKwh(item);
     const costElement=document.getElementById("hub-energy-cost-"+period);
     costElement.textContent=hubCostText(item,hubEnergyCosts?.windows?.[period]);
+    costElement.hidden=hubEnergyCosts?.enabled===false;
     costElement.classList.toggle("is-muted",!hubEnergyCosts?.enabled || hubCostFailed || !(hubEnergyCosts?.windows?.[period]?.billed_energy_kwh || hubEnergyCosts?.windows?.[period]?.projected_kwh));
     document.getElementById("hub-coverage-"+period).textContent=item?.first_seen_epoch==null?"":
       `${tr("energyCoverage")}: ${(item.coverage_seconds/3600).toFixed(1)} ${tr("energyNodeHours")}`;
@@ -1186,6 +1189,7 @@ document.getElementById("tariff-propagate").addEventListener("click",propagateTa
 async function boot(){await initHubAdmin();applyLanguage();await refreshSnapshot();await refreshHistory();await refreshHubEnergy();setInterval(refreshSnapshot,2000);setInterval(refreshHistory,60000);setInterval(refreshHubEnergy,60000);}boot();
 </script>
 <script src="/static/tariffs-fr.js" defer></script>
+<script>document.addEventListener("DOMContentLoaded",()=>{const label=document.querySelector("[data-settings-tariffs]");const update=()=>{label.textContent=document.documentElement.lang==="en"?"Tariffs":"Tarifs"};update();new MutationObserver(update).observe(document.documentElement,{attributes:true,attributeFilter:["lang"]});});</script>
 <script src="/static/home-assistant.js" defer></script>
 <script>window.addEventListener("DOMContentLoaded",()=>window.PowerWatchHA?.init({endpoint:"/api/hub/home-assistant",hub:true,request:api,}));</script>
 </body>

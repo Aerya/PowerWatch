@@ -127,3 +127,17 @@ html[data-theme-tone="dark"][data-theme-palette="rose-pine"] {
 .theme-control-panel .theme-modes { display:flex; gap:4px; }
 .theme-control-panel .theme-modes button { flex:1; cursor:pointer; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:5px; }
 .theme-control-panel .theme-modes button[aria-pressed="true"] { border-color:var(--accent); color:var(--accent); font-weight:700; }
+
+/* Dashboard configuration menus share the appearance button style. */
+.settings-control { position:relative; font-size:.78rem; }
+.settings-control > summary, .settings-link { display:block; cursor:pointer; list-style:none; border:1px solid var(--border); border-radius:4px; padding:4px 8px; color:var(--text); background:transparent; text-decoration:none; white-space:nowrap; font-size:.78rem; }
+.settings-control > summary::-webkit-details-marker { display:none; }
+.settings-control[open] > summary, .settings-link:hover { border-color:var(--accent); }
+.settings-panel { position:absolute; z-index:70; right:0; top:calc(100% + 4px); width:min(720px,94vw); max-height:80vh; overflow:auto; padding:12px; background:var(--panel); border:1px solid var(--border); border-radius:6px; box-shadow:0 8px 24px #0005; }
+.settings-panel #tariffs-fr-app, .settings-panel #pw-ha-mount { margin:0; }
+.settings-panel #tariffs-fr-app .tf-main { border:0; }
+.settings-panel .tariff-control { display:block; margin-top:12px; }
+.settings-panel .tariff-control-panel { position:static; width:auto; max-height:none; box-shadow:none; margin-top:6px; }
+.settings-panel .management { margin:0; }
+.settings-panel .management-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+@media(max-width:650px) { .settings-panel .management-grid { grid-template-columns:1fr; } }
