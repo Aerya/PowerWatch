@@ -40,6 +40,46 @@ pub async fn devices(state:AppState) -> Vec<ha::Device> {
             key:"hub".into(),label:"PowerWatch Hub".into(),available:true,metrics,
         });
     }
+    // Cost sensors reuse the WebUI's French pricing engine, including the
+    // one-subscription-per-site rule. Unlike the independent global kWh meter,
+    // the priced historical amount is a recalculable estimate for the current
+    // selection and can change if tariffs or included nodes are modified.
+    let costs = if cfg.publish_costs {
+        let nodes=state.config.read().await.nodes.clone();
+        let now=Utc::now().timestamp();
+        state.storage.lock().ok().and_then(|storage| {
+            let conn=&storage.conn;
+            let tariffs=powerwatch_core::tariffs_fr::load(conn).ok()?;
+            if !tariffs.enabled {return None;}
+            let assignments:Vec<(String,String,bool)>=nodes.iter().map(|node|{
+                let site=tariffs.sites.iter().find(|site|site.nodes.iter().any(|n|n==&node.id))
+                    .map(|s|s.id.clone()).unwrap_or_else(||"__unassigned__".into());
+                (node.id.clone(),site,node.enabled&&node.include_in_total)
+            }).collect();
+            let global=if matches!(&cfg.scope,ha::Scope::All|ha::Scope::Global) {
+                powerwatch_core::tariffs_fr::lifetime_cost(conn,&tariffs,&assignments,now).ok()
+            } else {None};
+            let mut per_node=std::collections::HashMap::new();
+            if matches!(&cfg.scope,ha::Scope::All|ha::Scope::Nodes) {
+                // Node cost excludes the shared fixed subscription to avoid
+                // allocating the same subscription to every physical machine.
+                let mut variable_only=tariffs.clone();
+                variable_only.include_subscription=false;
+                for (id,site,_) in &assignments {
+                    let one=vec![(id.clone(),site.clone(),true)];
+                    if let Ok(cost)=powerwatch_core::tariffs_fr::lifetime_cost(conn,&variable_only,&one,now) {
+                        per_node.insert(id.clone(),cost);
+                    }
+                }
+            }
+            Some((tariffs.include_subscription,global,per_node))
+        })
+    } else {None};
+    if let Some((include_subscription,Some(cost),_))=costs.as_ref() {
+        if let Some(global)=devices.iter_mut().find(|d|d.key=="hub") {
+            global.metrics.extend(ha::cost_metrics(cost,*include_subscription));
+        }
+    }
     if matches!(&cfg.scope,ha::Scope::All|ha::Scope::Nodes) {
         let now=Utc::now().timestamp();
         let storage=state.storage.lock().ok();
@@ -64,6 +104,12 @@ pub async fn devices(state:AppState) -> Vec<ha::Device> {
                             }
                         }
                     }
+                }
+            }
+            if let Some((_,_,per_node))=costs.as_ref() {
+                if let Some(cost)=per_node.get(&node.id) {
+                    // Only variable costs are assigned to individual machines.
+                    metrics.extend(ha::cost_metrics(cost,false));
                 }
             }
             // Node IDs are stable Hub identifiers; use a hash to avoid MQTT topic injection.

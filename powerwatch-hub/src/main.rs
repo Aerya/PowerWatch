@@ -1241,7 +1241,7 @@ async fn main() {
         eprintln!("warning: failed to persist hub config: {error}");
     }
 
-    let storage = match HubStorage::open(&args.database) {
+    let mut storage = match HubStorage::open(&args.database) {
         Ok(storage) => storage,
         Err(error) => {
             eprintln!(
@@ -1251,6 +1251,19 @@ async fn main() {
             std::process::exit(1);
         }
     };
+    // Seed Home Assistant's monotonic meter from the *existing* historical
+    // total ONCE, before any Hub polling or background history imports begin.
+    // This does not change the selectable Hub historical totals.
+    let initially_included = config.nodes.iter()
+        .filter(|node| node.enabled && node.include_in_total)
+        .map(|node| node.id.clone())
+        .collect::<HashSet<_>>();
+    if let Err(error) = ha_energy::seed_from_history(
+        &mut storage.conn, &initially_included, Utc::now().timestamp(),
+    ) {
+        eprintln!("failed to initialize Home Assistant Hub energy meter: {error}");
+        std::process::exit(1);
+    }
 
     let client = Client::builder()
         .user_agent("PowerWatch-Hub/0.2")

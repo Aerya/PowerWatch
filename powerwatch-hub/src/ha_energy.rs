@@ -1,7 +1,8 @@
 //! Independent, monotonic Hub MQTT energy meter (not the selectable Hub historical total).
 //!
-//! Records only newly observed energy of online nodes included in the Hub total at
-//! the time of capture. No backfill and no interpolation across missing samples.
+//! On initial install, it imports the recorded lifetime energy of the nodes in
+//! the current total ONCE. Afterwards, it only adds newly observed intervals.
+//! Offline gaps are not interpolated.
 //! The existing node history and its selectable energy overview are untouched.
 use rusqlite::{params, Connection, OptionalExtension, Result};
 use std::collections::HashSet;
@@ -16,8 +17,55 @@ pub fn init(conn: &Connection) -> Result<()> {
         INSERT OR IGNORE INTO ha_hub_energy_total(id,wh) VALUES(1,0);
         CREATE TABLE IF NOT EXISTS ha_hub_energy_last (
             node_id TEXT PRIMARY KEY, epoch INTEGER NOT NULL, watts REAL NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS ha_hub_energy_meta (
+            key TEXT PRIMARY KEY, value TEXT NOT NULL
         );",
     )
+}
+
+/// Initialize a new Home Assistant meter from existing Hub lifetime history,
+/// honoring the selection at upgrade time. This runs exactly once, before the
+/// polling/history tasks start, so the old Wh cannot be added a second time.
+///
+/// If a previous MQTT meter has already accumulated energy, preserve it rather
+/// than importing history on top of it (important for development upgrades).
+/// Subsequent inclusion/exclusion changes affect only future energy intervals.
+pub fn seed_from_history(
+    conn: &mut Connection,
+    included_nodes: &HashSet<String>,
+    now_epoch: i64,
+) -> Result<()> {
+    let initialized: Option<String> = conn.query_row(
+        "SELECT value FROM ha_hub_energy_meta WHERE key='initialized'",
+        [], |row| row.get(0),
+    ).optional()?;
+    if initialized.is_some() { return Ok(()); }
+
+    let existing_wh: f64 = conn.query_row(
+        "SELECT wh FROM ha_hub_energy_total WHERE id=1", [], |row| row.get(0),
+    )?;
+    let has_cursor: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM ha_hub_energy_last)", [], |row| row.get(0),
+    )?;
+    let seed_wh = if existing_wh > 0.0 || has_cursor {
+        // Already-running experimental MQTT meter: do NOT add previous history.
+        existing_wh
+    } else {
+        let mut historical_wh = 0.0;
+        for node in included_nodes {
+            let stats = crate::energy::stats(conn, node, None, now_epoch)?;
+            let wh = stats.energy_kwh * 1000.0;
+            if wh.is_finite() && wh >= 0.0 { historical_wh += wh; }
+        }
+        if historical_wh.is_finite() && historical_wh >= 0.0 { historical_wh } else { 0.0 }
+    };
+    let tx = conn.transaction()?;
+    tx.execute("UPDATE ha_hub_energy_total SET wh=?1 WHERE id=1", params![seed_wh])?;
+    tx.execute(
+        "INSERT INTO ha_hub_energy_meta(key,value) VALUES('initialized','1')", [],
+    )?;
+    tx.commit()
 }
 
 /// Called within the Hub history write transaction, on *every* tick, even when
@@ -118,6 +166,38 @@ mod tests {
         record(&c,70,&watts(&[("a",120.0)]),&all).unwrap();
         record(&c,1000,&watts(&[("a",120.0)]),&all).unwrap();
         assert!((total_kwh(&c).unwrap()-first).abs()<1e-10);
+    }
+    #[test]
+    fn initial_seed_imports_selected_historical_kwh_once() {
+        let mut c=Connection::open_in_memory().unwrap();
+        crate::energy::init(&c).unwrap();
+        init(&c).unwrap();
+        crate::energy::record(&mut c,"garuda",100,60.0,true,180).unwrap();
+        crate::energy::record(&mut c,"garuda",160,60.0,true,180).unwrap();
+        crate::energy::record(&mut c,"lab",100,120.0,true,180).unwrap();
+        crate::energy::record(&mut c,"lab",160,120.0,true,180).unwrap();
+        seed_from_history(&mut c,&nodes(&["garuda","lab"]),200).unwrap();
+        assert!((total_kwh(&c).unwrap()-0.003).abs()<1e-10);
+        // A restart cannot import those three Wh again, regardless of selection.
+        seed_from_history(&mut c,&nodes(&["garuda"]),200).unwrap();
+        assert!((total_kwh(&c).unwrap()-0.003).abs()<1e-10);
+        // Removing one machine changes only the new increments.
+        record(&c,200,&watts(&[("garuda",60.0)]),&nodes(&["garuda"])).unwrap();
+        record(&c,260,&watts(&[("garuda",60.0)]),&nodes(&["garuda"])).unwrap();
+        assert!((total_kwh(&c).unwrap()-0.004).abs()<1e-10);
+    }
+    #[test]
+    fn an_existing_mqtt_meter_is_not_seeded_twice() {
+        let mut c=Connection::open_in_memory().unwrap();
+        crate::energy::init(&c).unwrap();
+        init(&c).unwrap();
+        crate::energy::record(&mut c,"a",100,60.0,true,180).unwrap();
+        crate::energy::record(&mut c,"a",160,60.0,true,180).unwrap();
+        record(&c,100,&watts(&[("a",60.0)]),&nodes(&["a"])).unwrap();
+        record(&c,160,&watts(&[("a",60.0)]),&nodes(&["a"])).unwrap();
+        assert!((total_kwh(&c).unwrap()-0.001).abs()<1e-10);
+        seed_from_history(&mut c,&nodes(&["a"]),200).unwrap();
+        assert!((total_kwh(&c).unwrap()-0.001).abs()<1e-10);
     }
     #[test]
     fn meter_survives_reopen() {

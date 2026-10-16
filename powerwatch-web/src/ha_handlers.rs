@@ -46,5 +46,20 @@ pub async fn devices(State(state):State<AppState>) -> Vec<ha::Device> {
             }
         }
     }
+    if cfg.publish_costs {
+        if let Ok(guard)=state.storage.lock() {
+            if let Some(ref db)=*guard {
+                let conn=db.tariff_connection();
+                if let Ok(tariffs)=powerwatch_core::tariffs_fr::load(conn) {
+                    if tariffs.enabled {
+                        let selection=vec![("local".to_string(),"local".to_string(),true)];
+                        if let Ok(cost)=powerwatch_core::tariffs_fr::lifetime_cost(conn,&tariffs,&selection,chrono::Utc::now().timestamp()) {
+                            metrics.extend(ha::cost_metrics(&cost,tariffs.include_subscription));
+                        }
+                    }
+                }
+            }
+        }
+    }
     vec![ha::Device{key:"host".into(),label:name,available:snapshot.and_then(|s|s.total).is_some(),metrics}]
 }
