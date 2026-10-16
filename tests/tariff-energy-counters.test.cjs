@@ -49,7 +49,8 @@ for(const label of ["local","hub"]){
     assert.match(cost({...energy,estimated_kwh:0.001},rated),/partiel/);
     assert.equal(cost({first_seen_epoch:null},rated),"");
     context[label==="local"?"powerwatchCosts":"hubEnergyCosts"]={enabled:false};
-    assert.equal(cost(energy,rated),"Tarif non configuré");
+    assert.equal(cost(energy,rated),"", "disabled pricing hides the cost line");
+    context[label==="local"?"powerwatchCosts":"hubEnergyCosts"]={enabled:true};
     context[label==="local"?"pwCostFailed":"hubCostFailed"]=true;
     assert.equal(cost(energy,rated),"Coût indisponible · API");
   });

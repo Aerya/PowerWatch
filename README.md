@@ -397,14 +397,15 @@ La page principale affiche :
 - les libellés enrichis des disques avec leur capacité ;
 - le modèle CPU avec un lien vers CPU Benchmark / PassMark ;
 - un nom d'instance modifiable, réutilisé comme suggestion lors de l'ajout dans PowerWatch Hub ;
-- le choix de langue FR / EN.
+- le choix de langue FR / EN ;
+- les boutons **Alertes**, **MQTT** et **Tarifs** en haut à droite : les réglages Home Assistant et tarification ne prennent plus de place sur l’index ;
 - le sélecteur de thème **Clair / Sombre / Auto**, avec palettes de jour et de nuit inspirées de Dockge-Enhanced. Les réglages restent dans le navigateur, séparément pour chaque adresse de WebUI et de Hub.
 
 L'image Docker démarre automatiquement PowerWatch avec l'historique activé et le mode NAS/headless.
 
 ### Tarification électrique France — bêta (optionnelle)
 
-**Bêta : les prix peuvent être incomplets, périmés ou erronés. Les coûts sont indicatifs, non mesurés au compteur et ne remplacent pas une facture.** Désactivée par défaut. La base SQLite conserve les configurations et les corrections manuelles ; rien n'est enregistré exclusivement dans le navigateur.
+**Bêta : les prix peuvent être incomplets, périmés ou erronés. Les coûts sont indicatifs, non mesurés au compteur et ne remplacent pas une facture.** Désactivée par défaut. Depuis le menu **Tarifs** en haut à droite de chaque instance ou du Hub, l’interrupteur « Activer la tarification et afficher les coûts » enregistre immédiatement le choix. Une fois désactivée, les montants disparaissent des compteurs, mais les contrats restent enregistrés. La base SQLite conserve les configurations et les corrections manuelles ; rien n'est enregistré exclusivement dans le navigateur.
 
 - Contrats et fournisseurs successifs avec dates de début/fin, sites et affectation des machines côté Hub. Un seul contrat à la fois par site évite les doubles tarifs ; plusieurs sites distincts peuvent avoir des fournisseurs différents.
 - Versions de tarifs datées par contrat : Base, heures pleines/creuses personnalisables, Tempo avec ses six prix, offre personnalisée. Chaque prix TTC, abonnement annuel et date restent éditables ; toute correction manuelle prime sur la source automatique.
@@ -419,7 +420,7 @@ L'image Docker démarre automatiquement PowerWatch avec l'historique activé et 
 - **Agrégats énergétiques de 15 minutes conservés sans limite de durée programmée** pour les nouvelles archives. Les anciens agrégats horaires restent lisibles, avec un avertissement de précision pour leurs coûts. L'estimation de l'historique ne crée aucune grille tarifaire datée fictive.
 - Abonnements facultatifs, calculés une fois par site et proratisés au jour ; aucun abonnement doublement compté entre plusieurs machines du Hub. Les périodes sans contrat ou couleur Tempo restent en kWh non chiffrés ; les périodes sans prix antérieur peuvent être projetées seulement si l'option d'estimation est activée.
 - Accès WebUI : `/api/tariffs-fr` (GET/PUT), `/api/tariffs-fr/sync` (POST), `/api/tariffs-fr/cost` (GET) et `/api/tariffs-fr/overview` (GET, compteurs). Accès Hub : `/api/hub/tariffs-fr` et équivalents `/sync`, `/cost`, `/overview` (`nodes` facultatif pour les instances sélectionnées). Les mutations sont protégées par l'authentification de la WebUI ou l'authentification administrateur du Hub si activée.
-- **Copie volontaire entre machines** : dans le menu en haut du Hub, ouvrez « ⇄ Tarifs », choisissez l'instance source et cochez uniquement les machines ayant le même contrat et les mêmes horaires HC. Cochez « Copier aussi vers le Hub » pour calculer leurs coûts avec cette grille. La copie remplace la configuration tarifaire des machines cochées ; les autres restent intactes. Si l'authentification PowerWatch est activée, créez dans « Sécurité » de chaque destinataire un jeton « Lire et modifier les tarifs électriques » et renseignez-le dans la fiche de cette machine dans le Hub. Le jeton habituel en lecture seule reste distinct. La copie est déclenchée par le bouton et affiche les réussites et échecs par machine.
+- **Copie volontaire entre machines** : dans le menu **Tarifs** en haut du Hub, ouvrez « ⇄ Tarifs », choisissez l'instance source et cochez uniquement les machines ayant le même contrat et les mêmes horaires HC. Cochez « Copier aussi vers le Hub » pour calculer leurs coûts avec cette grille. La copie remplace la configuration tarifaire des machines cochées ; les autres restent intactes. Si l'authentification PowerWatch est activée, créez dans « Sécurité » de chaque destinataire un jeton « Lire et modifier les tarifs électriques » et renseignez-le dans la fiche de cette machine dans le Hub. Le jeton habituel en lecture seule reste distinct. La copie est déclenchée par le bouton et affiche les réussites et échecs par machine.
 
 Sources : https://www.cre.fr/documents/open-data/historique-des-tarifs-reglementes-de-vente-delectricite-pour-les-consommateurs-residentiels.html et https://www.calendrier-tempo.fr/api-tempo. Aucun tarif n'est codé en dur.
 
@@ -617,7 +618,7 @@ Le Hub fournit :
 - un **total global** de l'infrastructure, accompagné de la mention **« Mesures + estimations »** ;
 - une carte repliable par machine avec CPU, GPU, RAM et disques ;
 - les états **online / stale / offline / disabled** ;
-- l'ajout, le test, l'activation et la suppression d'instances directement depuis la WebUI ;
+- l'ajout, le test, l'activation et la suppression d'instances depuis le bouton **Machines / instances** en haut à droite ;
 - la possibilité d'exclure une machine du total global ;
 - le filtrage des cumuls énergétiques par une, plusieurs ou toutes les instances, indépendamment du total global ;
 - un historique SQLite fédéré, enregistré par défaut toutes les 60 secondes ;
@@ -675,10 +676,10 @@ La configuration est stockée dans `hub-data/powerwatch-hub.json` et l'historiqu
 
 ## Home Assistant — découverte MQTT (facultative)
 
-PowerWatch et PowerWatch Hub peuvent désormais **publier directement leurs capteurs dans Home Assistant** via **MQTT Discovery** : aucun YAML ni composant HACS n'est nécessaire. Dans **chaque WebUI**, ouvrez le panneau repliable **« Home Assistant · MQTT »**, puis activez le commutateur. L'intégration est **désactivée par défaut** et ne lance aucune connexion au broker tant qu'elle reste désactivée.
+PowerWatch et PowerWatch Hub peuvent désormais **publier directement leurs capteurs dans Home Assistant** via **MQTT Discovery** : aucun YAML ni composant HACS n'est nécessaire. Dans **chaque WebUI**, ouvrez **MQTT** en haut à droite, puis activez le commutateur. L'intégration est **désactivée par défaut** et ne lance aucune connexion au broker tant qu'elle reste désactivée.
 
 1. Dans Home Assistant, installez/configurez l'intégration **MQTT** ainsi qu'un broker (par exemple l'add-on Mosquitto). Le broker doit être joignable **depuis le conteneur PowerWatch/Hub** : utilisez son IP ou son nom DNS réseau (pas `localhost`, sauf si le broker est dans le même conteneur).
-2. Dans PowerWatch ou le Hub, renseignez **adresse, port** (1883 en clair, généralement 8883 en TLS), identifiant et mot de passe si nécessaires. Cochez **TLS** si le broker a un certificat valide reconnu par le système ; les certificats auto-signés non approuvés ne sont pas acceptés par défaut.
+2. Ouvrez le bouton **MQTT** en haut à droite de PowerWatch ou du Hub, puis renseignez **adresse, port** (1883 en clair, généralement 8883 en TLS), identifiant et mot de passe si nécessaires. Cochez **TLS** si le broker a un certificat valide reconnu par le système ; les certificats auto-signés non approuvés ne sont pas acceptés par défaut.
 3. Choisissez la fréquence (10–600 s), l'export des composants, des cumuls kWh et des **coûts estimés en euros** (uniquement avec la tarification France active), puis, dans le Hub, la portée : **Hub + machines**, **Hub uniquement** (par défaut, pour éviter les doublons) ou **machines uniquement**. Enregistrez et cliquez sur **Tester la connexion** : ce bouton teste la négociation MQTT et les identifiants, pas seulement l'ouverture du port.
 4. Les équipements « PowerWatch » apparaissent automatiquement sous **Paramètres → Appareils et services → MQTT** dans Home Assistant, avec les capteurs **W** (puissance totale et composants), **kWh** historiques par machine et, si le tarif est complet, **€** estimés, dès que PowerWatch dispose de données.
 

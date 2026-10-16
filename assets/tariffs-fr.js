@@ -317,6 +317,7 @@ function bindMarket(){
     <span class="tf-main-status">${tr(conf.enabled?"Activée":"Désactivée",conf.enabled?"Enabled":"Disabled")}</span>
     <span class="tf-main-contract">${esc(summary)}</span></summary>
     <div class="tf-main-body">
+    <div class="tf-row"><label class="tf-inline"><input id="tf-quick-enabled" type="checkbox" ${conf.enabled?"checked":""}> ${tr("Activer la tarification et afficher les coûts","Enable pricing and show costs")}</label><span id="tf-quick-status" class="tf-help" role="status"></span></div>
     <p class="tf-help tf-main-disclaimer">${tr("Prix partiels ou périmés possibles. Consommation estimée, non mesurée à la prise. Ne remplace pas une facture.","Prices can be incomplete or outdated. Energy is estimated, not measured at the socket. Not a bill.")}</p>
     <p class="tf-help tf-current"><strong>${tr("Contrat actuellement enregistré :","Currently saved contract:")} ${esc(summary)}</strong><br>${activeDetails}<br>${esc(pricingReason)}${activeContract?`<br><button type="button" id="tf-edit-current">${tr("Modifier ce contrat et ses prix","Edit this contract and its rates")}</button>`:""}</p>
     <label class="tf-inline tf-history-estimate"><input id="tf-estimate-history" type="checkbox" ${conf.estimate_unknown_history?"checked":""}> ${tr("Estimer mes anciens relevés avec le premier prix connu","Estimate earlier readings using my first known rate")}</label>
@@ -325,8 +326,7 @@ function bindMarket(){
     ${manualEditor()}${marketEditor()}
     <details class="tf-advanced"><summary>${tr("Réglages avancés (facultatifs)","Advanced settings (optional)")}</summary>
     <p class="tf-help">${tr("Contrats et grilles : correction manuelle des périodes et prix. Tempo : uniquement pour un contrat Tempo. Estimation de coût : détail technique des kWh tarifés.","Contracts and grids: manual correction of dates and prices. Tempo: only for a Tempo contract. Cost estimate: technical detail of priced energy.")}</p>
-    <div class="tf-row"><label class="tf-inline"><input id="tf-enabled" type="checkbox" ${conf.enabled?"checked":""}> ${tr("Activer la tarification","Enable pricing")}</label>
-    <label class="tf-inline"><input id="tf-subscription" type="checkbox" ${conf.include_subscription?"checked":""}> ${tr("Inclure abonnement (une fois par site)","Include standing charge once per site")}</label>
+    <div class="tf-row"><label class="tf-inline"><input id="tf-subscription" type="checkbox" ${conf.include_subscription?"checked":""}> ${tr("Inclure abonnement (une fois par site)","Include standing charge once per site")}</label>
     <button id="tf-save" type="button">${tr("Enregistrer les modifications","Save changes")}</button><span id="tf-dirty" class="tf-help">${dirty?tr("Modifications non enregistrées","Unsaved changes"):""}</span>
     <button id="tf-export" type="button">${tr("Exporter JSON","Export JSON")}</button>
     <button id="tf-import" type="button">${tr("Importer JSON","Import JSON")}</button><input type="file" accept="application/json" id="tf-file" hidden></div>
@@ -343,7 +343,7 @@ function bindMarket(){
     bind(); if(cost)renderCost();
   }
   function readEdits(){
-    conf.enabled=document.getElementById("tf-enabled").checked;
+    conf.enabled=document.getElementById("tf-quick-enabled").checked;
     conf.include_subscription=document.getElementById("tf-subscription").checked;
     root.querySelectorAll("[data-site]").forEach(block=>{
       const x=conf.sites[Number(block.dataset.site)]; if(!x)return;
@@ -382,6 +382,16 @@ function bindMarket(){
   function bind(){
     bindMarket();
     bindManual();
+    root.querySelector("#tf-quick-enabled")?.addEventListener("change",async event=>{
+      const checkbox=event.currentTarget;
+      const status=root.querySelector("#tf-quick-status");
+      try {
+        if(dirty)throw Error(tr("Enregistrez d'abord vos corrections avancées.","Save advanced edits first."));
+        const next=structuredClone(conf);next.enabled=checkbox.checked;
+        conf=await request("",{method:"PUT",body:JSON.stringify(next)});
+        render();
+      } catch(error) {checkbox.checked=conf.enabled;status.textContent=error.message;}
+    });
     const act=(selector,handler)=>root.querySelector(selector)?.addEventListener("click",handler);
     act("#tf-edit-current",editCurrentContract);
     root.querySelector("#tf-estimate-history")?.addEventListener("change",async event=>{
@@ -391,7 +401,7 @@ function bindMarket(){
       catch(e){checkbox.checked=!!conf.estimate_unknown_history;root.querySelector("#tf-estimate-status").textContent=e.message;}
     });
     act("#tf-save",async()=>{try{readEdits();conf=await request("",{method:"PUT",body:JSON.stringify(conf)});dirty=false;render();editorMsg(tr("Configuration sauvegardée en SQLite.","Saved to SQLite."));}catch(e){editorMsg(e.message);}});
-    root.querySelectorAll('.tf-advanced input:not(#tf-from):not(#tf-to):not(#tf-enabled):not(#tf-subscription),.tf-advanced select[data-field]').forEach(input=>input.addEventListener("input",()=>{dirty=true;const status=root.querySelector("#tf-dirty");if(status)status.textContent=tr("Modifications non enregistrées","Unsaved changes");}));
+    root.querySelectorAll('.tf-advanced input:not(#tf-from):not(#tf-to):not(#tf-subscription),.tf-advanced select[data-field]').forEach(input=>input.addEventListener("input",()=>{dirty=true;const status=root.querySelector("#tf-dirty");if(status)status.textContent=tr("Modifications non enregistrées","Unsaved changes");}));
     act("#tf-export",()=>{try{readEdits();const data=JSON.stringify(conf,null,2);const blob=new Blob([data],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="powerwatch-tarifs-fr.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),3000);}catch(e){editorMsg(e.message)}});
     act("#tf-import",()=>root.querySelector("#tf-file").click());
     root.querySelector("#tf-file")?.addEventListener("change",async event=>{const file=event.target.files?.[0];if(!file)return;try{const incoming=JSON.parse(await file.text());incoming.revision=conf.revision;conf=await request("",{method:"PUT",body:JSON.stringify(incoming)});dirty=false;render();editorMsg(tr("Import enregistré.","Import saved."));}catch(e){editorMsg(e.message)}});
@@ -434,7 +444,7 @@ function bindMarket(){
     render();
     void marketLoadSuppliers().then(()=>{const sel=root.querySelector("#tf-market-supplier");if(sel){sel.innerHTML=marketSuppliers.map(s=>`<option value="${esc(s.slug)}">${esc(s.name)}</option>`).join("");sel.value=marketSlug;}const status=root.querySelector("#tf-market-status");if(status&&marketError)status.textContent=marketError;});
   }catch(e){root.textContent=tr("Tarification bêta indisponible : ","Beta tariff configuration unavailable: ")+e.message;}}
-  new MutationObserver(()=>{if(conf&&root.querySelector("#tf-enabled")){readEdits();render();}})
+  new MutationObserver(()=>{if(conf&&root.querySelector("#tf-quick-enabled")){readEdits();render();}})
     .observe(document.documentElement,{attributes:true,attributeFilter:["lang"]});
   start();
 })();
