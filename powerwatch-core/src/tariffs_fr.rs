@@ -274,6 +274,8 @@ pub struct CostStats {
     pub subscription_eur:f64,
     pub projected_energy_cost_eur:f64,
     pub projected_subscription_eur:f64,
+    /// True when an observed interval lacks a priced subscription revision.
+    pub missing_subscription_rate:bool,
     pub projected_kwh:f64,
     pub unpriced_kwh:f64,
     pub approximate_kwh:f64,
@@ -289,6 +291,7 @@ impl CostStats {
         self.subscription_eur+=other.subscription_eur;
         self.projected_energy_cost_eur+=other.projected_energy_cost_eur;
         self.projected_subscription_eur+=other.projected_subscription_eur;
+        self.missing_subscription_rate|=other.missing_subscription_rate;
         self.projected_kwh+=other.projected_kwh;
         self.unpriced_kwh+=other.unpriced_kwh;
         self.approximate_kwh+=other.approximate_kwh;
@@ -404,6 +407,36 @@ pub fn price_slices(config:&TariffConfig,site:&str,slices:&[EnergySlice])->CostS
 }
 /// Optional subscription cost, once per site, prorated by contract/revision days.
 /// No subscription is implicitly charged for unconfigured time ranges.
+/// Missing fixed-price data must not silently be presented as a fully priced
+/// electricity bill. Check every local-calendar day actually in the interval.
+/// This does not change the existing cost computation or its UI estimates.
+pub fn missing_subscription_rate(config:&TariffConfig,site:&str,from:i64,to:i64)->bool {
+    if !config.enabled || !config.include_subscription || to<=from {return false;}
+    let Some(start)=DateTime::<Utc>::from_timestamp(from,0)else{return true};
+    let Some(end)=DateTime::<Utc>::from_timestamp(to,0)else{return true};
+    let mut day=start.with_timezone(&Paris).date_naive();
+    let last=end.with_timezone(&Paris).date_naive();
+    let mut count=0;
+    while day<=last && count<36525 {
+        let next=day.succ_opt().unwrap_or(day);
+        let local0=day.and_hms_opt(0,0,0).and_then(|t|Paris.from_local_datetime(&t).earliest());
+        let local1=next.and_hms_opt(0,0,0).and_then(|t|Paris.from_local_datetime(&t).earliest());
+        if let (Some(a),Some(b))=(local0,local1) {
+            let from_day=a.with_timezone(&Utc).timestamp();
+            let to_day=b.with_timezone(&Utc).timestamp();
+            if to.min(to_day)>from.max(from_day) {
+                let revision=config.contracts.iter()
+                    .find(|c|c.site_id==site && c.starts_on<=day && c.ends_on.is_none_or(|d|day<=d))
+                    .and_then(|contract|price_at(contract,day));
+                if !revision.is_some_and(|r|r.annual_subscription_eur.is_some()) {return true;}
+            }
+        }
+        let Some(next)=day.succ_opt() else {return true};
+        day=next;count+=1;
+    }
+    count>=36525 && day<=last
+}
+
 pub fn subscription_cost(config:&TariffConfig,site:&str,from:i64,to:i64)->f64 {
     subscription_cost_breakdown(config,site,from,to).0
 }
@@ -462,6 +495,7 @@ pub fn cost_report(conn:&Connection, config:&TariffConfig, assignments:&[(String
     }
     for (site,stats) in report.sites.iter_mut() {
         (stats.subscription_eur,stats.projected_subscription_eur)=subscription_cost_breakdown(config,site,from,to);
+        stats.missing_subscription_rate=missing_subscription_rate(config,site,from,to);
         report.global.add(stats);
     }
     Ok(report)
@@ -505,10 +539,17 @@ fn overview_period(
     for (site, part) in report.sites.iter_mut() {
         if let Some(first) = first_by_site.get(site) {
             (part.subscription_eur,part.projected_subscription_eur) = subscription_cost_breakdown(config, site, *first, to);
+            part.missing_subscription_rate = missing_subscription_rate(config,site,*first,to);
         }
         total.add(part);
     }
     Ok(total)
+}
+
+/// Single-period lifetime view for external exports, using identical tariff
+/// and per-site subscription rules as the WebUI dashboard.
+pub fn lifetime_cost(conn:&Connection,config:&TariffConfig,assignments:&[(String,String,bool)],now:i64)->Result<CostStats,String> {
+    overview_period(conn,config,assignments,None,now)
 }
 
 pub fn cost_overview(
@@ -539,6 +580,16 @@ mod tests {
     fn sample()->TariffConfig {
         let mut c=TariffConfig::default();c.enabled=true;
         c.contracts.push(TariffContract{id:"contract".into(),site_id:"local".into(),supplier:"EDF".into(),offer:"Tarif Bleu".into(),option:"hphc".into(),starts_on:NaiveDate::from_ymd_opt(2026,1,1).unwrap(),ends_on:None,kva:6,offpeak:vec![OffpeakWindow{from:"22:30".into(),to:"06:30".into()}],revisions:vec![PriceRevision{from:NaiveDate::from_ymd_opt(2026,1,1).unwrap(),until:None,eur_kwh:BTreeMap::from([("hp".into(),0.30),("hc".into(),0.15)]),annual_subscription_eur:Some(120.0),source:"manual".into(),source_url:None,manual:true,retrieved_at:None}]});c
+    }
+    #[test] fn missing_fixed_tariff_is_identified_without_touching_variable_prices() {
+        let mut c=sample();
+        c.include_subscription=true;
+        let from=Paris.with_ymd_and_hms(2026,3,2,12,0,0).single().unwrap().timestamp();
+        assert!(!missing_subscription_rate(&c,"local",from,from+3600));
+        c.contracts[0].revisions[0].annual_subscription_eur=None;
+        assert!(missing_subscription_rate(&c,"local",from,from+3600));
+        c.include_subscription=false;
+        assert!(!missing_subscription_rate(&c,"local",from,from+3600));
     }
     #[test] fn dashboard_costs_price_observed_hours_and_do_not_double_subscription() {
         let mut db=Connection::open_in_memory().unwrap();

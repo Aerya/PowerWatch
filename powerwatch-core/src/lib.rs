@@ -14,3 +14,5 @@ pub mod sampler;
 pub mod sensors;
 pub mod storage;
 pub mod suggestions;
+
+pub mod home_assistant;

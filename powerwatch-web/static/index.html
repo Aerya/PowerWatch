@@ -641,6 +641,7 @@
 
 </style>
 <link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/home-assistant.css">
 <script src="/static/theme.js"></script>
 </head>
 <body data-page="dashboard">
@@ -679,6 +680,7 @@
   </section>
 
   <div id="tariffs-fr-app" data-mode="local"></div>
+<div id="pw-ha-mount"></div>
 
   <div id="alerts-summary" style="margin:-6px 0 16px;color:var(--muted);font-size:.82rem;"></div>
 
@@ -1949,5 +1951,7 @@ setInterval(refreshSuggestions, 5000);
 setInterval(refreshAlertsSummary, 3000);
 </script>
 <script src="/static/tariffs-fr.js" defer></script>
+<script src="/static/home-assistant.js" defer></script>
+<script>window.addEventListener("DOMContentLoaded",()=>window.PowerWatchHA?.init({endpoint:"/api/home-assistant",hub:false,}));</script>
 </body>
 </html>
