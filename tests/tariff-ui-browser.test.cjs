@@ -11,7 +11,7 @@ const source=fs.readFileSync(path.join(__dirname,"../assets/tariffs-fr.js"),"utf
 test("catalogue selection survives language change and atomic HP/HC import",{skip:!chromium},()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),"powerwatch-tariff-ui-"));
   try {
-    const html=`<!doctype html><html lang="fr"><body><div id="tariffs-fr-app"></div><pre id="result">pending</pre>
+    const html=`<!doctype html><html lang="fr"><head><meta charset="utf-8"></head><body><div id="tariffs-fr-app"></div><pre id="result">pending</pre>
 <script>
 let config={enabled:false,country:"FR",include_subscription:false,sites:[{id:"local",name:"Local",nodes:[]}],contracts:[{id:"old",site_id:"local",supplier:"EDF",offer:"Tarif Bleu",option:"hphc",kva:6,starts_on:"2026-10-11",ends_on:null,offpeak:[],revisions:[]}],tempo_days:{},cre_last_sync:null,tempo_last_sync:null};
 const offers=[{supplier:"TotalEnergies",supplier_slug:"totalenergies",offer:"Access Électricité",option:"base",kva:3,eur_kwh:{base:0.22},annual_subscription_eur:150,source_url:"https://example.test",fetched_at:"2026-10-11T10:00:00Z"},{supplier:"TotalEnergies",supplier_slug:"totalenergies",offer:"Access Électricité",option:"hphc",kva:6,eur_kwh:{hp:0.24,hc:0.17},annual_subscription_eur:190,source_url:"https://example.test",fetched_at:"2026-10-11T10:00:00Z"}];
@@ -37,7 +37,7 @@ window.confirm=()=>true;
 test("catalogue outage leaves saved configuration untouched and shows an inline error",{skip:!chromium},()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),"powerwatch-tariff-outage-"));
   try {
-    const html=`<!doctype html><html lang="fr"><body><div id="tariffs-fr-app"></div><pre id="result">pending</pre>
+    const html=`<!doctype html><html lang="fr"><head><meta charset="utf-8"></head><body><div id="tariffs-fr-app"></div><pre id="result">pending</pre>
 <script>
 let writes=0;const config={enabled:false,country:"FR",include_subscription:false,sites:[{id:"local",name:"Local",nodes:[]}],contracts:[],tempo_days:{}};
 window.fetch=async(url,opts={})=>{if(opts.method==="PUT"||opts.method==="POST")writes++;if(url.includes("/market/offers"))return {ok:false,text:async()=>"source indisponible"};if(url.endsWith("/market/suppliers"))return {ok:true,json:async()=>[{slug:"totalenergies",name:"TotalEnergies"}]};return {ok:true,json:async()=>config};};
@@ -55,7 +55,7 @@ window.fetch=async(url,opts={})=>{if(opts.method==="PUT"||opts.method==="POST")w
 test("manual Online contract replaces an unpriced Tarif Bleu draft only after bill-rate confirmation",{skip:!chromium},()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),"powerwatch-manual-tariff-"));
   try {
-    const html=`<!doctype html><html lang="fr"><body><div id="tariffs-fr-app"></div><pre id="result">pending</pre>
+    const html=`<!doctype html><html lang="fr"><head><meta charset="utf-8"></head><body><div id="tariffs-fr-app"></div><pre id="result">pending</pre>
 <script>
 let writes=0,config={revision:0,enabled:false,country:"FR",include_subscription:false,sites:[{id:"local",name:"Local",nodes:[]}],contracts:[{id:"old",site_id:"local",supplier:"EDF",offer:"Tarif Bleu",option:"hphc",starts_on:"2026-10-11",ends_on:null,kva:6,offpeak:[],revisions:[]}],tempo_days:{}};
 window.fetch=async(url,opts={})=>{if(opts.method==="PUT"){writes++;config=JSON.parse(opts.body);config.revision++;return {ok:true,json:async()=>structuredClone(config)};}if(url.endsWith("/market/suppliers"))return {ok:true,json:async()=>[{slug:"edf",name:"EDF"}]};if(url.includes("/cost?"))return {ok:true,json:async()=>({enabled:true,global:{energy_cost_eur:0,billed_energy_kwh:0,unpriced_kwh:0},sites:{},nodes:{}})};return {ok:true,json:async()=>structuredClone(config)};};
@@ -98,7 +98,7 @@ document.querySelector("#result").textContent=JSON.stringify({identity,refused,s
 test("manual current rates start today when their date is blank, without backdating to the contract",{skip:!chromium},()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),"powerwatch-manual-current-"));
   try {
-    const html=`<!doctype html><html lang="fr"><body><div id="tariffs-fr-app"></div><pre id="result">pending</pre>
+    const html=`<!doctype html><html lang="fr"><head><meta charset="utf-8"></head><body><div id="tariffs-fr-app"></div><pre id="result">pending</pre>
 <script>
 let config={revision:0,enabled:false,country:"FR",include_subscription:false,sites:[{id:"local",name:"Local",nodes:[]}],contracts:[],tempo_days:{}};
 let confirmation="";
