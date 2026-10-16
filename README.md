@@ -682,6 +682,22 @@ PowerWatch et PowerWatch Hub peuvent désormais **publier directement leurs capt
 3. Choisissez la fréquence (10–600 s), l'export des composants, des cumuls kWh et des **coûts estimés en euros** (uniquement avec la tarification France active), puis, dans le Hub, la portée : **Hub + machines**, **Hub uniquement** (par défaut, pour éviter les doublons) ou **machines uniquement**. Enregistrez et cliquez sur **Tester la connexion** : ce bouton teste la négociation MQTT et les identifiants, pas seulement l'ouverture du port.
 4. Les équipements « PowerWatch » apparaissent automatiquement sous **Paramètres → Appareils et services → MQTT** dans Home Assistant, avec les capteurs **W** (puissance totale et composants), **kWh** historiques par machine et, si le tarif est complet, **€** estimés, dès que PowerWatch dispose de données.
 
+### Captures Home Assistant — test MQTT réel
+
+<!-- POWERWATCH_HOME_ASSISTANT_SCREENSHOTS_START -->
+<p align="center">
+  <img src="docs/images/PowerWatch-HomeAssistant-MQTT-Devices.png" alt="Home Assistant : découverte MQTT de trois appareils PowerWatch et de 29 entités" width="920">
+</p>
+<p align="center"><em>Découverte automatique dans Home Assistant : trois appareils PowerWatch et 29 entités MQTT.</em></p>
+
+<p align="center">
+  <img src="docs/images/PowerWatch-HomeAssistant-MQTT-Sensors.png" alt="Home Assistant : capteurs PowerWatch de puissance en W, d'énergie cumulée en kWh et de coûts estimés en EUR" width="1080">
+</p>
+<p align="center"><em>Exemple d'entités : puissance des composants, puissance totale, 2,403 kWh cumulés et coûts estimés (0,53 € d'énergie + 0,06 € d'abonnement = 0,59 €).</em></p>
+
+**Captures issues d'un laboratoire Docker isolé (PowerWatch, Hub, Mosquitto et Home Assistant).** Les consommations historiques et les prix utilisés pour tester les capteurs en euros sont **fictifs** (2,4 kWh injectés, 0,22 €/kWh et abonnement de 180 €/an). Ces montants ne représentent ni un tarif commercial réel ni une facture.
+<!-- POWERWATCH_HOME_ASSISTANT_SCREENSHOTS_END -->
+
 ### Comportement et limites
 
 - **Instance autonome** : un appareil Home Assistant, puissance totale, composants optionnels, compteur énergétique historique lorsque la base SQLite contient des échantillons. Le cumul requiert que la journalisation `--log` soit activée (déjà le cas dans le Compose fourni).

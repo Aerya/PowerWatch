@@ -680,6 +680,22 @@ PowerWatch and PowerWatch Hub can **publish sensors directly to Home Assistant**
 3. Pick the publishing interval (10–600 seconds), optional component, lifetime-energy, and **estimated EUR cost** sensors (only with enabled French tariffs), and, in the Hub, the **Hub + machines**, **Hub only** (the default to reduce duplicate sensors), or **machines only** scope. Save, then select **Test connection** to verify MQTT negotiation and authentication, not merely TCP reachability.
 4. Devices appear automatically under **Settings → Devices & services → MQTT** in Home Assistant. Power sensors use **W**, historical per-machine energy sensors use **kWh**, and priced historical costs are shown in **EUR**, once valid data has been recorded.
 
+### Home Assistant screenshots — live MQTT integration test
+
+<!-- POWERWATCH_HOME_ASSISTANT_SCREENSHOTS_START -->
+<p align="center">
+  <img src="docs/images/PowerWatch-HomeAssistant-MQTT-Devices.png" alt="Home Assistant: MQTT discovery of three PowerWatch devices and 29 entities" width="920">
+</p>
+<p align="center"><em>Automatic discovery in Home Assistant: three PowerWatch devices and 29 MQTT entities.</em></p>
+
+<p align="center">
+  <img src="docs/images/PowerWatch-HomeAssistant-MQTT-Sensors.png" alt="Home Assistant: PowerWatch sensors for power (W), cumulative energy (kWh) and estimated costs (EUR)" width="1080">
+</p>
+<p align="center"><em>Example entities: hardware and total power, 2.403 kWh lifetime energy, and estimated costs (€0.53 energy + €0.06 subscription = €0.59 total).</em></p>
+
+**Screenshots from an isolated Docker lab (PowerWatch, Hub, Mosquitto and Home Assistant).** Historic energy data and electricity prices used for testing the EUR sensors are **synthetic** (2.4 kWh injected, €0.22/kWh and €180/year subscription). They are not actual supplier rates or a real electricity bill.
+<!-- POWERWATCH_HOME_ASSISTANT_SCREENSHOTS_END -->
+
 ### Behavior and limitations
 
 - **Standalone instance**: one HA device containing total power, optional hardware component power and lifetime energy when the SQLite history has samples. Energy export requires `--log` (already enabled in the supplied Compose file).
