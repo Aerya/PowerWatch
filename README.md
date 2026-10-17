@@ -462,7 +462,7 @@ Les longues périodes sont agrégées côté serveur afin d'éviter d'envoyer in
 ## Alertes et notifications
 
 <p align="center">
-  <img src="docs/images/Image_ALERTS.png" alt="PowerWatch Alerts">
+  <img src="docs/images/alertes.png" alt="PowerWatch Alerts">
 </p>
 
 La page `/alerts` permet de créer des règles persistantes sur :

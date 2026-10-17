@@ -461,7 +461,7 @@ Long time ranges are aggregated server-side to avoid unnecessarily sending thous
 ## Alerts and notifications
 
 <p align="center">
-  <img src="docs/images/Image_ALERTS.png" alt="PowerWatch Alerts">
+  <img src="docs/images/alertes.png" alt="PowerWatch Alerts">
 </p>
 
 The `/alerts` page lets you create persistent rules for:
