@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/PowerWatch-Hub-Overview.png" alt="Aperçu de PowerWatch Hub avec trois machines fédérées" width="1200">
+  <img src="docs/images/hubminiEN.png" alt="Aperçu de PowerWatch Hub avec trois machines fédérées" width="1200">
 </p>
 
 <p align="center">
@@ -383,8 +383,12 @@ La détection des médias amovibles dépend des informations exposées par le no
 ## WebUI
 
 <p align="center">
-  <img src="docs/images/PowerWatch-WebUI.png" alt="WebUI PowerWatch : capteurs, consommation totale et historique">
+  <img src="docs/images/instancemini.png" alt="WebUI PowerWatch : capteurs, consommation totale et historique">
 </p>
+<p align="center">
+  <img src="docs/images/instancefull.png" alt="PowerWatch — vue large, thème sombre">
+</p>
+
 
 La page principale affiche :
 
@@ -404,6 +408,10 @@ La page principale affiche :
 L'image Docker démarre automatiquement PowerWatch avec l'historique activé et le mode NAS/headless.
 
 ### Tarification électrique France — bêta (optionnelle)
+
+<p align="center">
+  <img src="docs/images/tarifs.png" alt="PowerWatch — Tarifs / Tariffs">
+</p>
 
 **Bêta : les prix peuvent être incomplets, périmés ou erronés. Les coûts sont indicatifs, non mesurés au compteur et ne remplacent pas une facture.** Désactivée par défaut. Depuis le menu **Tarifs** en haut à droite de chaque instance ou du Hub, l’interrupteur « Activer la tarification et afficher les coûts » enregistre immédiatement le choix. Une fois désactivée, les montants disparaissent des compteurs, mais les contrats restent enregistrés. La base SQLite conserve les configurations et les corrections manuelles ; rien n'est enregistré exclusivement dans le navigateur.
 
@@ -606,11 +614,11 @@ docker exec powerwatch sh -c \
 PowerWatch peut également fonctionner en mode **Hub**. Chaque machine conserve son instance PowerWatch locale et sa collecte matérielle ; le Hub interroge simplement leurs API HTTP et les regroupe dans une seule WebUI.
 
 <p align="center">
-  <img src="docs/images/PowerWatch-Hub-Overview.png" alt="PowerWatch Hub : vue détaillée des instances fédérées">
+  <img src="docs/images/hubminiEN.png" alt="PowerWatch Hub : vue détaillée des instances fédérées">
 </p>
 
 <p align="center">
-  <img src="docs/images/PowerWatch-Hub.png" alt="PowerWatch Hub : vue large du total et de l'historique fédéré">
+  <img src="docs/images/hubfull.png" alt="PowerWatch Hub : vue large du total et de l'historique fédéré">
 </p>
 
 Le Hub fournit :
@@ -675,6 +683,10 @@ La configuration est stockée dans `hub-data/powerwatch-hub.json` et l'historiqu
 > Au démarrage du Hub et lors de l’ajout/réactivation d’une instance, PowerWatch Hub récupère via `/api/history/range` l’historique agrégé disponible sur le nœud (jusqu’à 400 jours). L’import est idempotent : les mêmes points ne sont pas dupliqués dans SQLite.
 
 ## Home Assistant — découverte MQTT (facultative)
+
+<p align="center">
+  <img src="docs/images/mqttoption.png" alt="PowerWatch — MQTT settings">
+</p>
 
 PowerWatch et PowerWatch Hub peuvent désormais **publier directement leurs capteurs dans Home Assistant** via **MQTT Discovery** : aucun YAML ni composant HACS n'est nécessaire. Dans **chaque WebUI**, ouvrez **MQTT** en haut à droite, puis activez le commutateur. L'intégration est **désactivée par défaut** et ne lance aucune connexion au broker tant qu'elle reste désactivée.
 

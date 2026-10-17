@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/PowerWatch-Hub-Overview.png" alt="PowerWatch Hub overview with three federated machines" width="1200">
+  <img src="docs/images/hubminiEN.png" alt="PowerWatch Hub overview with three federated machines" width="1200">
 </p>
 
 <p align="center">
@@ -383,8 +383,12 @@ Removable-media detection depends on what the kernel exposes, so a USB enclosure
 ## Web UI
 
 <p align="center">
-  <img src="docs/images/PowerWatch-WebUI.png" alt="PowerWatch Web UI: sensors, total power usage, and history">
+  <img src="docs/images/instancemini.png" alt="PowerWatch Web UI: sensors, total power usage, and history">
 </p>
+<p align="center">
+  <img src="docs/images/instancefull.png" alt="PowerWatch — wide view, dark theme">
+</p>
+
 
 The main page displays:
 
@@ -404,6 +408,10 @@ The main page displays:
 The Docker image automatically starts PowerWatch with history enabled and NAS/headless mode.
 
 ### French electricity tariffs — beta (optional)
+
+<p align="center">
+  <img src="docs/images/tarifs.png" alt="PowerWatch — French electricity tariffs">
+</p>
 
 **Beta: prices may be incomplete, stale or inaccurate. Costs are estimates, not meter readings or invoices.** Disabled by default. Open **Tariffs** in the top-right menu of a standalone instance or the Hub; “Enable pricing and show costs” saves the choice immediately. Disabling it hides euro amounts from the dashboard while keeping saved contracts. SQLite keeps every contract and manual override on the server.
 
@@ -604,11 +612,11 @@ docker exec powerwatch sh -c \
 PowerWatch can also run in **Hub** mode. Each machine keeps its local PowerWatch instance and hardware collection; the Hub simply queries their HTTP APIs and groups them into a single Web UI.
 
 <p align="center">
-  <img src="docs/images/PowerWatch-Hub-Overview.png" alt="PowerWatch Hub: detailed view of federated instances">
+  <img src="docs/images/hubminiEN.png" alt="PowerWatch Hub: detailed view of federated instances">
 </p>
 
 <p align="center">
-  <img src="docs/images/PowerWatch-Hub.png" alt="PowerWatch Hub: wide view of the total and federated history">
+  <img src="docs/images/hubfull.png" alt="PowerWatch Hub: wide view of the total and federated history">
 </p>
 
 The Hub provides:
@@ -673,6 +681,10 @@ Configuration is stored in `hub-data/powerwatch-hub.json` and federated history 
 > On Hub startup and when an instance is added or re-enabled, PowerWatch Hub retrieves the aggregated history available from the node through `/api/history/range` (up to 400 days). The import is idempotent, so the same points are not duplicated in SQLite.
 
 ## Home Assistant — optional MQTT Discovery
+
+<p align="center">
+  <img src="docs/images/mqttoption.png" alt="PowerWatch — MQTT settings">
+</p>
 
 PowerWatch and PowerWatch Hub can **publish sensors directly to Home Assistant** through **MQTT Discovery**. No YAML or HACS custom integration is required. Open **MQTT** in the top-right menu of either Web UI and enable the integration. It is **off by default** and makes no broker connections until enabled.
 

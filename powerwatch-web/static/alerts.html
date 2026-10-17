@@ -7,10 +7,10 @@
 <style>
 :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --text:#c9d1d9; --muted:#8b949e; --good:#3fb950; --bad:#f85149; }
 * { box-sizing:border-box; }
-body { margin:0; padding:24px; background:var(--bg); color:var(--text); font-family:ui-monospace,"Cascadia Code","Fira Code",monospace; }
+body { margin:0; padding:16px; background:var(--bg); color:var(--text); font-family:ui-monospace,"Cascadia Code","Fira Code",monospace; }
 a { color:var(--text); text-decoration:none; border-bottom:1px dotted var(--muted); }
 a:hover { color:var(--good); border-color:var(--good); }
-.header { display:flex; justify-content:space-between; gap:16px; align-items:center; margin-bottom:20px; }
+.header { display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:16px; }
 h1 { font-size:1.1rem; margin:0; } h2 { font-size:1rem; margin:0 0 14px; }
 .panel { background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:16px; margin-bottom:16px; }
 .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
@@ -18,11 +18,14 @@ label { display:block; color:var(--muted); font-size:.78rem; margin-bottom:5px; 
 input, select, textarea, button { font:inherit; color:var(--text); background:var(--bg); border:1px solid var(--border); border-radius:4px; padding:7px 9px; }
 input, select, textarea { width:100%; } textarea { min-height:88px; resize:vertical; }
 button { cursor:pointer; } button:hover { border-color:var(--good); }
-button.primary { color:var(--good); border-color:var(--good); } button.danger { color:var(--bad); border-color:var(--bad); }
+button.primary { color:var(--bg); background:var(--measured,var(--good)); border-color:var(--measured,var(--good)); font-weight:600; } button.danger { color:var(--error,var(--bad)); border-color:var(--error,var(--bad)); white-space:nowrap; width:max-content; max-width:100%; }
 .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
 .help { color:var(--muted); font-size:.76rem; line-height:1.5; margin-top:6px; }
-.rule-card { display:grid; grid-template-columns:78px minmax(140px,1.4fr) minmax(130px,1fr) 120px 120px 105px minmax(100px,1fr) 72px; gap:8px; align-items:end; padding:12px 0; border-top:1px solid var(--border); }
-.rule-card:first-child { border-top:0; padding-top:0; }
+#rules { display:grid; gap:12px; }
+.rule-card { display:grid; grid-template-columns:minmax(100px,.7fr) minmax(180px,2fr) minmax(150px,1.2fr) minmax(120px,1fr); gap:16px; align-items:end; padding:16px; background:var(--bg); border:1px solid var(--border); border-radius:6px; }
+.rule-card > div { min-width:0; }
+.rule-card > button { justify-self:end; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible { outline:2px solid var(--accent,var(--good)); outline-offset:2px; }
 .check-wrap { display:flex; gap:6px; align-items:center; min-height:34px; } .check-wrap input { width:auto; }
 .runtime { font-size:.76rem; min-height:34px; display:flex; align-items:center; } .runtime.active { color:var(--bad); } .runtime.ok { color:var(--good); }
 .status { min-height:20px; margin-top:10px; color:var(--muted); font-size:.8rem; white-space:pre-wrap; } .status.error { color:var(--bad); } .status.good { color:var(--good); }
@@ -30,11 +33,14 @@ table { width:100%; border-collapse:collapse; font-size:.8rem; } th,td { text-al
 .badge { border:1px solid var(--border); border-radius:12px; padding:2px 7px; font-size:.72rem; } .badge.triggered { color:var(--bad); border-color:var(--bad); } .badge.recovered { color:var(--good); border-color:var(--good); }
 .secret-row { display:flex; gap:8px; align-items:center; margin-top:10px; } .secret-row input { width:auto; }
 .language-switcher{display:flex;gap:6px;align-items:center;margin-left:auto}.language-switcher button{background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--muted);font:inherit;font-size:.78rem;padding:4px 7px;cursor:pointer}.language-switcher button:hover,.language-switcher button.active{color:var(--text);border-color:var(--good)}
-@media(max-width:1100px){ body{padding:12px}.grid{grid-template-columns:1fr}.rule-card{grid-template-columns:1fr 1fr} }
+@media(max-width:900px){ .grid{grid-template-columns:1fr}.rule-card{grid-template-columns:1fr 1fr} }
+@media(max-width:480px){ body{padding:12px}.rule-card{grid-template-columns:1fr}.language-switcher{margin-left:0} }
 </style>
+<link rel="stylesheet" href="/static/theme.css">
+<script src="/static/theme.js"></script>
 </head>
 <body data-page="alerts">
-<div class="header"><h1 data-i18n="page.alerts">PowerWatch · Alerts</h1><div class="language-switcher" aria-label="Language"><button type="button" data-lang="fr" onclick="setPowerWatchLanguage('fr')">🇫🇷 FR</button><button type="button" data-lang="en" onclick="setPowerWatchLanguage('en')">🇬🇧 EN</button></div><a href="/" data-i18n="nav.backDashboard">Back to dashboard</a></div>
+<div class="header"><h1 data-i18n="page.alerts">PowerWatch · Alerts</h1><div class="language-switcher" aria-label="Language"><button type="button" data-lang="fr" onclick="setPowerWatchLanguage('fr')">🇫🇷 FR</button><button type="button" data-lang="en" onclick="setPowerWatchLanguage('en')">🇬🇧 EN</button></div><a class="settings-link" href="/" data-i18n="nav.backDashboard">Back to dashboard</a></div>
 
 <div class="panel">
   <h2 data-i18n="alerts.notifications">Notifications</h2>
@@ -96,7 +102,8 @@ function notificationFormValue(){return{
   apprise_urls:document.getElementById("apprise-urls").value.split("\n").map(v=>v.trim()).filter(Boolean)
 };}
 function setNotificationForm(c){document.getElementById("discord-webhook").value=c.discord_webhook||"";document.getElementById("apprise-endpoint").value=c.apprise_endpoint||"";document.getElementById("apprise-urls").value=(c.apprise_urls||[]).join("\n");}
-function field(label,el,key=null){const b=document.createElement("div"),l=document.createElement("label");l.textContent=label;if(key)l.dataset.i18n=key;b.append(l,el);return b;}
+let fieldSequence=0;
+function field(label,el,key=null){const b=document.createElement("div"),l=document.createElement("label");if(el.matches("input,select")){el.id=`alert-${fieldSequence++}-${el.className}`;l.htmlFor=el.id;}l.textContent=label;if(key)l.dataset.i18n=key;b.append(l,el);return b;}
 function addRule(rule=null){
   const v=rule||{id:"",name:t("alerts.defaultRuleName"),enabled:true,component:"total",threshold_watts:50,sustained_seconds:30,notify_recovery:true};
   const c=document.createElement("div");c.className="rule-card";c.dataset.id=v.id||"";
