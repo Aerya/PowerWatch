@@ -44,6 +44,30 @@ const INDEX_HTML: &str = include_str!("../static/index.html");
 const I18N_JS: &str = include_str!("../static/i18n.js");
 const AUTH_JS: &str = include_str!("../static/auth.js");
 const TARIFF_FR_JS: &str = include_str!("../../assets/tariffs-fr.js");
+const TARIFF_PAGE: &str = include_str!("../../assets/tariffs-page.html");
+const COST_CHART_JS: &str = include_str!("../../assets/cost-chart.js");
+async fn tariffs_page() -> impl IntoResponse {
+    Html(TARIFF_PAGE.replace("__MODE__", "local").replace(
+        "__AUTH_SCRIPT__",
+        r#"<script src="/static/auth.js"></script>"#,
+    ))
+}
+async fn tariffs_css() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        include_str!("../../assets/tariffs-fr.css"),
+    )
+}
+async fn cost_chart_js() -> impl IntoResponse {
+    (
+        [(
+            header::CONTENT_TYPE,
+            "application/javascript; charset=utf-8",
+        )],
+        COST_CHART_JS,
+    )
+}
+
 const THEME_JS: &str = include_str!("../../assets/theme.js");
 const THEME_CSS: &str = include_str!("../../assets/theme.css");
 include!("tariffs_fr_handlers.rs");
@@ -739,6 +763,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/tariffs-fr/market/import",post(market_import))
         .route("/api/tariffs-fr/cost",get(tariff_fr_cost))
         .route("/api/tariffs-fr/overview",get(tariff_fr_overview))
+        .route("/api/tariffs-fr/series",get(tariff_fr_series))
         .route("/api/suggestions", get(suggestions_list))
         .route("/api/suggestions/apply", post(suggestions_apply))
         .route("/api/processes/top", get(top_processes))
@@ -766,6 +791,9 @@ pub fn build_router(state: AppState) -> Router {
         .route("/static/tariffs-fr.js",get(tariff_fr_js))
         .route("/static/home-assistant.js",get(ha_js))
         .route("/static/home-assistant.css",get(ha_css))
+        .route("/tariffs",get(tariffs_page))
+        .route("/static/cost-chart.js",get(cost_chart_js))
+        .route("/static/tariffs-fr.css",get(tariffs_css))
         .route("/static/theme.js",get(theme_js))
         .route("/static/theme.css",get(theme_css))
         .route("/alerts", get(crate::alerts::page))
@@ -1413,6 +1441,52 @@ System Power Supply
             .unwrap();
         let json = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
         (status, json)
+    }
+
+    #[tokio::test]
+    async fn tariff_page_and_energy_cost_series_use_the_stored_tariffs() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Storage::open(&dir.path().join("cost.db")).unwrap();
+        let mut config = powerwatch_core::tariffs_fr::TariffConfig::default();
+        config.enabled = true;
+        config.include_subscription = true;
+        config.contracts.push(serde_json::from_value(serde_json::json!({"id":"c","site_id":"local","supplier":"Demo","offer":"Base","option":"base","starts_on":"2026-01-01","ends_on":null,"kva":6,"offpeak":[],"revisions":[{"from":"2026-01-01","until":null,"eur_kwh":{"base":0.2},"annual_subscription_eur":120.0,"source":"manual","manual":true,"retrieved_at":null}]})).unwrap());
+        powerwatch_core::tariffs_fr::save(db.tariff_connection(), &config).unwrap();
+        let from = chrono::DateTime::parse_from_rfc3339("2026-03-02T12:00:00Z")
+            .unwrap()
+            .timestamp();
+        db.tariff_connection()
+            .execute(
+                "INSERT INTO energy_segments VALUES ('local',?1,?2,1000,0)",
+                (from, from + 3600),
+            )
+            .unwrap();
+        let app = build_router(test_state_with_storage(empty_snapshot(), db));
+        let (status, data) = get_body_json(
+            app.clone(),
+            "/api/tariffs-fr/series?from=2026-03-02T12:00:00Z&to=2026-03-02T13:00:00Z",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let points = data["points"].as_array().unwrap();
+        assert!((points.last().unwrap()["cost_eur"].as_f64().unwrap() - 0.2).abs() < 1e-9);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/tariffs")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 1_000_000)
+            .await
+            .unwrap();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(text.contains("data-mode=\"local\""));
+        assert!(text.contains("/static/auth.js"));
+        assert!(!text.contains("__MODE__"));
     }
 
     #[tokio::test]

@@ -405,23 +405,23 @@ The main page displays:
 - top-right **Alerts**, **MQTT**, and **Tariffs** buttons: Home Assistant and pricing settings no longer occupy the dashboard;
 - Light / Dark / Auto appearance control with separate day and night palettes inspired by Dockge-Enhanced. Browser preferences are stored separately for each WebUI or Hub origin.
 
-Settings menus open one at a time and close with Escape or an outside click. Tariff saves preserve expanded sections, cost calculation dates, and scroll position. The Hub checks the administrator token before confirming it; settings that were initially unavailable load after entering the token without refreshing the page.
+Settings menus open one at a time and close with Escape or an outside click. Tariffs have a dedicated page; switching views preserves form drafts, and saves preserve calculation dates and scroll position. The Hub checks the administrator token before confirming it; settings that were initially unavailable load after entering the token without refreshing the page.
 
 The Docker image automatically starts PowerWatch with history enabled and NAS/headless mode.
 
 ### French electricity tariffs — beta (optional)
 
 <p align="center">
-  <img src="docs/images/tarifs.png" alt="PowerWatch — French electricity tariffs">
+  <img src="docs/images/tarifs.png?v=20261018" alt="PowerWatch — French electricity tariffs">
 </p>
 
-**Beta: prices may be incomplete, stale or inaccurate. Costs are estimates, not meter readings or invoices.** Disabled by default. Open **Tariffs** in the top-right menu of a standalone instance or the Hub; “Enable pricing and show costs” saves the choice immediately. Disabling it hides euro amounts from the dashboard while keeping saved contracts. SQLite keeps every contract and manual override on the server.
+**Beta: prices may be incomplete, stale or inaccurate. Costs are estimates, not meter readings or invoices.** Disabled by default. Open the **Tariffs** page from a standalone instance or the Hub; “Enable costs” saves the choice immediately. Disabling it hides euro amounts from the dashboard while keeping saved contracts. SQLite keeps every contract and manual override on the server.
 
 - Dated contracts, multiple suppliers across distinct time ranges, independent electric sites and Hub node assignments.
 - Editable price revisions for Base, HP/HC (custom time windows), Tempo (six rates), and custom offers; edited values override external imports.
 - Optional automatic/daily and on-demand sync of **EDF regulated Tarif Bleu** data from CRE CSV, selected by subscribed kVA; confirmed Tempo colors from independent calendrier-tempo.fr API (CC BY 4.0, not an EDF/RTE API).
 - **Automatic market catalogue (France beta)**: choose supplier → offer → Base / peak/off-peak → subscribed kVA; retrieve live VAT-inclusive kWh rates and annual subscription from Kelwatt's publicly displayed tariff grids, with source and retrieval date. Server-side daily refresh for imported offers, no API key or manual price copying. Missing/changed page layouts fail clearly and never invent prices.
-- **Simple setup**: “My contract and rates” is the primary form. “Edit this contract and its rates” reloads saved values so a correction does not require entering everything again. The new-offer catalogue is collapsed separately. Enter actual meter hours for HP/HC. “Tarif Bleu” names a saved EDF contract only. Contracts and grids, Tempo, Cost estimate and JSON remain under Advanced settings.
+- **Dedicated `/tariffs` page**: the **Tariffs** button opens a full page with one navigation level: “My contract”, “Rate history”, “Sites and nodes” (Hub), and “Import / export”. Saved values prefill a single supplier → offer/plan/power → VAT-inclusive rates and hours → effective date → Save form. The catalogue fills this same form without saving implicitly. Base, peak/off-peak, Tempo, and custom peak/off-peak plans are supported. New rate dates preserve earlier revisions; “Change contract” preserves the previous contract with an end date. No nested accordions.
 - **Historical prices**: if your supplier confirms that **the displayed prices** already applied on an earlier date, enter and confirm that date. Otherwise, saved rates start today. Earlier readings have no documented rate; the optional estimate below can show a separate rough amount. A current public grid alone does not establish a historical contract price.
 - **Old offer or one missing from the catalogue (for example, “Online” since 2019)**: enter supplier, offer, plan, power, known VAT-inclusive rates from a bill or customer account, **monthly** standing charge and off-peak hours. If the rate start date is unknown, leave it blank: after confirmation, rates start today, not in 2019. “Save the contract without rates” remains available. “Edit this contract and its rates” prefills the current saved revision and lets you correct it without deleting history. An old unpriced “Tarif Bleu” draft can be replaced after confirmation. No PDF, personal name, address or customer/meter identifier is imported into PowerWatch.
 - **Optional historical estimate**: select “Estimate earlier readings using my first known rate” to show a separate approximate amount for readings before the first saved rate, provided a contract and the required meter hours exist. Saved historical rates are unchanged; periods without a contract or tariff category stay unavailable. The amount is labelled as a historical estimate using a later known rate, not an old bill.
@@ -429,7 +429,7 @@ The Docker image automatically starts PowerWatch with history enabled and NAS/he
 - Europe/Paris local time, DST, Tempo 06:00-to-06:00 day. 15-minute lifetime archives for newly compacted energy; legacy hourly energy is still supported and its price breakdown is flagged approximate.
 - Optional prorated subscription counted **once per electric site**, not per node. The historical projection is opt-in and uses the first later documented rate; missing contracts, missing Tempo colors and unmonitored time are never assigned invented consumption or a tariff.
 - Endpoints `/api/tariffs-fr` and `/api/hub/tariffs-fr` (plus `/sync`, `/cost`, and `/overview` for counter pricing; the Hub overview accepts an optional `nodes` filter); writes require the existing WebUI/Hub admin protection when enabled.
-- **Opt-in copy between nodes**: from the Hub top **Tariffs** menu, open “⇄ Tariffs”, choose the source node, and select only nodes with the same electricity contract and off-peak hours. Select “Copy to Hub too” to price those nodes in the Hub. Copying replaces tariff settings on selected nodes only. If PowerWatch authentication is enabled, create a “Read and update electricity tariffs” token on each destination node's Security page and save it on that node's Hub card. The ordinary read-only token remains separate. Copying runs when you press the button and reports each node's result.
+- **Opt-in copy between nodes**: from the Hub **Tariffs** page, open “Sites and nodes”, choose the source node, and select only nodes with the same electricity contract and off-peak hours. Select “Copy to Hub too” to price those nodes in the Hub. Copying replaces tariff settings on selected nodes only. If PowerWatch authentication is enabled, create a “Read and update electricity tariffs” token on each destination node's Security page and save it on that node's Hub card. The ordinary read-only token remains separate. Copying runs when you press the button and reports each node's result.
 
 Sources: https://www.cre.fr/documents/open-data/historique-des-tarifs-reglementes-de-vente-delectricite-pour-les-consommateurs-residentiels.html and https://www.calendrier-tempo.fr/api-tempo.
 
@@ -449,6 +449,13 @@ The energy ledger is stored in SQLite independently of the Watts-history retenti
 - The existing local History energy card remains separate from the new cumulative counters.
 
 ## History
+
+PowerWatch and Hub charts include a dashed **cumulative cost of consumed energy** curve from the start of the displayed period, with a euro axis on the right and a legend toggle. Standing charges are excluded. The Hub sums enabled nodes included in its normal total, each using its assigned site contract; hiding a power series does not change this total. Missing rates or observations create gaps and mark the cumulative cost as partial. Optional historical projections remain labelled as estimates.
+
+
+<p align="center">
+  <img src="docs/images/cout-cumule.png" alt="PowerWatch Hub — cumulative cost of consumed energy">
+</p>
 
 Data is stored in SQLite in the persistent `./data` volume.
 
