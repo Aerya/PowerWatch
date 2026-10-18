@@ -357,6 +357,18 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 @media(max-width:630px){#tariffs-fr-app .tf-manual .tf-grid{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:630px){#tariffs-fr-app .tf-market-controls,#tariffs-fr-app[data-mode="hub"] .tf-market-controls{grid-template-columns:minmax(0,1fr)}#tariffs-fr-app .tf-market-controls .tf-market-offer-field,#tariffs-fr-app .tf-market-controls #tf-market-import{grid-column:auto}}
 
+
+.cost-summary { margin-top:16px; padding-top:14px; border-top:1px solid var(--border); text-align:left; font-size:.85rem; color:var(--text); }
+.cost-summary-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; color:var(--muted); font-size:.78rem; }
+.cost-summary-amount { display:block; margin:5px 0 13px; font-size:1.65rem; font-weight:700; letter-spacing:-.04em; color:var(--text); }
+.cost-summary-period { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.cost-summary-period select { min-width:0; max-width:65%; padding:6px 8px; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:5px; font:inherit; }
+.cost-summary-period strong { white-space:nowrap; font-size:1rem; }
+.cost-summary-info { position:relative; display:inline-flex; }
+.cost-summary-info button { padding:0; width:20px; height:20px; border:1px solid var(--border); border-radius:50%; background:transparent; color:var(--muted); font:inherit; cursor:help; }
+.cost-summary-tip { display:none; position:absolute; top:calc(100% + 8px); right:0; width:230px; max-width:65vw; padding:10px 12px; background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:6px; box-shadow:0 5px 18px #0004; font-size:.78rem; line-height:1.5; z-index:20; font-weight:400; }
+.node-body > .cost-summary { margin:0 0 12px; padding:3px 0 12px; border-top:0; border-bottom:1px solid var(--border); }
+.cost-summary-info:hover .cost-summary-tip,.cost-summary-info:focus-within .cost-summary-tip { display:block; }
 </style>
 <link rel="stylesheet" href="/static/theme.css">
 <link rel="stylesheet" href="/static/home-assistant.css">
@@ -400,7 +412,6 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
     <div class="total-value" id="global-total">0.0 W</div>
     <div class="statusline" id="global-status">—</div>
     <div class="statusline" id="global-costs" aria-live="polite"></div>
-    <div class="statusline" data-i18n="totalMixed">Mesures + estimations</div>
   </section>
   <section class="history-stack">
     <div class="history-toolbar">
@@ -625,13 +636,15 @@ function sumReadings(sensors){
 function metric(label,value,cls="",rawLabel=false){
   return `<div class="metric"><span class="metric-label">${rawLabel?label:esc(label)}</span><span class="metric-value ${esc(cls)}">${value==null?"—":`${value.toFixed(1)} W`}</span></div>`;
 }
+const nodeCostData=new Map(),nodeCostPeriods=new Map();
+let nodeCostSequence=0;
 function renderSnapshot(data){
   snapshot=data;
   document.getElementById("global-total").textContent=`${data.total_watts.toFixed(1)} W`;
   document.getElementById("global-status").textContent=`${data.online_nodes}/${data.configured_nodes} ${tr("nodes")}`;
   document.getElementById("manage-count").textContent=`${data.configured_nodes} ${tr("configured")}`;
   const root=document.getElementById("nodes");
-  if(root.contains(document.activeElement) && document.activeElement.matches(".node-token,.node-tariff-token")){
+  if(root.contains(document.activeElement) && document.activeElement.matches(".node-token,.node-tariff-token,.cost-summary select,.cost-summary-info button")){
     drawHistory(lastHistory);renderHubEnergy();return;
   }
   const tokenDrafts=new Map([...root.querySelectorAll(".node-card")].map(card=>[
@@ -667,6 +680,7 @@ function renderSnapshot(data){
         <div class="node-total">${esc(total)}</div>
       </summary>
       <div class="node-body">
+        <div id="node-cost-${encodeURIComponent(node.id)}" data-cost-node="${esc(node.id)}" aria-live="polite"></div>
         <div class="energy-node-row" data-energy-node="${esc(node.id)}"></div>
         <div class="quick-metrics">
           ${metric(SENSOR_ICONS.cpu+cpuModelLink(node.cpu_model),cpu,"measured",true)}
@@ -1053,16 +1067,63 @@ function hubCostText(energy,cost,costState=hubEnergyCosts,failed=hubCostFailed){
   return `≈ ${money}${estimate}${cost.unpriced_kwh>0.0000001||cost.missing_subscription_rate||energy.estimated_kwh>0.0000001?` · ${tr("energyCostPartial")}`:""}`;
 }
 let infrastructureCosts=null,infrastructureCostFailed=false,infrastructureCostSeq=0;
-function renderInfrastructureCosts(){
-  const element=document.getElementById("global-costs");
-  element.hidden=infrastructureCosts?.enabled===false;
-  const labels=lang==="fr"?["24 h","7 j","30 j","Total cumulé (depuis le premier relevé)"]:["24 h","7 d","30 d","Cumulative total (since first reading)"];
-  element.replaceChildren(...["24h","7d","30d","all"].map((period,i)=>{
-    const cost=infrastructureCosts?.windows?.[period];
-    const row=document.createElement("div");
-    row.textContent=labels[i]+" : "+(infrastructureCosts?.enabled&&cost?.observed_seconds===0?tr("energyCostUnavailable"):hubCostText({first_seen_epoch:0,estimated_kwh:cost?.estimated_kwh||0},cost,infrastructureCosts,infrastructureCostFailed));
-    return row;
+function renderCostSummary(element,data,failed,english,energyOnly=false) {
+  element.classList.add("cost-summary");
+  element.hidden=data?.enabled===false;
+  const selected=element.querySelector("select")?.value||element.dataset.period||"24h";
+  const unavailable=english?"Unavailable":"Indisponible";
+  const format=period=>{
+    if(failed)return unavailable;
+    if(!data)return "—";
+    const cost=data.windows?.[period];
+    if(!cost||cost.observed_seconds===0||!Number.isFinite(cost.energy_cost_eur)||!Number.isFinite(cost.subscription_eur))return unavailable;
+    if(cost.unpriced_kwh>0.0000001&&!cost.billed_energy_kwh&&!cost.projected_kwh)return unavailable;
+    return (cost.energy_cost_eur+(cost.projected_energy_cost_eur||0)+(energyOnly?0:cost.subscription_eur+(cost.projected_subscription_eur||0))).toLocaleString(english?"en-US":"fr-FR",{style:"currency",currency:"EUR"});
+  };
+  const heading=english?"Estimated cumulative cost":"Coût estimé cumulé";
+  const tooltip=english?"These costs are indicative and partly derived from estimates of electricity consumption.":"Ces coûts sont à titre indicatifs et en partie dérivés d'estimations de consommation électrique.";
+  const tipId=element.id+"-tip";
+  if(!element.querySelector(".cost-summary-amount"))element.innerHTML=`<div class="cost-summary-heading"><span data-cost-title>${heading}</span><span class="cost-summary-info"><button type="button" aria-label="${english?"About estimated costs":"À propos des coûts estimés"}" aria-describedby="${tipId}">i</button><span class="cost-summary-tip" id="${tipId}" role="tooltip">${tooltip}</span></span></div><strong class="cost-summary-amount">${format("all")}</strong><div class="cost-summary-period"><select aria-label="${english?"Cost period":"Période du coût estimé"}"><option value="24h">${english?"Last 24 hours":"Dernières 24 h"}</option><option value="7d">${english?"Last 7 days":"7 derniers jours"}</option><option value="30d">${english?"Last 30 days":"30 derniers jours"}</option></select><strong data-period-cost></strong></div>`;
+  element.querySelector("[data-cost-title]").textContent=heading;
+  element.querySelector(".cost-summary-amount").textContent=format("all");
+  element.querySelector(".cost-summary-tip").textContent=tooltip;
+  element.querySelector(".cost-summary-info button").setAttribute("aria-label",english?"About estimated costs":"À propos des coûts estimés");
+  const select=element.querySelector("select");
+  select.setAttribute("aria-label",english?"Cost period":"Période du coût estimé");
+  const labels=english?["Last 24 hours","Last 7 days","Last 30 days"]:["Dernières 24 h","7 derniers jours","30 derniers jours"];
+  [...select.options].forEach((option,i)=>option.textContent=labels[i]);
+  select.value=selected;
+  const update=()=>{element.querySelector("[data-period-cost]").textContent=format(select.value);};
+  select.onchange=update;
+  update();
+}
+function renderInfrastructureCosts() {
+  renderCostSummary(document.getElementById("global-costs"),infrastructureCosts,infrastructureCostFailed,lang==="en");
+}
+function renderNodeCosts(){
+  document.querySelectorAll("[data-cost-node]").forEach(element=>{
+    const id=element.dataset.costNode,entry=nodeCostData.get(id);
+    element.dataset.period=nodeCostPeriods.get(id)||"24h";
+    renderCostSummary(element,entry?.data,entry?.failed,lang==="en",true);
+    const select=element.querySelector("select"),update=select.onchange;
+    select.onchange=()=>{nodeCostPeriods.set(id,select.value);update();};
+  });
+}
+async function refreshNodeCosts(){
+  const sequence=++nodeCostSequence;
+  const nodes=[...(snapshot?.nodes||[])];
+  const pending=[...nodes];
+  await Promise.all(Array.from({length:Math.min(4,pending.length)},async()=>{
+    while(pending.length){
+      const node=pending.shift();
+      try{
+        const data=await api("/api/hub/tariffs-fr/overview?"+new URLSearchParams({nodes:node.id}));
+        if(sequence!==nodeCostSequence)return;
+        nodeCostData.set(node.id,{data,failed:false});
+      }catch(error){if(sequence!==nodeCostSequence)return;nodeCostData.set(node.id,{data:null,failed:true});}
+    }
   }));
+  if(sequence===nodeCostSequence)renderNodeCosts();
 }
 async function refreshInfrastructureCosts(){
   const seq=++infrastructureCostSeq;
@@ -1071,6 +1132,7 @@ async function refreshInfrastructureCosts(){
   renderInfrastructureCosts();
 }
 async function refreshHubCosts() {
+  void refreshNodeCosts();
   void refreshInfrastructureCosts();
   const qs=hubCostParams();
   const key=qs.toString();
@@ -1091,6 +1153,7 @@ function hubKwh(item) {
   return `${item.energy_kwh.toLocaleString(lang==="fr"?"fr-FR":"en-US",{maximumFractionDigits:item.energy_kwh<1?4:2})} kWh`;
 }
 function renderHubEnergy() {
+  renderNodeCosts();
   renderInfrastructureCosts();
   renderHubEnergyPicker();
   if(!hubEnergy)return;
