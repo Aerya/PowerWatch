@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PowerWatch · Tarifs</title><link rel="stylesheet" href="/static/theme.css"><link rel="stylesheet" href="/static/tariffs-fr.css"></head>
+<body class="tariffs-page"><header class="tariffs-page-header"><a class="settings-link" href="/" id="back-dashboard">← Tableau de bord</a><h1>PowerWatch <span id="page-name">· Tarifs</span></h1><div class="language-switcher"><button type="button" data-page-lang="fr">🇫🇷 FR</button><button type="button" data-page-lang="en">🇬🇧 EN</button></div></header>
+<main><section id="tariff-admin-auth" hidden><label id="admin-label" for="tariff-admin-token">Jeton administrateur du Hub</label><input id="tariff-admin-token" type="password" autocomplete="off"><button id="tariff-admin-use" type="button">Utiliser pour cet onglet</button><span id="tariff-admin-status" role="status"></span></section><div id="tariffs-fr-app" data-mode="__MODE__" data-page="dedicated"></div></main>
+__AUTH_SCRIPT__
+<script>
+(()=>{
+const root=document.getElementById('tariffs-fr-app'),hub=root.dataset.mode==='hub',key=hub?'powerwatchHubLang':'powerwatch-language';
+const tr=(fr,en)=>document.documentElement.lang==='en'?en:fr;
+function language(lang){document.documentElement.lang=lang;try{localStorage.setItem(key,lang);}catch{}document.title='PowerWatch · '+tr('Tarifs','Tariffs');document.getElementById('back-dashboard').textContent=tr('← Tableau de bord','← Dashboard');document.getElementById('page-name').textContent='· '+tr('Tarifs','Tariffs');document.getElementById('admin-label').textContent=tr('Jeton administrateur du Hub','Hub administrator token');document.getElementById('tariff-admin-use').textContent=tr('Utiliser pour cet onglet','Use for this tab');document.querySelectorAll('[data-page-lang]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.pageLang===lang)));}
+let lang='fr';try{lang=localStorage.getItem(key)||'fr';}catch{}language(lang);
+document.querySelectorAll('[data-page-lang]').forEach(b=>b.onclick=()=>language(b.dataset.pageLang));
+if(hub){fetch('/api/hub/auth/status',{cache:'no-store'}).then(r=>{if(!r.ok)throw Error();return r.json();}).then(s=>{document.getElementById('tariff-admin-auth').hidden=!s.enabled;}).catch(()=>{document.getElementById('tariff-admin-auth').hidden=false;});
+document.getElementById('tariff-admin-use').onclick=async()=>{const button=document.getElementById('tariff-admin-use'),input=document.getElementById('tariff-admin-token'),status=document.getElementById('tariff-admin-status'),token=input.value.trim();button.disabled=true;try{const response=await fetch('/api/hub/nodes',{headers:{Authorization:'Bearer '+token},cache:'no-store'});if(!response.ok)throw Error(tr('Jeton refusé ou service indisponible.','Token rejected or service unavailable.'));sessionStorage.setItem('powerwatchHubAdminToken',token);input.value='';status.textContent=tr('Jeton vérifié.','Token verified.');window.dispatchEvent(new Event('powerwatch:hubauthchange'));}catch(e){status.textContent=e.message;}finally{button.disabled=false;}};}
+})();
+</script><script src="/static/theme.js"></script><script src="/static/tariffs-fr.js" defer></script></body></html>

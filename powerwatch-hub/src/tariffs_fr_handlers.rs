@@ -239,3 +239,51 @@ async fn hub_tariff_refresh_background(state:AppState) {
         tokio::time::sleep(Duration::from_secs(86400)).await;
     }
 }
+
+async fn hub_tariff_series(
+    State(state): State<AppState>,
+    Query(params): Query<HubCostOverviewParams>,
+) -> Result<Json<powerwatch_core::tariffs_fr::CostSeries>, (StatusCode, String)> {
+    let now = Utc::now().timestamp();
+    let from = params.from.map_or(now - 86400, |v| v.timestamp());
+    let to = params.to.map_or(now, |v| v.timestamp());
+    if to > now + 60 || params.nodes.as_ref().is_some_and(|v| v.len() > 8192) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "invalid cost series request".into(),
+        ));
+    }
+    let nodes = state.config.read().await.nodes.clone();
+    let chosen: Option<HashSet<&str>> = params
+        .nodes
+        .as_deref()
+        .map(|v| v.split(',').filter(|id| !id.is_empty()).collect());
+    let db = state
+        .storage
+        .lock()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "storage poisoned".into()))?;
+    let config = powerwatch_core::tariffs_fr::load(&db.conn)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let assignments: Vec<_> = nodes
+        .into_iter()
+        .filter(|node| {
+            chosen
+                .as_ref()
+                .map_or(node.enabled && node.include_in_total, |ids| {
+                    ids.contains(node.id.as_str())
+                })
+        })
+        .map(|node| {
+            let site = config
+                .sites
+                .iter()
+                .find(|s| s.nodes.contains(&node.id))
+                .map(|s| s.id.clone())
+                .unwrap_or_else(|| "__unassigned__".into());
+            (node.id, site, true)
+        })
+        .collect();
+    powerwatch_core::tariffs_fr::cost_series(&db.conn, &config, &assignments, from, to, 601)
+        .map(Json)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))
+}

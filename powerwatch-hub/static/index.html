@@ -361,6 +361,7 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 <link rel="stylesheet" href="/static/theme.css">
 <link rel="stylesheet" href="/static/home-assistant.css">
 <script src="/static/theme.js"></script>
+<script src="/static/cost-chart.js"></script>
 </head>
 <body>
 <main>
@@ -372,18 +373,7 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
     <button type="button" id="lang-en" data-lang="en">🇬🇧 EN</button>
   </div>
   <details class="settings-control" id="mqtt-control"><summary>MQTT</summary><div class="settings-panel"><div id="pw-ha-mount"></div></div></details>
-  <details class="settings-control" id="tariffs-control"><summary data-settings-tariffs>Tarifs</summary><div class="settings-panel"><div id="tariffs-fr-app" data-mode="hub"></div>
-  <details class="tariff-control" id="tariff-propagation">
-  <summary id="tariff-propagation-title" title="Copier les tarifs entre instances">⇄ Tarifs</summary>
-  <div class="tariff-control-panel">
-    <p id="tariff-propagation-help" class="notice"></p>
-    <label><span id="tariff-source-label">Source</span><select id="tariff-source"></select></label>
-    <div id="tariff-targets" class="energy-instance-choices"></div>
-    <label><input type="checkbox" id="tariff-include-hub"> <span id="tariff-hub-label">Copier aussi vers le Hub</span></label>
-    <div class="actions"><button class="action-btn" id="tariff-propagate">Copier les tarifs sélectionnés</button></div>
-    <div id="tariff-propagation-result" role="status" aria-live="polite"></div>
-  </div>
-</details></div></details>
+  <a class="settings-link" id="tariffs-control" href="/tariffs" data-settings-tariffs>Tarifs</a>
   <details class="settings-control" id="instances-control"><summary data-i18n="manage">Machines / instances</summary><div class="settings-panel"><details class="panel management">
   <summary><strong data-i18n="manage">Machines / instances</strong><span class="manage-count" id="manage-count"></span></summary>
   <div class="management-body">
@@ -503,6 +493,7 @@ let snapshot=null;
 let hubAdminEnabled=false;
 let hubAdminToken=sessionStorage.getItem("powerwatchHubAdminToken")||"";
 let lastHistory=[];
+const costCurve=window.PowerWatchCostChart?.create({endpoint:"/api/hub/tariffs-fr/series",redraw:()=>drawHistory(lastHistory)});
 let historyHover=null;
 const hiddenSeries=new Set();
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -522,7 +513,6 @@ function applyLanguage(){
   document.getElementById("lang-fr").classList.toggle("active",lang==="fr");
   document.getElementById("lang-en").classList.toggle("active",lang==="en");
   if(snapshot)renderSnapshot(snapshot);
-  renderTariffPropagation();
   drawHistory(lastHistory);
   renderHubEnergy();
 }
@@ -534,10 +524,8 @@ async function api(url,options={}){
   const administrative=path.startsWith("/api/hub/home-assistant")||path==="/api/hub/test"||path==="/api/hub/nodes"||path.startsWith("/api/hub/nodes/")||path==="/api/hub/tariffs-fr/propagate";
   const headers=new Headers(options.headers||{});
   if(options.body)headers.set("Content-Type","application/json");
-  if(hubAdminEnabled&&administrative){
-    if(!hubAdminToken)throw new Error(tr("adminMissing"));
-    headers.set("Authorization",`Bearer ${hubAdminToken}`);
-  }
+  if(administrative&&hubAdminToken)headers.set("Authorization",`Bearer ${hubAdminToken}`);
+  if(hubAdminEnabled&&administrative&&!hubAdminToken)throw new Error(tr("adminMissing"));
   const res=await fetch(url,{...options,method,headers});
   if(!res.ok){const text=await res.text();throw new Error(text||`HTTP ${res.status}`);}
   if(res.status===204)return null;
@@ -549,7 +537,10 @@ async function initHubAdmin(){
     if(!response.ok)return;
     const status=await response.json();hubAdminEnabled=Boolean(status.enabled);
     const panel=document.getElementById("hub-admin");panel.hidden=!hubAdminEnabled;
-    if(hubAdminEnabled&&hubAdminToken)document.getElementById("hub-admin-status").textContent=tr("adminReady");
+    if(hubAdminEnabled){
+      const check=hubAdminToken?await fetch("/api/hub/nodes",{headers:{Authorization:`Bearer ${hubAdminToken}`},cache:"no-store"}):null;
+      document.getElementById("hub-admin-status").textContent=check?.ok?tr("adminReady"):tr("adminMissing");
+    }
   }catch(_){}
 }
 function cpuBenchmarkUrl(model){return `https://www.cpubenchmark.net/cpu.php?cpu=${encodeURIComponent(model)}`;}
@@ -725,43 +716,9 @@ function bindNodeActions(){
     card.querySelector(".remove").addEventListener("click",async()=>{await api(`/api/hub/nodes/${encodeURIComponent(id)}`,{method:"DELETE"});await refreshSnapshot();await refreshHistory();});
   });
 }
-function renderTariffPropagation(){
-  if(!snapshot)return;
-  const fr=lang==="fr";
-  const source=document.getElementById("tariff-source");
-  const targets=document.getElementById("tariff-targets");
-  const signature=lang+":"+snapshot.nodes.map(node=>node.id+"="+node.name).join("|");
-  if(source.dataset.signature===signature && targets.dataset.source===source.value)return;
-  const oldSource=source.value;
-  const selected=new Set([...targets.querySelectorAll("input:checked")].map(input=>input.value));
-  document.getElementById("tariff-propagation-title").textContent=fr?"⇄ Tarifs":"⇄ Tariffs";
-  document.getElementById("tariff-propagation-title").title=fr?"Copier les tarifs entre instances":"Copy tariffs between nodes";
-  document.getElementById("tariff-propagation-help").textContent=fr?"Choisissez l’instance qui possède les bons tarifs, puis cochez uniquement les machines qui ont le même contrat et les mêmes horaires HC. La copie remplace leurs tarifs actuels. Une machine protégée nécessite un jeton « tarifs » créé dans sa page Sécurité et enregistré ci-dessous. Le Hub reçoit les mêmes tarifs seulement si vous le cochez.":"Choose the node with the correct tariffs, then select only nodes with the same contract and off-peak hours. Copying replaces their current tariffs. Protected nodes need a tariff token created on their Security page and saved below. The Hub receives these tariffs only if selected.";
-  document.getElementById("tariff-source-label").textContent=fr?"Tarifs à copier depuis":"Copy tariffs from";
-  document.getElementById("tariff-hub-label").textContent=fr?"Copier aussi vers le Hub":"Copy to Hub too";
-  document.getElementById("tariff-propagate").textContent=fr?"Copier les tarifs sélectionnés":"Copy selected tariffs";
-  source.innerHTML='<option value="">'+(fr?"Choisir une instance":"Choose a node")+'</option>'+snapshot.nodes.map(node=>`<option value="${esc(node.id)}">${esc(node.name)}</option>`).join("");
-  source.value=snapshot.nodes.some(node=>node.id===oldSource)?oldSource:"";
-  targets.innerHTML=snapshot.nodes.filter(node=>node.id!==source.value).map(node=>`<label><input type="checkbox" value="${esc(node.id)}" ${selected.has(node.id)?"checked":""}> ${esc(node.name)}</label>`).join("");
-  source.dataset.signature=signature;
-  targets.dataset.source=source.value;
-}
-async function propagateTariffs(){
-  const result=document.getElementById("tariff-propagation-result");
-  const source_id=document.getElementById("tariff-source").value;
-  const target_ids=[...document.querySelectorAll("#tariff-targets input:checked")].map(input=>input.value);
-  const include_hub=document.getElementById("tariff-include-hub").checked;
-  if(!source_id||(!target_ids.length&&!include_hub)){result.textContent=lang==="fr"?"Choisissez une source et au moins une destination.":"Choose a source and at least one destination.";return;}
-  result.textContent="…";
-  try{
-    const response=await api("/api/hub/tariffs-fr/propagate",{method:"POST",body:JSON.stringify({source_id,target_ids,include_hub})});
-    result.textContent=(lang==="fr"?"Mis à jour : ":"Updated: ")+[...response.updated,...(response.hub_updated?["Hub"]:[])].join(", ")+(response.failed.length?" · "+(lang==="fr"?"Échecs : ":"Failed: ")+response.failed.join(" ; "):"");
-  }catch(error){result.textContent=error.message;}
-}
 async function refreshSnapshot(){try{
   const oldIds=hubEnergyChosenIds().join(",");
   renderSnapshot(await api("/api/hub/snapshot"));
-  renderTariffPropagation();
   if (hubEnergy && oldIds!==hubEnergyChosenIds().join(",")) void refreshHubCosts();
 }catch(e){console.error(e);}}
 async function probe(){
@@ -801,7 +758,8 @@ function valueFor(point,key){return key==="__global__"?point.global_watts:point.
 function renderLegend(series){
   const legend=document.getElementById("history-legend");
   legend.innerHTML=series.map(key=>`<button type="button" data-series="${esc(key)}" class="${hiddenSeries.has(key)?"hidden-series":""}"><span class="swatch" style="background:${seriesColor(key)}"></span>${esc(seriesLabel(key))}</button>`).join("");
-  legend.querySelectorAll("button").forEach(button=>button.addEventListener("click",()=>{const key=button.dataset.series;hiddenSeries.has(key)?hiddenSeries.delete(key):hiddenSeries.add(key);drawHistory(lastHistory);}));
+  costCurve?.legend(legend);
+  legend.querySelectorAll("button[data-series]").forEach(button=>button.addEventListener("click",()=>{const key=button.dataset.series;hiddenSeries.has(key)?hiddenSeries.delete(key):hiddenSeries.add(key);drawHistory(lastHistory);}));
 }
 function varColor(name,fallback){
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim()||fallback;
@@ -866,7 +824,7 @@ function drawHistory(points,{updateLegend=true}={}){
     if(Number.isFinite(value))values.push(value);
   }));
 
-  const pad={l:44,r:12,t:12,b:32};
+  const pad={l:44,r:costCurve?.active()?86:12,t:16,b:32};
   const minT=new Date(lastHistory[0].timestamp).getTime();
   const maxT=new Date(lastHistory[lastHistory.length-1].timestamp).getTime();
   const maxW=Math.max(1,...values);
@@ -883,7 +841,8 @@ function drawHistory(points,{updateLegend=true}={}){
     ctx.fillText(v.toFixed(0),4,py+3);
   }
 
-  const axisTicks=timeAxisTicks(minT,maxT,w-pad.l-pad.r);
+  const plotWidth=w-pad.l-pad.r;
+  const axisTicks=plotWidth<300?[minT]:timeAxisTicks(minT,maxT,plotWidth).filter((time,index,ticks)=>index===0||index===ticks.length-1||Math.min(time-minT,maxT-time)/(maxT-minT)*plotWidth>145);
   axisTicks.forEach((timestamp,index)=>{
     const px=x(timestamp);
     ctx.strokeStyle=varColor("--border","#30363d");
@@ -907,6 +866,8 @@ function drawHistory(points,{updateLegend=true}={}){
     });
     ctx.stroke();
   });
+
+  costCurve?.draw(ctx,{min:minT,max:maxT,left:pad.l,right:pad.r,top:pad.t,bottom:pad.b,width:w,height:h});
 
   if(historyHover && Number.isInteger(historyHover.index)){
     const index=Math.max(0,Math.min(lastHistory.length-1,historyHover.index));
@@ -935,20 +896,22 @@ function drawHistory(points,{updateLegend=true}={}){
       year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit"
     });
     ctx.font="12px monospace";
+    const costText=costCurve?.tooltip(timestamp.getTime());
     const valueTexts=entries.map(entry=>`${entry.label}: ${entry.value.toFixed(1)} W`);
+    if(costText)valueTexts.push(costText);
     const tooltipWidth=Math.min(
       Math.max(190,ctx.measureText(timeText).width+22,...valueTexts.map(text=>ctx.measureText(text).width+34)),
       Math.max(190,w-16)
     );
     const rowHeight=19;
-    const tooltipHeight=16+rowHeight*(entries.length+1);
+    const tooltipHeight=16+rowHeight*(valueTexts.length+1);
     let tx=px+12;
     if(tx+tooltipWidth>w-8)tx=px-tooltipWidth-12;
     tx=Math.max(8,tx);
     let ty=(historyHover.y||pad.t)-tooltipHeight/2;
     ty=Math.max(8,Math.min(h-tooltipHeight-8,ty));
 
-    ctx.fillStyle="rgba(13,17,23,.96)";
+    ctx.fillStyle=varColor("--panel","#161b22");
     ctx.strokeStyle=varColor("--border","#30363d");
     ctx.lineWidth=1;
     ctx.fillRect(tx,ty,tooltipWidth,tooltipHeight);
@@ -963,12 +926,13 @@ function drawHistory(points,{updateLegend=true}={}){
       ctx.fillStyle=varColor("--text","#c9d1d9");
       ctx.fillText(`${entry.label}: ${entry.value.toFixed(1)} W`,tx+25,rowY);
     });
+    if(costText){ctx.fillStyle=varColor("--text","#c9d1d9");ctx.fillText(costText,tx+10,ty+16+rowHeight*(entries.length+1));}
     ctx.restore();
   }
 }
 function nearestHistoryIndex(mouseX,width){
   if(!lastHistory.length)return null;
-  const pad={l:44,r:12};
+  const pad={l:44,r:costCurve?.active()?86:12};
   const usable=Math.max(1,width-pad.l-pad.r);
   const ratio=Math.max(0,Math.min(1,(mouseX-pad.l)/usable));
   const minT=new Date(lastHistory[0].timestamp).getTime();
@@ -1160,12 +1124,31 @@ document.getElementById("hub-energy-reset").onclick=()=>{
   refreshHubEnergy();
 };
 
-async function refreshHistory(){try{drawHistory(await api(`/api/hub/history?since=${encodeURIComponent(document.getElementById("history-range").value)}`));}catch(e){console.error(e);}}
+async function refreshHistory(){try{
+  const range=document.getElementById("history-range").value;
+  const points=await api(`/api/hub/history?since=${encodeURIComponent(range)}`);
+  if(document.getElementById("history-range").value!==range)return;
+  drawHistory(points);
+  if(points.length>1)void costCurve?.refresh(Date.parse(points[0].timestamp),Date.parse(points.at(-1).timestamp));
+}catch(e){console.error(e);}}
 document.getElementById("lang-fr").onclick=()=>{lang="fr";localStorage.setItem("powerwatchHubLang",lang);applyLanguage();};
 document.getElementById("lang-en").onclick=()=>{lang="en";localStorage.setItem("powerwatchHubLang",lang);applyLanguage();};
 document.getElementById("probe").onclick=probe;
 document.getElementById("add").onclick=addNode;
-document.getElementById("save-hub-admin-token").onclick=()=>{const input=document.getElementById("hub-admin-token");hubAdminToken=input.value.trim();input.value="";if(hubAdminToken)sessionStorage.setItem("powerwatchHubAdminToken",hubAdminToken);else sessionStorage.removeItem("powerwatchHubAdminToken");document.getElementById("hub-admin-status").textContent=hubAdminToken?tr("adminReady"):tr("adminMissing");};
+document.getElementById("save-hub-admin-token").onclick=async()=>{
+  const input=document.getElementById("hub-admin-token"),button=document.getElementById("save-hub-admin-token"),status=document.getElementById("hub-admin-status");
+  const candidate=input.value.trim();
+  button.disabled=true;
+  try {
+    // Use a protected read to validate the token before claiming it is ready.
+    const headers=new Headers();if(candidate)headers.set("Authorization","Bearer "+candidate);
+    const response=await fetch("/api/hub/nodes",{headers,cache:"no-store"});
+    if(!response.ok)throw Error(response.status===401?(lang==="fr"?"Jeton refusé : vérifiez le jeton administrateur du Hub.":"Token rejected: check the Hub administrator token."):`HTTP ${response.status}`);
+    if(candidate)sessionStorage.setItem("powerwatchHubAdminToken",candidate);else sessionStorage.removeItem("powerwatchHubAdminToken");
+    hubAdminToken=candidate;input.value="";status.textContent=tr("adminReady");
+    window.dispatchEvent(new Event("powerwatch:hubauthchange"));
+  }catch(error){status.textContent=error.message;}finally{button.disabled=false;}
+};
 document.getElementById("history-range").onchange=()=>{historyHover=null;refreshHistory();};
 const historyCanvas=document.getElementById("history");
 historyCanvas.addEventListener("mousemove",event=>{
@@ -1184,11 +1167,8 @@ historyCanvas.addEventListener("mouseleave",()=>{
 window.addEventListener("resize",()=>drawHistory(lastHistory));
 window.addEventListener("powerwatch:themechange",()=>drawHistory(lastHistory));
 window.addEventListener("powerwatch:tariffschange",()=>{if(hubEnergy)void refreshHubCosts();});
-document.getElementById("tariff-source").addEventListener("change",renderTariffPropagation);
-document.getElementById("tariff-propagate").addEventListener("click",propagateTariffs);
 async function boot(){await initHubAdmin();applyLanguage();await refreshSnapshot();await refreshHistory();await refreshHubEnergy();setInterval(refreshSnapshot,2000);setInterval(refreshHistory,60000);setInterval(refreshHubEnergy,60000);}boot();
 </script>
-<script src="/static/tariffs-fr.js" defer></script>
 <script>document.addEventListener("DOMContentLoaded",()=>{const label=document.querySelector("[data-settings-tariffs]");const update=()=>{label.textContent=document.documentElement.lang==="en"?"Tariffs":"Tarifs"};update();new MutationObserver(update).observe(document.documentElement,{attributes:true,attributeFilter:["lang"]});});</script>
 <script src="/static/home-assistant.js" defer></script>
 <script>window.addEventListener("DOMContentLoaded",()=>window.PowerWatchHA?.init({endpoint:"/api/hub/home-assistant",hub:true,request:api,}));</script>

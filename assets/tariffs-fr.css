@@ -1,3 +1,4 @@
+:root{--bg:#0d1117;--panel:#161b22;--border:#30363d;--text:#c9d1d9;--muted:#8b949e;--measured:#3fb950;--estimated:#d29922;--error:#f85149;--accent:#58a6ff}
 /* Optional French electricity tariff configuration */
 #tariffs-fr-app{margin:14px 0;padding:14px;background:var(--card,var(--surface,var(--bg)));color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:.84rem}
 #tariffs-fr-app .tf-banner strong{font-size:1rem}
@@ -85,3 +86,34 @@
   #tariffs-fr-app .tf-main-status {margin-left:auto;font-size:.7rem;}
 }
 /* End PowerWatch tariff UI polish. */
+
+/* Dedicated tariff administration: a single navigation level, full-width forms. */
+body.tariffs-page{margin:0;padding:20px;background:var(--bg);color:var(--text);font:14px/1.5 ui-monospace,monospace}
+.tariffs-page-header{display:flex;align-items:center;gap:16px;flex-wrap:wrap;max-width:1100px;margin:0 auto 24px}
+.tariffs-page-header h1{font-size:1.15rem;margin:0}.tariffs-page-header .language-switcher{margin-left:auto;display:flex;gap:6px}
+.tariffs-page main{max-width:1100px;margin:auto}.tariffs-page button,.tariffs-page select,.tariffs-page input{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:8px;box-sizing:border-box}
+.tariffs-page button{cursor:pointer}.tariffs-page [aria-pressed=true]{border-color:var(--accent);color:var(--accent)}
+#tariffs-fr-app[data-page]{border:0;background:transparent;margin:0;font-size:.9rem}
+#tariffs-fr-app[data-page] .tf-page-nav{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}
+#tariffs-fr-app[data-page] .tf-page-nav button[aria-current=page]{background:var(--panel);border-color:var(--accent);font-weight:bold}
+#tariffs-fr-app[data-page] .tf-page-view{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:22px}
+#tariffs-fr-app[data-page] .tf-section{padding:0;border:0;margin:14px 0}
+#tariffs-fr-app[data-page] h2{font-size:1.1rem;margin:0 0 16px}#tariffs-fr-app[data-page] h3{font-size:.95rem;margin:22px 0 10px}
+#tariffs-fr-app[data-page] .tf-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+#tariffs-fr-app[data-page] .tf-label{font-size:.85rem}#tariffs-fr-app[data-page] input,#tariffs-fr-app[data-page] select{min-height:40px;width:100%}
+#tariffs-fr-app[data-page] input[type=checkbox]{min-height:auto;width:auto}
+#tariffs-fr-app[data-page] .tf-help{font-size:.8rem;line-height:1.6}
+#tariffs-fr-app[data-page] .tf-advanced{margin:0}
+#tariffs-fr-app[data-page] #tf-manual-save{background:var(--accent);color:var(--bg);font-weight:bold;padding:12px 20px}
+#tariffs-fr-app[data-page] .tf-feedback:empty{display:none}#tariffs-fr-app[data-page] .tf-feedback{border-left:3px solid var(--accent);padding:10px 14px;background:var(--panel)}
+#tariffs-fr-app[data-page] [hidden]{display:none!important}
+#tariff-admin-auth{padding:14px;border:1px solid var(--border);border-radius:8px;margin-bottom:20px;display:flex;align-items:center;flex-wrap:wrap;gap:12px}
+#tariff-admin-auth[hidden]{display:none}
+@media(max-width:650px){body.tariffs-page{padding:12px}.tariffs-page-header{gap:10px}#tariffs-fr-app[data-page] .tf-grid{grid-template-columns:minmax(0,1fr)}#tariffs-fr-app[data-page] .tf-page-view{padding:14px}#tariffs-fr-app[data-page] .tf-page-nav{display:grid;grid-template-columns:1fr 1fr}#tariffs-fr-app[data-page] .tf-page-nav button{white-space:normal}#tariff-admin-auth input{width:100%}}
+
+#tariffs-fr-app[data-page] .tf-table-scroll{overflow-x:auto;max-width:100%}
+#tariffs-fr-app[data-page] table{width:100%;border-collapse:collapse;text-align:left}
+#tariffs-fr-app[data-page] th,#tariffs-fr-app[data-page] td{padding:10px;border-bottom:1px solid var(--border);vertical-align:top}
+
+#tariffs-fr-app[data-page] #tf-page-site{width:auto;min-width:110px}
+#tariffs-fr-app[data-page] .tf-field-error{color:var(--error);font-size:.78rem}

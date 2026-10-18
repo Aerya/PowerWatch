@@ -25,6 +25,31 @@ const HA_JS: &str = include_str!("../../assets/home-assistant.js");
 const HA_CSS: &str = include_str!("../../assets/home-assistant.css");
 async fn ha_js() -> impl IntoResponse { ([(header::CONTENT_TYPE,"application/javascript; charset=utf-8")],HA_JS) }
 async fn ha_css() -> impl IntoResponse { ([(header::CONTENT_TYPE,"text/css; charset=utf-8")],HA_CSS) }
+const TARIFF_PAGE: &str = include_str!("../../assets/tariffs-page.html");
+const COST_CHART_JS: &str = include_str!("../../assets/cost-chart.js");
+async fn tariffs_page() -> impl IntoResponse {
+    Html(
+        TARIFF_PAGE
+            .replace("__MODE__", "hub")
+            .replace("__AUTH_SCRIPT__", ""),
+    )
+}
+async fn tariffs_css() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        include_str!("../../assets/tariffs-fr.css"),
+    )
+}
+async fn cost_chart_js() -> impl IntoResponse {
+    (
+        [(
+            header::CONTENT_TYPE,
+            "application/javascript; charset=utf-8",
+        )],
+        COST_CHART_JS,
+    )
+}
+
 const THEME_JS: &str = include_str!("../../assets/theme.js");
 const THEME_CSS: &str = include_str!("../../assets/theme.css");
 mod ha_handlers;
@@ -1206,9 +1231,13 @@ fn build_router(state: AppState) -> Router {
         .route("/api/hub/energy",get(energy_overview))
         .route("/api/hub/tariffs-fr/cost",get(hub_tariff_cost))
         .route("/api/hub/tariffs-fr/overview",get(hub_tariff_overview))
+        .route("/api/hub/tariffs-fr/series",get(hub_tariff_series))
         .route("/static/tariffs-fr.js",get(hub_tariff_js))
         .route("/static/home-assistant.js",get(ha_js))
         .route("/static/home-assistant.css",get(ha_css))
+        .route("/tariffs",get(tariffs_page))
+        .route("/static/cost-chart.js",get(cost_chart_js))
+        .route("/static/tariffs-fr.css",get(tariffs_css))
         .route("/static/theme.js",get(theme_js))
         .route("/static/theme.css",get(theme_css))
         .merge(administration)
@@ -1360,6 +1389,70 @@ mod tests {
             admin_auth,
         };
         (directory, state)
+    }
+
+    #[tokio::test]
+    async fn cost_series_is_readable_with_admin_enabled_and_respects_included_nodes() {
+        let (_dir, state) = router_state(HubAdminAuth::with_token(Some(
+            "isolated-test-administrator",
+        )));
+        let mut included = node_with_token("http://127.0.0.1:3000", None);
+        included.id = "a".into();
+        let mut excluded = included.clone();
+        excluded.id = "b".into();
+        excluded.include_in_total = false;
+        state.config.write().await.nodes = vec![included, excluded];
+        {
+            let db = state.storage.lock().unwrap();
+            let mut config = powerwatch_core::tariffs_fr::TariffConfig::default();
+            config.enabled = true;
+            config.include_subscription = true;
+            config.sites[0].nodes = vec!["a".into(), "b".into()];
+            config.contracts.push(serde_json::from_value(serde_json::json!({"id":"c","site_id":"local","supplier":"Private supplier","offer":"Base","option":"base","starts_on":"2026-01-01","ends_on":null,"kva":6,"offpeak":[],"revisions":[{"from":"2026-01-01","until":null,"eur_kwh":{"base":0.2},"annual_subscription_eur":120.0,"source":"manual","manual":true,"retrieved_at":null}]})).unwrap());
+            powerwatch_core::tariffs_fr::save(&db.conn, &config).unwrap();
+            let from = DateTime::parse_from_rfc3339("2026-03-02T12:00:00Z")
+                .unwrap()
+                .timestamp();
+            for (source, wh) in [("a", 1000.0), ("b", 4000.0)] {
+                db.conn
+                    .execute(
+                        "INSERT INTO energy_segments VALUES (?1,?2,?3,?4,0)",
+                        params![source, from, from + 3600, wh],
+                    )
+                    .unwrap();
+            }
+        }
+        let app = build_router(state);
+        for (selection, expected) in [("", Some(0.2)), ("&nodes=b", Some(0.8)), ("&nodes=", None)] {
+            let response=app.clone().oneshot(Request::builder().uri(format!("/api/hub/tariffs-fr/series?from=2026-03-02T12:00:00Z&to=2026-03-02T13:00:00Z{selection}")).body(Body::empty()).unwrap()).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = axum::body::to_bytes(response.into_body(), 1_000_000)
+                .await
+                .unwrap();
+            let data: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            let value = data["points"].as_array().unwrap().last().unwrap()["cost_eur"].as_f64();
+            if let Some(expected) = expected {
+                assert!((value.unwrap() - expected).abs() < 1e-9);
+            } else {
+                assert!(value.is_none());
+            }
+            assert!(!String::from_utf8_lossy(&body).contains("Private supplier"));
+        }
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/tariffs")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 1_000_000)
+            .await
+            .unwrap();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(text.contains("data-mode=\"hub\""));
+        assert!(!text.contains("/static/auth.js"));
     }
 
     #[test]

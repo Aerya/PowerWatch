@@ -133,7 +133,7 @@ html[data-theme-tone="dark"][data-theme-palette="rose-pine"] {
 .settings-control > summary, .settings-link { display:block; cursor:pointer; list-style:none; border:1px solid var(--border); border-radius:4px; padding:4px 8px; color:var(--text); background:transparent; text-decoration:none; white-space:nowrap; font-size:.78rem; }
 .settings-control > summary::-webkit-details-marker { display:none; }
 .settings-control[open] > summary, .settings-link:hover { border-color:var(--accent); }
-.settings-panel { position:absolute; z-index:70; right:0; top:calc(100% + 4px); width:min(720px,94vw); max-height:80vh; overflow:auto; padding:12px; background:var(--panel); border:1px solid var(--border); border-radius:6px; box-shadow:0 8px 24px #0005; }
+.settings-panel { position:fixed; z-index:70; right:16px; top:64px; width:min(960px,calc(100vw - 32px)); box-sizing:border-box; max-height:calc(100dvh - 80px); overflow:auto; overscroll-behavior:contain; padding:12px; background:var(--panel); border:1px solid var(--border); border-radius:6px; box-shadow:0 8px 24px #0005; }
 .settings-panel #tariffs-fr-app, .settings-panel #pw-ha-mount { margin:0; }
 .settings-panel #tariffs-fr-app .tf-main { border:0; }
 .settings-panel .tariff-control { display:block; margin-top:12px; }

@@ -38,6 +38,20 @@
     };
     render();
     new MutationObserver(render).observe(root,{attributes:true,attributeFilter:["lang"]});
+    // Coordinate only toolbar menus; nested configuration sections stay independent.
+    const menus=()=>[...document.querySelectorAll("details.theme-control, details.settings-control")];
+    document.addEventListener("toggle",event=>{
+      const opened=event.target;
+      if(!opened.matches?.("details.theme-control, details.settings-control")||!opened.open)return;
+      menus().forEach(menu=>{if(menu!==opened)menu.open=false;});
+    },true);
+    document.addEventListener("click",event=>{
+      menus().forEach(menu=>{if(menu.open&&!menu.contains(event.target))menu.open=false;});
+    });
+    document.addEventListener("keydown",event=>{
+      if(event.key!=="Escape")return;
+      menus().forEach(menu=>{if(menu.open){menu.open=false;menu.querySelector("summary")?.focus();}});
+    });
   }
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",mount,{once:true});else mount();
 })();

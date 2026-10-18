@@ -48,6 +48,7 @@
     $("enabled").addEventListener("change",expanded);
     const fetchJson=async(url,init={})=>{const response=await request(url,{...init,cache:"no-store"});if(response&&typeof response.json==="function"&&typeof response.ok==="boolean"){if(!response.ok){if(response.status===401)throw new Error(label("auth"));throw new Error((await response.text()).slice(0,220));}return response.json();}return response;};
     const state={enabled:false,has_password:false};
+    let loaded=false;
     async function load(){
       try { const cfg=await fetchJson(endpoint);Object.assign(state,cfg);
         $("enabled").checked=cfg.enabled;$("host").value=cfg.host||"";$("port").value=cfg.port||1883;$("tls").checked=cfg.tls;
@@ -55,7 +56,7 @@
         $("prefix").value=cfg.topic_prefix||"powerwatch";$("discovery").value=cfg.discovery_prefix||"homeassistant";
         $("components").checked=cfg.publish_components;$("energy").checked=cfg.publish_energy;$("costs").checked=cfg.publish_costs!==false;
         if(hub)$("scope").value=cfg.scope||"global";
-        $("password").value="";$("clear").checked=false;expanded();refreshStatus(cfg);
+        $("password").value="";$("clear").checked=false;expanded();refreshStatus(cfg);say("");loaded=true;
       }catch(err){say(`${label("loadError")}: ${err.message}`,"error");}
     }
     const busy=(value)=>{for(const el of [$("test"),$("save")])el.disabled=value;};
@@ -75,10 +76,11 @@
       catch(err){say(err.message,"error");}finally{busy(false);}
     });
     renderLanguage();load();
+    if(hub)window.addEventListener("powerwatch:hubauthchange",()=>{if(!loaded)void load();});
     window.addEventListener("powerwatch:languagechange",()=>{renderLanguage();refreshStatus(state);});
     // Hub uses its own language switcher rather than the local i18n event.
     if(hub){document.querySelectorAll("#lang-fr,#lang-en").forEach(el=>el.addEventListener("click",()=>setTimeout(()=>{renderLanguage();refreshStatus(state);},0)));}
-    mount.querySelector("details").addEventListener("toggle",async e=>{if(e.target.open)await load();});
+    mount.querySelector("details").addEventListener("toggle",async e=>{if(e.target.open&&!loaded)await load();});
     setInterval(async()=>{if(!mount.querySelector("details").open)return;try{const cfg=await fetchJson(endpoint);Object.assign(state,cfg);refreshStatus(cfg);}catch(_){}},15000);
   }
   window.PowerWatchHA={init};

@@ -501,6 +501,100 @@ pub fn cost_report(conn:&Connection, config:&TariffConfig, assignments:&[(String
     Ok(report)
 }
 
+/// Energy-only cumulative cost for a chart. Each slice is priced once per
+/// intersecting bucket, with the same minute/DST rules as cost_report.
+#[derive(Debug, Serialize)]
+pub struct CostSeriesPoint {
+    pub timestamp: DateTime<Utc>,
+    pub cost_eur: Option<f64>,
+    pub partial: bool,
+    pub estimated: bool,
+    pub unpriced_kwh: f64,
+}
+#[derive(Debug, Serialize)]
+pub struct CostSeries {
+    pub enabled: bool,
+    pub points: Vec<CostSeriesPoint>,
+}
+pub fn cost_series(
+    conn: &Connection,
+    config: &TariffConfig,
+    assignments: &[(String, String, bool)],
+    from: i64,
+    to: i64,
+    max_points: usize,
+) -> Result<CostSeries, String> {
+    if from < 0 || to <= from || to - from > 3660 * 86400 || !(2..=1200).contains(&max_points) {
+        return Err("invalid cost series period or point limit".into());
+    }
+    let mut report = CostSeries {
+        enabled: config.enabled,
+        points: Vec::new(),
+    };
+    if !config.enabled {
+        return Ok(report);
+    }
+    let count = (max_points - 1).min((to - from) as usize);
+    let width = ((to - from) + count as i64 - 1) / count as i64;
+    let mut buckets = vec![CostStats::default(); count];
+    let included = assignments.iter().filter(|a| a.2).collect::<Vec<_>>();
+    for (source, site, _) in &included {
+        for slice in load_slices(conn, source, from, to).map_err(|e| e.to_string())? {
+            let mut cursor = slice.start;
+            while cursor < slice.end {
+                let index = ((cursor - from) / width) as usize;
+                let end = slice.end.min(from + (index as i64 + 1) * width).min(to);
+                let ratio = (end - cursor) as f64 / (slice.end - slice.start) as f64;
+                let clipped = EnergySlice {
+                    start: cursor,
+                    end,
+                    wh: slice.wh * ratio,
+                    estimated_wh: slice.estimated_wh * ratio,
+                    covered_seconds: slice.covered_seconds * ratio,
+                    approximate: slice.approximate,
+                };
+                buckets[index].add(&price_slices(config, site, &[clipped]));
+                cursor = end;
+            }
+        }
+    }
+    let mut total = 0.0;
+    let mut unpriced = 0.0;
+    let mut partial = false;
+    let mut estimated = false;
+    report.points.push(CostSeriesPoint {
+        timestamp: DateTime::from_timestamp(from, 0).ok_or("invalid series date")?,
+        cost_eur: Some(0.0),
+        partial: false,
+        estimated: false,
+        unpriced_kwh: 0.0,
+    });
+    for (index, stats) in buckets.iter().enumerate() {
+        let start = from + index as i64 * width;
+        if start >= to {
+            break;
+        }
+        let end = (start + width).min(to);
+        total += stats.energy_cost_eur + stats.projected_energy_cost_eur;
+        unpriced += stats.unpriced_kwh;
+        let missing = stats.observed_seconds + 0.001 < (end - start) as f64 * included.len() as f64;
+        partial |= unpriced > 1e-10 || missing || included.is_empty();
+        estimated |= stats.estimated_kwh > 1e-10
+            || stats.approximate_kwh > 1e-10
+            || stats.projected_kwh > 1e-10;
+        // Unknown rates/data create gaps rather than a misleading zero-cost plateau.
+        let available = stats.observed_seconds > 0.0 && stats.unpriced_kwh < 1e-10;
+        report.points.push(CostSeriesPoint {
+            timestamp: DateTime::from_timestamp(end, 0).ok_or("invalid series date")?,
+            cost_eur: available.then_some(total),
+            partial,
+            estimated,
+            unpriced_kwh: unpriced,
+        });
+    }
+    Ok(report)
+}
+
 /// Dashboard cards: same tariff engine as the detailed estimate, with the
 /// exact observed window and one optional subscription per electricity site.
 #[derive(Debug, Serialize)]
@@ -581,6 +675,119 @@ mod tests {
         let mut c=TariffConfig::default();c.enabled=true;
         c.contracts.push(TariffContract{id:"contract".into(),site_id:"local".into(),supplier:"EDF".into(),offer:"Tarif Bleu".into(),option:"hphc".into(),starts_on:NaiveDate::from_ymd_opt(2026,1,1).unwrap(),ends_on:None,kva:6,offpeak:vec![OffpeakWindow{from:"22:30".into(),to:"06:30".into()}],revisions:vec![PriceRevision{from:NaiveDate::from_ymd_opt(2026,1,1).unwrap(),until:None,eur_kwh:BTreeMap::from([("hp".into(),0.30),("hc".into(),0.15)]),annual_subscription_eur:Some(120.0),source:"manual".into(),source_url:None,manual:true,retrieved_at:None}]});c
     }
+    #[test]
+    fn chart_cost_sums_sites_and_excludes_subscription_and_excluded_nodes() {
+        let db = Connection::open_in_memory().unwrap();
+        crate::energy::init(&db).unwrap();
+        let mut c = sample();
+        c.include_subscription = true;
+        c.sites.push(TariffSite {
+            id: "other".into(),
+            name: "Other".into(),
+            nodes: vec![],
+        });
+        let mut other = c.contracts[0].clone();
+        other.id = "other".into();
+        other.site_id = "other".into();
+        other.option = "base".into();
+        other.revisions[0].eur_kwh = BTreeMap::from([("base".into(), 0.5)]);
+        c.contracts.push(other);
+        let from = Paris
+            .with_ymd_and_hms(2026, 3, 2, 22, 0, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let to = from + 7200;
+        for (source, wh) in [("a", 2000.0), ("b", 1000.0), ("excluded", 9000.0)] {
+            db.execute(
+                "INSERT INTO energy_segments VALUES (?1,?2,?3,?4,0)",
+                params![source, from, to, wh],
+            )
+            .unwrap();
+        }
+        let assignments = vec![
+            ("a".into(), "local".into(), true),
+            ("b".into(), "other".into(), true),
+            ("excluded".into(), "other".into(), false),
+        ];
+        let curve = cost_series(&db, &c, &assignments, from, to, 17).unwrap();
+        let report = cost_report(&db, &c, &assignments, from, to).unwrap();
+        let end = curve.points.last().unwrap();
+        assert!((end.cost_eur.unwrap() - 0.875).abs() < 1e-9);
+        assert!((end.cost_eur.unwrap() - report.global.energy_cost_eur).abs() < 1e-9);
+        assert!(report.global.subscription_eur > 0.0);
+        assert!(!end.partial);
+        assert!(!end.estimated);
+        assert!(curve.points.len() <= 17);
+        assert_eq!(curve.points[0].cost_eur, Some(0.0));
+    }
+    #[test]
+    fn chart_cost_marks_unpriced_and_missing_observations_without_zero_cost_plateaus() {
+        let db = Connection::open_in_memory().unwrap();
+        crate::energy::init(&db).unwrap();
+        let mut c = sample();
+        c.contracts[0].option = "base".into();
+        c.contracts[0].revisions[0].eur_kwh = BTreeMap::from([("base".into(), 0.25)]);
+        c.contracts[0].revisions[0].from = NaiveDate::from_ymd_opt(2026, 3, 3).unwrap();
+        let from = Paris
+            .with_ymd_and_hms(2026, 3, 2, 23, 0, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        for (start, end) in [(from, from + 3600), (from + 7200, from + 10800)] {
+            db.execute(
+                "INSERT INTO energy_segments VALUES ('local',?1,?2,1000,0)",
+                params![start, end],
+            )
+            .unwrap();
+        }
+        let assignments = vec![("local".into(), "local".into(), true)];
+        let curve = cost_series(&db, &c, &assignments, from, from + 10800, 4).unwrap();
+        assert_eq!(curve.points[1].cost_eur, None);
+        assert_eq!(curve.points[2].cost_eur, None);
+        assert!((curve.points[3].cost_eur.unwrap() - 0.25).abs() < 1e-9);
+        assert!(curve.points[3].partial);
+        assert!((curve.points[3].unpriced_kwh - 1.0).abs() < 1e-9);
+        let empty = cost_series(&db, &c, &[], from, from + 10800, 4).unwrap();
+        assert!(empty.points.iter().skip(1).all(|p| p.cost_eur.is_none()));
+        c.enabled = false;
+        assert!(cost_series(&db, &c, &assignments, from, from + 10800, 4)
+            .unwrap()
+            .points
+            .is_empty());
+        assert!(cost_series(&db, &c, &assignments, from, from, 4).is_err());
+        assert!(cost_series(&db, &c, &assignments, from, from + 1, 1201).is_err());
+    }
+    #[test]
+    fn chart_cost_preserves_dst_and_opt_in_estimate_semantics() {
+        let db = Connection::open_in_memory().unwrap();
+        crate::energy::init(&db).unwrap();
+        let mut c = sample();
+        c.contracts[0].offpeak = vec![OffpeakWindow {
+            from: "02:00".into(),
+            to: "03:00".into(),
+        }];
+        let from = Utc
+            .with_ymd_and_hms(2026, 10, 25, 0, 0, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        db.execute(
+            "INSERT INTO energy_segments VALUES ('local',?1,?2,2000,2000)",
+            params![from, from + 7200],
+        )
+        .unwrap();
+        let assignments = vec![("local".into(), "local".into(), true)];
+        let curve = cost_series(&db, &c, &assignments, from, from + 7200, 13).unwrap();
+        assert!((curve.points.last().unwrap().cost_eur.unwrap() - 0.3).abs() < 1e-9);
+        assert!(curve.points.last().unwrap().estimated);
+        c.contracts[0].revisions[0].from = NaiveDate::from_ymd_opt(2026, 11, 1).unwrap();
+        c.estimate_unknown_history = true;
+        let curve = cost_series(&db, &c, &assignments, from, from + 7200, 13).unwrap();
+        assert!((curve.points.last().unwrap().cost_eur.unwrap() - 0.3).abs() < 1e-9);
+        assert!(curve.points.last().unwrap().estimated);
+    }
+
     #[test] fn missing_fixed_tariff_is_identified_without_touching_variable_prices() {
         let mut c=sample();
         c.include_subscription=true;

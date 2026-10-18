@@ -635,6 +635,7 @@
 <link rel="stylesheet" href="/static/theme.css">
 <link rel="stylesheet" href="/static/home-assistant.css">
 <script src="/static/theme.js"></script>
+<script src="/static/cost-chart.js"></script>
 </head>
 <body data-page="dashboard">
   <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
@@ -650,7 +651,8 @@
     </div>
     <a class="settings-link" href="/alerts" data-i18n="nav.alerts">Alerts</a>
     <details class="settings-control" id="mqtt-control"><summary>MQTT</summary><div class="settings-panel"><div id="pw-ha-mount"></div></div></details>
-    <details class="settings-control" id="tariffs-control"><summary data-settings-tariffs>Tarifs</summary><div class="settings-panel"><div id="tariffs-fr-app" data-mode="local"></div></div></details>
+    <a class="settings-link" id="tariffs-control" href="/tariffs" data-settings-tariffs>Tarifs</a>
+
   </div>
   <div class="dashboard-hero">
     <div class="total" id="total" data-i18n="common.loading">Loading...</div>
@@ -842,6 +844,8 @@ let currentSystemInfo = {
   power_supplies: [],
   smbios_available: false,
 };
+const costCurve=window.PowerWatchCostChart?.create({endpoint:"/api/tariffs-fr/series",redraw:()=>renderChart()});
+let lastLiveCostRefresh=0;
 let historyMeta = { label: t("dashboard.live10m"), bucketSeconds: 0, rangeSeconds: 600 };
 
 const SENSOR_ICONS = {
@@ -1105,7 +1109,8 @@ function appendLiveSnapshot(data) {
 
   liveReadings = liveReadings.filter((reading) => new Date(reading.timestamp).getTime() >= cutoff);
   lastReadings = liveReadings;
-  historyMeta = { label: t("dashboard.live10m"), bucketSeconds: 0, rangeSeconds: 600 };
+  historyMeta = { label: t("dashboard.live10m"), bucketSeconds: 0, rangeSeconds: 600,from:cutoff,to:now };
+  if(now-lastLiveCostRefresh>15000){lastLiveCostRefresh=now;void costCurve?.refresh(cutoff,now);}
 }
 
 function renderSummary(summary) {
@@ -1513,9 +1518,10 @@ async function loadHistory(amount, unit, label, showStatus = true) {
     historyMeta = {
       label,
       bucketSeconds: payload.bucket_seconds || 60,
-      rangeSeconds: Math.max(1, (to - from) / 1000),
+      rangeSeconds: Math.max(1, (to - from) / 1000),from,to,
     };
 
+    void costCurve?.refresh(from,to);
     renderSummary(payload.summary);
     renderChart();
     setStatus("");
@@ -1544,6 +1550,7 @@ function enterLiveMode() {
   document.getElementById("history-custom").open = false;
   lastReadings = liveReadings;
   historyMeta = { label: t("dashboard.live10m"), bucketSeconds: 0, rangeSeconds: 600 };
+  const now=Date.now();historyMeta.from=now-600000;historyMeta.to=now;void costCurve?.refresh(historyMeta.from,now);
   renderLiveSummary();
   renderChart();
   setStatus("");
@@ -1690,6 +1697,7 @@ function renderLegend(seriesKeys) {
     btn.innerHTML = `<span class="swatch" style="background:${color}"></span>${label}`;
     legend.appendChild(btn);
   });
+  costCurve?.legend(legend);
 }
 
 function renderChart() {
@@ -1717,7 +1725,7 @@ function renderChart() {
 
   caption.textContent = t("dashboard.chartCaption", { label: historyMeta.label, points: lastReadings.length, resolution: formatBucket(historyMeta.bucketSeconds), updated: formatTime(Date.now()) });
 
-  if (visibleReadings.length === 0) {
+  if (visibleReadings.length === 0 && !costCurve?.active()) {
     ctx.fillStyle = themeColor("--muted","#8b949e");
     ctx.font = "13px monospace";
     ctx.fillText(t("dashboard.allHidden"), 16, height / 2);
@@ -1725,11 +1733,11 @@ function renderChart() {
   }
 
   const allTimes = lastReadings.map((r) => new Date(r.timestamp).getTime());
-  const minTime = Math.min(...allTimes);
-  const maxTime = Math.max(...allTimes);
+  const minTime = historyMeta.from??Math.min(...allTimes);
+  const maxTime = historyMeta.to??Math.max(...allTimes);
   const maxWatts = Math.max(...visibleReadings.map((r) => r.watts), 1);
 
-  const padding = { top: 12, right: 12, bottom: 32, left: 48 };
+  const padding = { top: 16, right: costCurve?.active()?86:12, bottom: 32, left: 48 };
   const w = width - padding.left - padding.right;
   const h = height - padding.top - padding.bottom;
   const x = (t) => padding.left + ((t - minTime) / Math.max(maxTime - minTime, 1)) * w;
@@ -1750,7 +1758,7 @@ function renderChart() {
     ctx.fillText(watts.toFixed(1), padding.left - 6, py + 3);
   }
 
-  const axisTicks = timeAxisTicks(minTime, maxTime, historyMeta.rangeSeconds || 600, w);
+  const axisTicks = w<300?[minTime]:timeAxisTicks(minTime,maxTime,historyMeta.rangeSeconds||600,w).filter((time,index,ticks)=>index===0||index===ticks.length-1||Math.min(time-minTime,maxTime-time)/(maxTime-minTime)*w>145);
   axisTicks.forEach((timestamp, index) => {
     const px = x(timestamp);
     ctx.strokeStyle = themeColor("--border","#30363d");
@@ -1782,6 +1790,8 @@ function renderChart() {
     ctx.stroke();
   }
 
+  costCurve?.draw(ctx,{min:minTime,max:maxTime,left:padding.left,right:padding.right,top:padding.top,bottom:padding.bottom,width,height});
+
   if (hoverClientX !== null) {
     const rect = canvas.getBoundingClientRect();
     const cursorX = hoverClientX - rect.left;
@@ -1803,6 +1813,8 @@ function renderChart() {
         const label = componentDisplayLabels.get(key) || key;
         return `${label}: ${p.watts.toFixed(1)} W${range}`;
       });
+      const costText=costCurve?.tooltip(targetTime);if(costText)lines.push(costText);
+      lines.unshift(new Date(targetTime).toLocaleString());
       const boxWidth = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 16;
       const boxHeight = lines.length * 16 + 10;
       const boxX = Math.min(cursorX + 8, width - boxWidth - 4);
@@ -1961,7 +1973,6 @@ setInterval(refreshHistory, 60000);
 setInterval(refreshSuggestions, 5000);
 setInterval(refreshAlertsSummary, 3000);
 </script>
-<script src="/static/tariffs-fr.js" defer></script>
 <script>document.addEventListener("DOMContentLoaded",()=>{const label=document.querySelector("[data-settings-tariffs]");const update=()=>{label.textContent=document.documentElement.lang==="en"?"Tariffs":"Tarifs"};update();new MutationObserver(update).observe(document.documentElement,{attributes:true,attributeFilter:["lang"]});});</script>
 <script src="/static/home-assistant.js" defer></script>
 <script>window.addEventListener("DOMContentLoaded",()=>window.PowerWatchHA?.init({endpoint:"/api/home-assistant",hub:false,}));</script>
