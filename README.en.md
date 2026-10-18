@@ -405,6 +405,8 @@ The main page displays:
 - top-right **Alerts**, **MQTT**, and **Tariffs** buttons: Home Assistant and pricing settings no longer occupy the dashboard;
 - Light / Dark / Auto appearance control with separate day and night palettes inspired by Dockge-Enhanced. Browser preferences are stored separately for each WebUI or Hub origin.
 
+Settings menus open one at a time and close with Escape or an outside click. Tariff saves preserve expanded sections, cost calculation dates, and scroll position. The Hub checks the administrator token before confirming it; settings that were initially unavailable load after entering the token without refreshing the page.
+
 The Docker image automatically starts PowerWatch with history enabled and NAS/headless mode.
 
 ### French electricity tariffs — beta (optional)

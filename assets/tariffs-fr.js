@@ -17,7 +17,8 @@
   const toDate=d=>d?String(d).slice(0,10):"";
   const todayParis=()=>new Intl.DateTimeFormat("sv-SE",{timeZone:"Europe/Paris",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
   const id=()=>"t-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,7);
-  const editorMsg=m=>{const el=document.getElementById("tf-status");if(el)el.textContent=m;};
+  let editorStatus="";
+  const editorMsg=m=>{editorStatus=m;const el=document.getElementById("tf-status");if(el)el.textContent=m;};
   async function request(path, opts={}) {
     const headers=new Headers(opts.headers||{});
     if(opts.body)headers.set("Content-Type","application/json");
@@ -182,7 +183,7 @@ function bindMarket(){
     const today=todayParis(),revision=contract.revisions.find(r=>r.from<=today&&(!r.until||r.until>=today))||[...contract.revisions].sort((a,b)=>b.from.localeCompare(a.from))[0];
     manualEditingId=contract.id;manualEditingFrom=revision?.from||null;manualOpen=true;manualError="";
     Object.assign(manualDraft,{supplier:contract.supplier,offer:contract.offer,option:contract.option,kva:String(contract.kva),starts_on:contract.starts_on,price_from:revision?.from||"",hp:String(revision?.eur_kwh?.hp??""),hc:String(revision?.eur_kwh?.hc??""),base:String(revision?.eur_kwh?.base??""),subscription_monthly:revision?.annual_subscription_eur==null?"":String(Math.round(revision.annual_subscription_eur/12*1000)/1000),offpeak:contract.offpeak.map(w=>`${w.from}-${w.to}`).join(";")});
-    render();root.querySelector(".tf-manual")?.scrollIntoView({block:"start"});
+    render();root.querySelector(".tf-manual").open=true;
   }
   async function saveManual(withRates){
     const status=root.querySelector("#tf-manual-status");
@@ -304,6 +305,14 @@ function bindMarket(){
     <div class="tf-cost-controls"><label class="tf-label">${tr("Du","From")}<input id="tf-from" type="datetime-local"></label><label class="tf-label">${tr("Au","To")}<input id="tf-to" type="datetime-local"></label>
     <button type="button" id="tf-calculate">${tr("Calculer","Calculate")}</button></div><div id="tf-cost"></div></details>`;}
   function render(){
+    const sections=[...root.querySelectorAll("details")].map(el=>el.open);
+    const transient=["tf-from","tf-to","tf-tempo-color"];
+    const values=transient.map(id=>[id,root.querySelector("#"+id)?.value]);
+    const tempoDate=root.querySelector('[data-field="tempo-date"]')?.value;
+    const focus=document.activeElement;
+    const focusSelector=root.contains(focus)?(focus.id?"#"+focus.id:focus.dataset.manual?`[data-manual="${focus.dataset.manual}"]`:null):null;
+    const scroll=[];
+    for(let el=root.parentElement;el;el=el.parentElement)scroll.push([el,el.scrollTop,el.scrollLeft]);
     const today=todayParis();
     const activeContract=activeForSite(marketSite||conf.sites[0]?.id);
     const activeRevision=activeContract?.revisions.find(r=>r.from<=today&&(!r.until||r.until>=today));
@@ -330,10 +339,14 @@ function bindMarket(){
     <button id="tf-save" type="button">${tr("Enregistrer les modifications","Save changes")}</button><span id="tf-dirty" class="tf-help">${dirty?tr("Modifications non enregistrées","Unsaved changes"):""}</span>
     <button id="tf-export" type="button">${tr("Exporter JSON","Export JSON")}</button>
     <button id="tf-import" type="button">${tr("Importer JSON","Import JSON")}</button><input type="file" accept="application/json" id="tf-file" hidden></div>
-    <p id="tf-status" class="tf-help" role="status"></p>
+    <p id="tf-status" class="tf-help" role="status">${esc(editorStatus)}</p>
     ${siteEditor()}${contractEditor()}${tempoEditor()}${costEditor()}</details>
     </div></details>`;
+    root.querySelectorAll("details").forEach((el,i)=>{if(sections[i]!==undefined)el.open=sections[i];});
+    values.forEach(([id,value])=>{if(value!==undefined)root.querySelector("#"+id).value=value;});
+    if(tempoDate!==undefined)root.querySelector('[data-field="tempo-date"]').value=tempoDate;
     const panel=root.querySelector("details.tf-main");
+    panelOpen=panel.open;
     panel.addEventListener("toggle",event=>{
       if(event.target!==panel || panel!==root.querySelector("details.tf-main"))return;
       panelOpen=panel.open;
@@ -341,6 +354,8 @@ function bindMarket(){
       catch (_) { /* Panel remains operable without localStorage. */ }
     });
     bind(); if(cost)renderCost();
+    if(focusSelector)root.querySelector(focusSelector)?.focus({preventScroll:true});
+    scroll.forEach(([el,top,left])=>{el.scrollTop=top;el.scrollLeft=left;});
   }
   function readEdits(){
     conf.enabled=document.getElementById("tf-quick-enabled").checked;
@@ -446,5 +461,9 @@ function bindMarket(){
   }catch(e){root.textContent=tr("Tarification bêta indisponible : ","Beta tariff configuration unavailable: ")+e.message;}}
   new MutationObserver(()=>{if(conf&&root.querySelector("#tf-quick-enabled")){readEdits();render();}})
     .observe(document.documentElement,{attributes:true,attributeFilter:["lang"]});
+  if(hub)window.addEventListener("powerwatch:hubauthchange",()=>{
+    // Retry an initial unauthorized load without discarding an existing draft.
+    if(!conf)void start();
+  });
   start();
 })();

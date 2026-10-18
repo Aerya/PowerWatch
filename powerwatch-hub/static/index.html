@@ -534,10 +534,8 @@ async function api(url,options={}){
   const administrative=path.startsWith("/api/hub/home-assistant")||path==="/api/hub/test"||path==="/api/hub/nodes"||path.startsWith("/api/hub/nodes/")||path==="/api/hub/tariffs-fr/propagate";
   const headers=new Headers(options.headers||{});
   if(options.body)headers.set("Content-Type","application/json");
-  if(hubAdminEnabled&&administrative){
-    if(!hubAdminToken)throw new Error(tr("adminMissing"));
-    headers.set("Authorization",`Bearer ${hubAdminToken}`);
-  }
+  if(administrative&&hubAdminToken)headers.set("Authorization",`Bearer ${hubAdminToken}`);
+  if(hubAdminEnabled&&administrative&&!hubAdminToken)throw new Error(tr("adminMissing"));
   const res=await fetch(url,{...options,method,headers});
   if(!res.ok){const text=await res.text();throw new Error(text||`HTTP ${res.status}`);}
   if(res.status===204)return null;
@@ -549,7 +547,10 @@ async function initHubAdmin(){
     if(!response.ok)return;
     const status=await response.json();hubAdminEnabled=Boolean(status.enabled);
     const panel=document.getElementById("hub-admin");panel.hidden=!hubAdminEnabled;
-    if(hubAdminEnabled&&hubAdminToken)document.getElementById("hub-admin-status").textContent=tr("adminReady");
+    if(hubAdminEnabled){
+      const check=hubAdminToken?await fetch("/api/hub/nodes",{headers:{Authorization:`Bearer ${hubAdminToken}`},cache:"no-store"}):null;
+      document.getElementById("hub-admin-status").textContent=check?.ok?tr("adminReady"):tr("adminMissing");
+    }
   }catch(_){}
 }
 function cpuBenchmarkUrl(model){return `https://www.cpubenchmark.net/cpu.php?cpu=${encodeURIComponent(model)}`;}
@@ -1165,7 +1166,20 @@ document.getElementById("lang-fr").onclick=()=>{lang="fr";localStorage.setItem("
 document.getElementById("lang-en").onclick=()=>{lang="en";localStorage.setItem("powerwatchHubLang",lang);applyLanguage();};
 document.getElementById("probe").onclick=probe;
 document.getElementById("add").onclick=addNode;
-document.getElementById("save-hub-admin-token").onclick=()=>{const input=document.getElementById("hub-admin-token");hubAdminToken=input.value.trim();input.value="";if(hubAdminToken)sessionStorage.setItem("powerwatchHubAdminToken",hubAdminToken);else sessionStorage.removeItem("powerwatchHubAdminToken");document.getElementById("hub-admin-status").textContent=hubAdminToken?tr("adminReady"):tr("adminMissing");};
+document.getElementById("save-hub-admin-token").onclick=async()=>{
+  const input=document.getElementById("hub-admin-token"),button=document.getElementById("save-hub-admin-token"),status=document.getElementById("hub-admin-status");
+  const candidate=input.value.trim();
+  button.disabled=true;
+  try {
+    // Use a protected read to validate the token before claiming it is ready.
+    const headers=new Headers();if(candidate)headers.set("Authorization","Bearer "+candidate);
+    const response=await fetch("/api/hub/nodes",{headers,cache:"no-store"});
+    if(!response.ok)throw Error(response.status===401?(lang==="fr"?"Jeton refusé : vérifiez le jeton administrateur du Hub.":"Token rejected: check the Hub administrator token."):`HTTP ${response.status}`);
+    if(candidate)sessionStorage.setItem("powerwatchHubAdminToken",candidate);else sessionStorage.removeItem("powerwatchHubAdminToken");
+    hubAdminToken=candidate;input.value="";status.textContent=tr("adminReady");
+    window.dispatchEvent(new Event("powerwatch:hubauthchange"));
+  }catch(error){status.textContent=error.message;}finally{button.disabled=false;}
+};
 document.getElementById("history-range").onchange=()=>{historyHover=null;refreshHistory();};
 const historyCanvas=document.getElementById("history");
 historyCanvas.addEventListener("mousemove",event=>{

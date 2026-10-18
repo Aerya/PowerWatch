@@ -405,6 +405,8 @@ La page principale affiche :
 - les boutons **Alertes**, **MQTT** et **Tarifs** en haut à droite : les réglages Home Assistant et tarification ne prennent plus de place sur l’index ;
 - le sélecteur de thème **Clair / Sombre / Auto**, avec palettes de jour et de nuit inspirées de Dockge-Enhanced. Les réglages restent dans le navigateur, séparément pour chaque adresse de WebUI et de Hub.
 
+Les menus de réglages s’ouvrent un à la fois et se ferment avec Échap ou un clic à l’extérieur. Les validations des tarifs conservent les sections ouvertes, les dates de calcul et la position de défilement. Sur le Hub, le jeton administrateur est vérifié avant confirmation ; après sa saisie, les réglages initialement inaccessibles se chargent sans actualiser la page.
+
 L'image Docker démarre automatiquement PowerWatch avec l'historique activé et le mode NAS/headless.
 
 ### Tarification électrique France — bêta (optionnelle)
