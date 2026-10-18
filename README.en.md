@@ -451,7 +451,9 @@ The energy ledger is stored in SQLite independently of the Watts-history retenti
 
 ## History
 
-Charts display power in watts. Estimated costs appear in the energy counters and the PowerWatch **Total** card and the Hub **Total infrastructure** card: 24 hours, 7 days, 30 days and **cumulative total since the first reading**. This total covers all available history; the overlapping 24-hour, 7-day and 30-day windows are not added together. The Hub card follows enabled nodes included in the normal total, independently of the counter filter. Optional standing charges are counted once per site. Missing prices and estimates remain labelled.
+Charts display power in watts. The PowerWatch **Total** card, the Hub **Total infrastructure** card and every Hub node card prominently display the **estimated cumulative cost since the first reading**. A dropdown below shows the cost for the last **24 hours**, **7 days** or **30 days**. Each card keeps its own selected period during refreshes. The **i** button, available on hover and keyboard focus, explains that costs are indicative and partly derived from consumption estimates. Repeated partial and historical-estimate labels are removed from these summaries.
+
+The cumulative amount covers all available history; overlapping periods are not added together. The infrastructure total follows enabled nodes included in the normal total, independently of the energy-counter filter. Optional standing charges are counted once per site in that total; individual node cards show energy costs only, without repeating standing charges. Without readings or a calculable amount, the summary displays **Unavailable**. Detailed energy counters retain their coverage and pricing information.
 
 In **Tariffs → Rate history**, **Delete** removes a period after confirmation, then **Save changes** applies the deletion on the server. Energy readings and neighbouring period dates are preserved. Deleted periods remain unpriced; the explicit historical estimation option can still project the earliest known rate onto earlier readings. A CRE refresh may reimport a deleted official period.
 

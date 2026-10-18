@@ -19,7 +19,8 @@ test("local chart precedes energy and sensors, with the Hub's preset durations",
 });
 
 test("history duration options follow FR and EN language changes",()=>{
-  const options=[...dashboard.matchAll(/<option value="([^"]+)"(?: selected)?(?: data-i18n="([^"]+)")?[^>]*>([^<]+)<\/option>/g)]
+  const historySelect=dashboard.match(/<select id="history-range"[^>]*>([\s\S]*?)<\/select>/)[1];
+  const options=[...historySelect.matchAll(/<option value="([^"]+)"(?: selected)?(?: data-i18n="([^"]+)")?[^>]*>([^<]+)<\/option>/g)]
     .filter((match)=>["7d","30d","180d","400d","custom"].includes(match[1]))
     .map((match)=>({value:match[1],dataset:{i18n:match[2]},textContent:match[3]}));
   assert.equal(options.length,5);

@@ -632,6 +632,17 @@
 @media(max-width:630px){#tariffs-fr-app .tf-manual .tf-grid{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:630px){#tariffs-fr-app .tf-market-controls,#tariffs-fr-app[data-mode="hub"] .tf-market-controls{grid-template-columns:minmax(0,1fr)}#tariffs-fr-app .tf-market-controls .tf-market-offer-field,#tariffs-fr-app .tf-market-controls #tf-market-import{grid-column:auto}}
 
+
+.cost-summary { margin-top:16px; padding-top:14px; border-top:1px solid var(--border); text-align:left; font-size:.85rem; color:var(--text); }
+.cost-summary-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; color:var(--muted); font-size:.78rem; }
+.cost-summary-amount { display:block; margin:5px 0 13px; font-size:1.65rem; font-weight:700; letter-spacing:-.04em; color:var(--text); }
+.cost-summary-period { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.cost-summary-period select { min-width:0; max-width:65%; padding:6px 8px; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:5px; font:inherit; }
+.cost-summary-period strong { white-space:nowrap; font-size:1rem; }
+.cost-summary-info { position:relative; display:inline-flex; }
+.cost-summary-info button { padding:0; width:20px; height:20px; border:1px solid var(--border); border-radius:50%; background:transparent; color:var(--muted); font:inherit; cursor:help; }
+.cost-summary-tip { display:none; position:absolute; top:calc(100% + 8px); right:0; width:230px; max-width:65vw; padding:10px 12px; background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:6px; box-shadow:0 5px 18px #0004; font-size:.78rem; line-height:1.5; z-index:20; font-weight:400; }
+.cost-summary-info:hover .cost-summary-tip,.cost-summary-info:focus-within .cost-summary-tip { display:block; }
 </style>
 <link rel="stylesheet" href="/static/theme.css">
 <link rel="stylesheet" href="/static/home-assistant.css">
@@ -1889,20 +1900,38 @@ function pwCostText(energy, cost) {
   const partial = cost.unpriced_kwh > 0.0000001 || cost.missing_subscription_rate || energy.estimated_kwh > 0.0000001 ? ` · ${pwEnergyText("costPartial")}` : "";
   return `≈ ${money}${estimate}${partial}`;
 }
+function renderCostSummary(element,data,failed,english) {
+  element.classList.add("cost-summary");
+  element.hidden=data?.enabled===false;
+  const selected=element.querySelector("select")?.value||"24h";
+  const unavailable=english?"Unavailable":"Indisponible";
+  const format=period=>{
+    if(failed)return unavailable;
+    if(!data)return "—";
+    const cost=data.windows?.[period];
+    if(!cost||cost.observed_seconds===0||!Number.isFinite(cost.energy_cost_eur)||!Number.isFinite(cost.subscription_eur))return unavailable;
+    if(cost.unpriced_kwh>0.0000001&&!cost.billed_energy_kwh&&!cost.projected_kwh)return unavailable;
+    return (cost.energy_cost_eur+cost.subscription_eur+(cost.projected_energy_cost_eur||0)+(cost.projected_subscription_eur||0)).toLocaleString(english?"en-US":"fr-FR",{style:"currency",currency:"EUR"});
+  };
+  const heading=english?"Estimated cumulative cost":"Coût estimé cumulé";
+  const tooltip=english?"These costs are indicative and partly derived from estimates of electricity consumption.":"Ces coûts sont à titre indicatifs et en partie dérivés d'estimations de consommation électrique.";
+  const tipId=element.id+"-tip";
+  if(!element.querySelector(".cost-summary-amount"))element.innerHTML=`<div class="cost-summary-heading"><span data-cost-title>${heading}</span><span class="cost-summary-info"><button type="button" aria-label="${english?"About estimated costs":"À propos des coûts estimés"}" aria-describedby="${tipId}">i</button><span class="cost-summary-tip" id="${tipId}" role="tooltip">${tooltip}</span></span></div><strong class="cost-summary-amount">${format("all")}</strong><div class="cost-summary-period"><select aria-label="${english?"Cost period":"Période du coût estimé"}"><option value="24h">${english?"Last 24 hours":"Dernières 24 h"}</option><option value="7d">${english?"Last 7 days":"7 derniers jours"}</option><option value="30d">${english?"Last 30 days":"30 derniers jours"}</option></select><strong data-period-cost></strong></div>`;
+  element.querySelector("[data-cost-title]").textContent=heading;
+  element.querySelector(".cost-summary-amount").textContent=format("all");
+  element.querySelector(".cost-summary-tip").textContent=tooltip;
+  element.querySelector(".cost-summary-info button").setAttribute("aria-label",english?"About estimated costs":"À propos des coûts estimés");
+  const select=element.querySelector("select");
+  select.setAttribute("aria-label",english?"Cost period":"Période du coût estimé");
+  const labels=english?["Last 24 hours","Last 7 days","Last 30 days"]:["Dernières 24 h","7 derniers jours","30 derniers jours"];
+  [...select.options].forEach((option,i)=>option.textContent=labels[i]);
+  select.value=selected;
+  const update=()=>{element.querySelector("[data-period-cost]").textContent=format(select.value);};
+  select.onchange=update;
+  update();
+}
 function pwTotalCostsRender() {
-  const element=document.getElementById("total-costs");
-  element.hidden=powerwatchCosts?.enabled===false;
-  const english=PWI18n.language==="en";
-  const labels=english?["24 h","7 d","30 d","Cumulative total (since first reading)"]:["24 h","7 j","30 j","Total cumulé (depuis le premier relevé)"];
-  const title=document.createElement("strong");
-  title.textContent=english?"Estimated costs":"Coûts estimés";
-  element.replaceChildren(title,...["24h","7d","30d","all"].map((period,i)=>{
-    const cost=powerwatchCosts?.windows?.[period];
-    const row=document.createElement("div");
-    const text=powerwatchCosts?.enabled&&cost?.observed_seconds===0?pwEnergyText("costUnavailable"):pwCostText({first_seen_epoch:0,estimated_kwh:cost?.estimated_kwh||0},cost);
-    row.textContent=labels[i]+" : "+text;
-    return row;
-  }));
+  renderCostSummary(document.getElementById("total-costs"),powerwatchCosts,pwCostFailed,PWI18n.language==="en");
 }
 async function pwCostRefresh(params) {
   try {
