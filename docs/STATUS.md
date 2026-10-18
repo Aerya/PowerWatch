@@ -6,4 +6,4 @@ Les graphiques présentent le coût cumulé des kWh consommés depuis le début 
 
 Validation locale : 325 tests Rust et 48 tests JavaScript réussis. Les parcours navigateur ont été vérifiés sur deux services natifs isolés : sauvegarde et rechargement, conservation des grilles, copie et affectation des machines, bascule des périodes des graphiques et affichage à 1440 et 375 pixels. L’accès protégé, l’enregistrement avec protection CSRF et la courbe ont aussi été vérifiés avec l’authentification PowerWatch activée.
 
-Les corrections antérieures du jeton administrateur du Hub et de la conservation des formulaires sont incluses. Les données de production n’ont pas été utilisées ni modifiées. La publication GitHub et le déploiement restent à effectuer.
+Les corrections antérieures du jeton administrateur du Hub et de la conservation des formulaires sont incluses. Les données de production n’ont pas été utilisées ni modifiées. Aucune fusion ni mise en production n’a été effectuée.
