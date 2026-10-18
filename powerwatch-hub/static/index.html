@@ -361,7 +361,6 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
 <link rel="stylesheet" href="/static/theme.css">
 <link rel="stylesheet" href="/static/home-assistant.css">
 <script src="/static/theme.js"></script>
-<script src="/static/cost-chart.js"></script>
 </head>
 <body>
 <main>
@@ -400,6 +399,7 @@ canvas { width:100%; height:clamp(180px,22vh,250px); display:block; cursor:cross
     <div class="total-label" data-i18n="globalTotal">TOTAL INFRASTRUCTURE</div>
     <div class="total-value" id="global-total">0.0 W</div>
     <div class="statusline" id="global-status">—</div>
+    <div class="statusline" id="global-costs" aria-live="polite"></div>
     <div class="statusline" data-i18n="totalMixed">Mesures + estimations</div>
   </section>
   <section class="history-stack">
@@ -493,7 +493,6 @@ let snapshot=null;
 let hubAdminEnabled=false;
 let hubAdminToken=sessionStorage.getItem("powerwatchHubAdminToken")||"";
 let lastHistory=[];
-const costCurve=window.PowerWatchCostChart?.create({endpoint:"/api/hub/tariffs-fr/series",redraw:()=>drawHistory(lastHistory)});
 let historyHover=null;
 const hiddenSeries=new Set();
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -758,7 +757,6 @@ function valueFor(point,key){return key==="__global__"?point.global_watts:point.
 function renderLegend(series){
   const legend=document.getElementById("history-legend");
   legend.innerHTML=series.map(key=>`<button type="button" data-series="${esc(key)}" class="${hiddenSeries.has(key)?"hidden-series":""}"><span class="swatch" style="background:${seriesColor(key)}"></span>${esc(seriesLabel(key))}</button>`).join("");
-  costCurve?.legend(legend);
   legend.querySelectorAll("button[data-series]").forEach(button=>button.addEventListener("click",()=>{const key=button.dataset.series;hiddenSeries.has(key)?hiddenSeries.delete(key):hiddenSeries.add(key);drawHistory(lastHistory);}));
 }
 function varColor(name,fallback){
@@ -824,7 +822,7 @@ function drawHistory(points,{updateLegend=true}={}){
     if(Number.isFinite(value))values.push(value);
   }));
 
-  const pad={l:44,r:costCurve?.active()?86:12,t:16,b:32};
+  const pad={l:44,r:12,t:16,b:32};
   const minT=new Date(lastHistory[0].timestamp).getTime();
   const maxT=new Date(lastHistory[lastHistory.length-1].timestamp).getTime();
   const maxW=Math.max(1,...values);
@@ -867,7 +865,6 @@ function drawHistory(points,{updateLegend=true}={}){
     ctx.stroke();
   });
 
-  costCurve?.draw(ctx,{min:minT,max:maxT,left:pad.l,right:pad.r,top:pad.t,bottom:pad.b,width:w,height:h});
 
   if(historyHover && Number.isInteger(historyHover.index)){
     const index=Math.max(0,Math.min(lastHistory.length-1,historyHover.index));
@@ -896,9 +893,7 @@ function drawHistory(points,{updateLegend=true}={}){
       year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit"
     });
     ctx.font="12px monospace";
-    const costText=costCurve?.tooltip(timestamp.getTime());
     const valueTexts=entries.map(entry=>`${entry.label}: ${entry.value.toFixed(1)} W`);
-    if(costText)valueTexts.push(costText);
     const tooltipWidth=Math.min(
       Math.max(190,ctx.measureText(timeText).width+22,...valueTexts.map(text=>ctx.measureText(text).width+34)),
       Math.max(190,w-16)
@@ -932,7 +927,7 @@ function drawHistory(points,{updateLegend=true}={}){
 }
 function nearestHistoryIndex(mouseX,width){
   if(!lastHistory.length)return null;
-  const pad={l:44,r:costCurve?.active()?86:12};
+  const pad={l:44,r:12};
   const usable=Math.max(1,width-pad.l-pad.r);
   const ratio=Math.max(0,Math.min(1,(mouseX-pad.l)/usable));
   const minT=new Date(lastHistory[0].timestamp).getTime();
@@ -1041,12 +1036,12 @@ function hubCostParams() {
   qs.set("nodes",hubEnergyChosenIds().join(","));
   return qs;
 }
-function hubCostText(energy,cost){
+function hubCostText(energy,cost,costState=hubEnergyCosts,failed=hubCostFailed){
   if (!energy || energy.first_seen_epoch==null) return "";
-  if (hubEnergyCosts && !hubEnergyCosts.enabled) return "";
-  if (hubCostFailed) return `${tr("energyCostUnavailable")} · API`;
-  if (!hubEnergyCosts) return "—";
-  if (!hubEnergyCosts.enabled) return tr("energyCostDisabled");
+  if (costState && !costState.enabled) return "";
+  if (failed) return `${tr("energyCostUnavailable")} · API`;
+  if (!costState) return "—";
+  if (!costState.enabled) return tr("energyCostDisabled");
   if (!cost || !Number.isFinite(cost.energy_cost_eur) || !Number.isFinite(cost.subscription_eur)) return tr("energyCostUnavailable");
   const projected=(cost.projected_energy_cost_eur||0)+(cost.projected_subscription_eur||0);
   if (cost.unpriced_kwh>0.0000001 && !cost.billed_energy_kwh && !cost.projected_kwh) {
@@ -1054,10 +1049,29 @@ function hubCostText(energy,cost){
     return `${tr("energyCostUnavailable")} · ${(cost.warnings||[]).map(w=>lang==="fr"?(reasons[w]||w):w).join(", ")}`;
   }
   const money=(cost.energy_cost_eur+cost.subscription_eur+projected).toLocaleString(lang==="fr"?"fr-FR":"en-US",{style:"currency",currency:"EUR",minimumFractionDigits:2,maximumFractionDigits:2});
-  const estimate=cost.projected_kwh>0.0000001?(lang==="fr"?" · estimation historique au prix connu":" · historical estimate using later rates"):"";
-  return `≈ ${money}${estimate}${cost.unpriced_kwh>0.0000001||energy.estimated_kwh>0.0000001?` · ${tr("energyCostPartial")}`:""}`;
+  const estimate=cost.projected_kwh>0.0000001||projected>0.0000001?(lang==="fr"?" · estimation historique au prix connu":" · historical estimate using later rates"):"";
+  return `≈ ${money}${estimate}${cost.unpriced_kwh>0.0000001||cost.missing_subscription_rate||energy.estimated_kwh>0.0000001?` · ${tr("energyCostPartial")}`:""}`;
+}
+let infrastructureCosts=null,infrastructureCostFailed=false,infrastructureCostSeq=0;
+function renderInfrastructureCosts(){
+  const element=document.getElementById("global-costs");
+  element.hidden=infrastructureCosts?.enabled===false;
+  const labels=lang==="fr"?["24 h","7 j","30 j","Total cumulé (depuis le premier relevé)"]:["24 h","7 d","30 d","Cumulative total (since first reading)"];
+  element.replaceChildren(...["24h","7d","30d","all"].map((period,i)=>{
+    const cost=infrastructureCosts?.windows?.[period];
+    const row=document.createElement("div");
+    row.textContent=labels[i]+" : "+(infrastructureCosts?.enabled&&cost?.observed_seconds===0?tr("energyCostUnavailable"):hubCostText({first_seen_epoch:0,estimated_kwh:cost?.estimated_kwh||0},cost,infrastructureCosts,infrastructureCostFailed));
+    return row;
+  }));
+}
+async function refreshInfrastructureCosts(){
+  const seq=++infrastructureCostSeq;
+  try{const result=await api("/api/hub/tariffs-fr/overview");if(seq!==infrastructureCostSeq)return;infrastructureCosts=result;infrastructureCostFailed=false;}
+  catch(error){if(seq!==infrastructureCostSeq)return;infrastructureCosts=null;infrastructureCostFailed=true;}
+  renderInfrastructureCosts();
 }
 async function refreshHubCosts() {
+  void refreshInfrastructureCosts();
   const qs=hubCostParams();
   const key=qs.toString();
   const seq=++hubCostSeq;
@@ -1077,6 +1091,7 @@ function hubKwh(item) {
   return `${item.energy_kwh.toLocaleString(lang==="fr"?"fr-FR":"en-US",{maximumFractionDigits:item.energy_kwh<1?4:2})} kWh`;
 }
 function renderHubEnergy() {
+  renderInfrastructureCosts();
   renderHubEnergyPicker();
   if(!hubEnergy)return;
   const chosenIds=hubEnergyChosenIds();
@@ -1129,7 +1144,6 @@ async function refreshHistory(){try{
   const points=await api(`/api/hub/history?since=${encodeURIComponent(range)}`);
   if(document.getElementById("history-range").value!==range)return;
   drawHistory(points);
-  if(points.length>1)void costCurve?.refresh(Date.parse(points[0].timestamp),Date.parse(points.at(-1).timestamp));
 }catch(e){console.error(e);}}
 document.getElementById("lang-fr").onclick=()=>{lang="fr";localStorage.setItem("powerwatchHubLang",lang);applyLanguage();};
 document.getElementById("lang-en").onclick=()=>{lang="en";localStorage.setItem("powerwatchHubLang",lang);applyLanguage();};

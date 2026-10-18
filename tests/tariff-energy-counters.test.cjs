@@ -65,3 +65,41 @@ test("Tariff editor invalidates displayed costs after server writes",()=>{
   assert.match(local,/addEventListener\("powerwatch:tariffschange"/);
   assert.match(hub,/addEventListener\("powerwatch:tariffschange"/);
 });
+
+test('infrastructure costs use the normal total independently of counter filters and clear stale prices',async()=>{
+  const element={hidden:false,replaceChildren(...rows){this.rows=rows;}};
+  let response={enabled:true,windows:Object.fromEntries(['24h','7d','30d','all'].map(period=>[period,{...rated,observed_seconds:3600}]))};
+  const requests=[];
+  const context={lang:'fr',hubEnergyCosts:null,hubCostFailed:false,tr:key=>({energyCostUnavailable:'Coût indisponible',energyCostPartial:'partiel'})[key],
+    document:{getElementById:()=>element,createElement:()=>({textContent:''})},
+    api:async url=>{requests.push(url);if(response instanceof Error)throw response;return response;}};
+  context.hubCostText=getFunction(hub,'hubCostText',context);
+  const start=hub.indexOf('let infrastructureCosts=');
+  vm.createContext(context);
+  vm.runInContext(hub.slice(start,hub.indexOf('async function refreshHubCosts()',start)),context);
+  await vm.runInContext('refreshInfrastructureCosts()',context);
+  assert.equal(requests[0],'/api/hub/tariffs-fr/overview');
+  assert.equal(element.rows.length,4);assert.match(element.rows[0].textContent,/24 h.*0,25/);assert.match(element.rows[3].textContent,/Total cumulé.*0,25/);
+  context.lang='en';vm.runInContext('renderInfrastructureCosts()',context);assert.match(element.rows[3].textContent,/Cumulative total \(since first reading\)/);
+  response={enabled:false,windows:{}};await vm.runInContext('refreshInfrastructureCosts()',context);assert.equal(element.hidden,true);
+  response=new Error('HTTP 503');await vm.runInContext('refreshInfrastructureCosts()',context);assert.equal(element.hidden,false);assert.match(element.rows[0].textContent,/indisponible/);assert.doesNotMatch(element.rows[0].textContent,/0,25/);
+  response={enabled:true,windows:{'24h':{...rated,observed_seconds:0}}};await vm.runInContext('refreshInfrastructureCosts()',context);assert.match(element.rows[0].textContent,/indisponible/);
+});
+
+test('dashboards no longer load or request the cumulative cost curve',()=>{
+  for(const html of [local,hub]){assert.doesNotMatch(html,/costCurve|src="\/static\/cost-chart.js"/);new vm.Script([...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(match=>match[1]).join('\n'));}
+});
+
+test('PowerWatch Total shows current cost windows and lifetime total, translates and hides disabled costs',()=>{
+  const element={replaceChildren(...rows){this.rows=rows;}};
+  const context={PWI18n:{language:'fr'},pwCostFailed:false,powerwatchCosts:{enabled:true,windows:Object.fromEntries(['24h','7d','30d','all'].map((period,i)=>[period,{...rated,energy_cost_eur:i+1,observed_seconds:3600}]))},
+    pwEnergyText:key=>({costUnavailable:'Coût indisponible',costPartial:'partiel'})[key],
+    document:{getElementById:()=>element,createElement:()=>({textContent:''})}};
+  context.pwCostText=getFunction(local,'pwCostText',context);
+  const render=getFunction(local,'pwTotalCostsRender',context);render();
+  assert.equal(element.rows.length,5);assert.equal(element.rows[0].textContent,'Coûts estimés');
+  assert.match(element.rows[1].textContent,/24 h.*1,05/);assert.match(element.rows[4].textContent,/Total cumulé.*4,05/);
+  context.PWI18n.language='en';render();assert.match(element.rows[4].textContent,/Cumulative total/);
+  context.powerwatchCosts={enabled:false};render();assert.equal(element.hidden,true);
+  context.powerwatchCosts=null;context.pwCostFailed=true;render();assert.equal(element.hidden,false);assert.match(element.rows[1].textContent,/indisponible/);assert.doesNotMatch(element.rows[4].textContent,/4,05/);
+});

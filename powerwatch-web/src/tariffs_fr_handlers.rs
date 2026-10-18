@@ -45,7 +45,7 @@ async fn tariff_fr_sync(
     }else{return Err((StatusCode::BAD_REQUEST,"unsupported sync source".into()))};
     let client=reqwest::Client::builder().timeout(std::time::Duration::from_secs(20))
         .build().map_err(|e|(StatusCode::BAD_GATEWAY,e.to_string()))?;
-    let reply=client.get(url).send().await.map_err(|e|(StatusCode::BAD_GATEWAY,e.to_string()))?
+    let reply=client.get(url).header(reqwest::header::USER_AGENT,"PowerWatch/1.0 (+https://github.com/Aerya/PowerWatch)").send().await.map_err(|e|(StatusCode::BAD_GATEWAY,e.to_string()))?
         .error_for_status().map_err(|e|(StatusCode::BAD_GATEWAY,e.to_string()))?;
     if reply.content_length().is_some_and(|n|n>1_000_000){return Err((StatusCode::BAD_GATEWAY,"source response too large".into()));}
     let content=reply.text().await.map_err(|e|(StatusCode::BAD_GATEWAY,e.to_string()))?;
@@ -111,7 +111,7 @@ pub async fn tariff_fr_refresh_background(state:AppState) {
                 syncs.push((None,tariffs::TEMPO_HISTORY));
                 syncs.push((None,tariffs::TEMPO_TODAY));
                 for (id,url) in syncs {
-                    let Ok(reply)=client.get(url).send().await else {continue};
+                    let Ok(reply)=client.get(url).header(reqwest::header::USER_AGENT,"PowerWatch/1.0 (+https://github.com/Aerya/PowerWatch)").send().await else {continue};
                     let Ok(reply)=reply.error_for_status() else {continue};
                     if reply.content_length().is_some_and(|n|n>1_000_000){continue;}
                     let Ok(body)=reply.text().await else {continue};

@@ -52,3 +52,15 @@ test('required tariff fields show inline errors before any server write',{skip:!
  const result=browser(page('local',`(async()=>{await new Promise(r=>setTimeout(r,100));document.querySelector('#tf-manual-save').click();const error=document.querySelector('[data-error-for=supplier]').textContent,invalid=document.querySelector('[data-manual=supplier]').getAttribute('aria-invalid');const supplier=document.querySelector('[data-manual=supplier]');supplier.value='Fournisseur';supplier.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('#result').textContent=JSON.stringify({writes,error,invalid,cleared:document.querySelector('[data-error-for=supplier]').textContent});})();`));
  assert.equal(result.writes,0);assert.equal(result.invalid,'true');assert.match(result.error,/obligatoire/);assert.equal(result.cleared,'');
 });
+
+for(const mode of ['local','hub'])test(`${mode}: deleting tariff periods requires confirmation and save, preserving neighbouring dates`,{skip:!chromium},()=>{
+ const result=browser(page(mode,`(async()=>{const wait=()=>new Promise(r=>setTimeout(r,100));await wait();const fill=(key,value)=>{const el=document.querySelector('[data-manual="'+key+'"]');el.value=value;el.dispatchEvent(new Event('input',{bubbles:true}));};
+ for(const [key,value] of Object.entries({supplier:'EDF',offer:'Tarif Bleu',base:'.2',starts_on:'2026-02-01',price_from:'2026-02-01'}))fill(key,value);
+ document.querySelector('#tf-manual-save').click();await wait();fill('price_from','2026-08-01');fill('base','.25');document.querySelector('#tf-manual-save').click();await wait();
+ document.querySelector('[data-page-tab=history]').click();window.confirm=()=>false;document.querySelector('[data-delete-period]').click();const cancelled=document.querySelectorAll('[data-delete-period]').length;
+ window.confirm=()=>true;document.querySelector('[data-delete-period]').click();const beforeSave=config.contracts[0].revisions.length,dirty=document.querySelector('#tf-dirty').textContent;
+ document.querySelector('#tf-save').click();await wait();const remaining=structuredClone(config.contracts[0].revisions);
+ document.querySelector('[data-delete-period]').click();document.querySelector('#tf-save').click();await wait();
+ document.querySelector('#result').textContent=JSON.stringify({cancelled,beforeSave,dirty,remaining,last:config.contracts[0].revisions.length,writes});})();`));
+ assert.equal(result.cancelled,2);assert.equal(result.beforeSave,2);assert.match(result.dirty,/non enregistr/);assert.equal(result.remaining.length,1);assert.equal(result.remaining[0].from,'2026-02-01');assert.equal(result.remaining[0].until,'2026-07-31');assert.equal(result.last,0);assert.equal(result.writes,4);
+});

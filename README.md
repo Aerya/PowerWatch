@@ -55,7 +55,7 @@ Ce fork est pensé en priorité pour les **serveurs, mini-PC, machines desktop L
 
 ## Fonctionnalités
 
-- WebUI temps réel avec vue historique et courbe du **coût cumulé des kWh consommés**, en euros, dans PowerWatch et le Hub.
+- WebUI temps réel avec historique de puissance et coûts estimés dans les compteurs énergétiques et le total infrastructure du Hub.
 - Page **Tarifs** dédiée, formulaire unique et navigation sans accordéons imbriqués.
 - Historique SQLite persistant avec agrégation longue durée.
 - Alertes configurables depuis la WebUI.
@@ -430,7 +430,7 @@ L'image Docker démarre automatiquement PowerWatch avec l'historique activé et 
 - Date et heure en `Europe/Paris`, avec changement d'heure. La journée Tempo va de 06 h à 06 h, HP de 06 h à 22 h pour Tempo. La grille HP/HC non Tempo est configurable pour chaque contrat.
 - **Agrégats énergétiques de 15 minutes conservés sans limite de durée programmée** pour les nouvelles archives. Les anciens agrégats horaires restent lisibles, avec un avertissement de précision pour leurs coûts. L'estimation de l'historique ne crée aucune grille tarifaire datée fictive.
 - Abonnements facultatifs, calculés une fois par site et proratisés au jour ; aucun abonnement doublement compté entre plusieurs machines du Hub. Les périodes sans contrat ou couleur Tempo restent en kWh non chiffrés ; les périodes sans prix antérieur peuvent être projetées seulement si l'option d'estimation est activée.
-- Accès WebUI : `/api/tariffs-fr` (GET/PUT), `/api/tariffs-fr/sync` (POST), `/api/tariffs-fr/cost` (GET) et `/api/tariffs-fr/overview` (GET, compteurs) et `/api/tariffs-fr/series` (GET, courbe de coût cumulé). Accès Hub : `/api/hub/tariffs-fr` et équivalents `/sync`, `/cost`, `/overview`, `/series` (`nodes` facultatif pour les instances sélectionnées). Les mutations sont protégées par l'authentification de la WebUI ou l'authentification administrateur du Hub si activée.
+- Accès WebUI : `/api/tariffs-fr` (GET/PUT), `/api/tariffs-fr/sync` (POST), `/api/tariffs-fr/cost` (GET) et `/api/tariffs-fr/overview` (GET, compteurs) et `/api/tariffs-fr/series` (GET, série de coûts pour les clients API). Accès Hub : `/api/hub/tariffs-fr` et équivalents `/sync`, `/cost`, `/overview`, `/series` (`nodes` facultatif pour les instances sélectionnées). Les mutations sont protégées par l'authentification de la WebUI ou l'authentification administrateur du Hub si activée.
 - **Copie volontaire entre machines** : dans la page **Tarifs** du Hub, ouvrez « Sites et machines », choisissez l'instance source et cochez uniquement les machines ayant le même contrat et les mêmes horaires HC. Cochez « Copier aussi vers le Hub » pour calculer leurs coûts avec cette grille. La copie remplace la configuration tarifaire des machines cochées ; les autres restent intactes. Si l'authentification PowerWatch est activée, créez dans « Sécurité » de chaque destinataire un jeton « Lire et modifier les tarifs électriques » et renseignez-le dans la fiche de cette machine dans le Hub. Le jeton habituel en lecture seule reste distinct. La copie est déclenchée par le bouton et affiche les réussites et échecs par machine.
 
 Sources : https://www.cre.fr/documents/open-data/historique-des-tarifs-reglementes-de-vente-delectricite-pour-les-consommateurs-residentiels.html et https://www.calendrier-tempo.fr/api-tempo. Aucun tarif n'est codé en dur.
@@ -452,12 +452,9 @@ Les cumuls sont persistés en SQLite, indépendamment de la rétention de l'hist
 
 ## Historique
 
-Les graphiques PowerWatch et Hub proposent une courbe en pointillés du **coût cumulé des kWh consommés** depuis le début de la période affichée, avec un axe en euros à droite et un bouton dans la légende. L’abonnement est exclu. Le Hub additionne les machines activées et incluses dans le total habituel, chacune avec le contrat de son site ; masquer une série de puissance ne change pas ce total. Les périodes sans tarif ou sans relevés interrompent la courbe et rendent le cumul partiel. Les estimations historiques facultatives restent signalées comme estimées.
+Les graphiques affichent la puissance en watts. Les coûts estimés figurent dans les compteurs énergétiques et dans le bloc **Total** de PowerWatch et **Total infrastructure** du Hub : 24 h, 7 jours, 30 jours et **total cumulé depuis le premier relevé**. Ce cumul couvre tout l’historique disponible ; les fenêtres 24 h, 7 jours et 30 jours ne sont pas additionnées. Le bloc du Hub suit les machines activées et incluses dans le total habituel, indépendamment du filtre des compteurs. L’abonnement facultatif est compté une seule fois par site. Les tarifs manquants et estimations restent signalés.
 
-
-<p align="center">
-  <img src="docs/images/cout-cumule.png" alt="PowerWatch Hub — courbe du coût cumulé des kWh consommés">
-</p>
+Dans **Tarifs → Historique des tarifs**, **Supprimer** retire une période après confirmation, puis **Enregistrer les modifications** applique la suppression sur le serveur. Les relevés de consommation et les dates des autres périodes sont conservés. Une période supprimée reste sans tarif ; l’option explicite d’estimation des anciens relevés peut toutefois projeter le premier prix connu sur les relevés antérieurs. Une actualisation CRE peut réimporter une période officielle supprimée.
 
 Les données sont stockées dans SQLite dans le volume persistant `./data`.
 

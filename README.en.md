@@ -55,7 +55,7 @@ This fork is primarily designed for **servers, mini PCs, Linux desktop machines,
 
 ## Features
 
-- Real-time Web UI with historical views and a **cumulative energy cost** curve in euros in PowerWatch and the Hub.
+- Real-time Web UI with power history and estimated costs in energy counters.
 - Dedicated **Tariffs** page with a single form and navigation without nested accordions.
 - Persistent SQLite history with long-term aggregation.
 - Alerts configurable from the Web UI.
@@ -429,7 +429,7 @@ The Docker image automatically starts PowerWatch with history enabled and NAS/he
 - **Important limits**: offers with additional special bands (e.g. Heures Eco+ and Charge'Heures) are not mispriced as plain two-rate plans. Current public grids may differ from older fixed contracts or personal discounts, and do not recreate historical rates. **Meter-specific Linky off-peak slots** cannot be inferred from the supplier catalogue: check them with Enedis or the supplier. Without verified time slots, peak/off-peak electricity is left unpriced. Manual override remains available.
 - Europe/Paris local time, DST, Tempo 06:00-to-06:00 day. 15-minute lifetime archives for newly compacted energy; legacy hourly energy is still supported and its price breakdown is flagged approximate.
 - Optional prorated subscription counted **once per electric site**, not per node. The historical projection is opt-in and uses the first later documented rate; missing contracts, missing Tempo colors and unmonitored time are never assigned invented consumption or a tariff.
-- Endpoints `/api/tariffs-fr` and `/api/hub/tariffs-fr` (plus `/sync`, `/cost`, `/overview` for counters, and `/series` for the curve; the Hub overview accepts an optional `nodes` filter); writes require the existing WebUI/Hub admin protection when enabled.
+- Endpoints `/api/tariffs-fr` and `/api/hub/tariffs-fr` (plus `/sync`, `/cost`, `/overview` for counters, and `/series` for API clients; the Hub overview accepts an optional `nodes` filter); writes require the existing WebUI/Hub admin protection when enabled.
 - **Opt-in copy between nodes**: from the Hub **Tariffs** page, open “Sites and nodes”, choose the source node, and select only nodes with the same electricity contract and off-peak hours. Select “Copy to Hub too” to price those nodes in the Hub. Copying replaces tariff settings on selected nodes only. If PowerWatch authentication is enabled, create a “Read and update electricity tariffs” token on each destination node's Security page and save it on that node's Hub card. The ordinary read-only token remains separate. Copying runs when you press the button and reports each node's result.
 
 Sources: https://www.cre.fr/documents/open-data/historique-des-tarifs-reglementes-de-vente-delectricite-pour-les-consommateurs-residentiels.html and https://www.calendrier-tempo.fr/api-tempo.
@@ -451,12 +451,9 @@ The energy ledger is stored in SQLite independently of the Watts-history retenti
 
 ## History
 
-PowerWatch and Hub charts include a dashed **cumulative cost of consumed energy** curve from the start of the displayed period, with a euro axis on the right and a legend toggle. Standing charges are excluded. The Hub sums enabled nodes included in its normal total, each using its assigned site contract; hiding a power series does not change this total. Missing rates or observations create gaps and mark the cumulative cost as partial. Optional historical projections remain labelled as estimates.
+Charts display power in watts. Estimated costs appear in the energy counters and the PowerWatch **Total** card and the Hub **Total infrastructure** card: 24 hours, 7 days, 30 days and **cumulative total since the first reading**. This total covers all available history; the overlapping 24-hour, 7-day and 30-day windows are not added together. The Hub card follows enabled nodes included in the normal total, independently of the counter filter. Optional standing charges are counted once per site. Missing prices and estimates remain labelled.
 
-
-<p align="center">
-  <img src="docs/images/cout-cumule.png" alt="PowerWatch Hub — cumulative cost of consumed energy">
-</p>
+In **Tariffs → Rate history**, **Delete** removes a period after confirmation, then **Save changes** applies the deletion on the server. Energy readings and neighbouring period dates are preserved. Deleted periods remain unpriced; the explicit historical estimation option can still project the earliest known rate onto earlier readings. A CRE refresh may reimport a deleted official period.
 
 Data is stored in SQLite in the persistent `./data` volume.
 
