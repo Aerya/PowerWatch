@@ -36,6 +36,7 @@
     font-size: 1.2rem;
   }
   .total .value { font-weight: bold; }
+  .total-costs { margin-top:10px; font-size:.82rem; color:var(--muted); line-height:1.6; overflow-wrap:anywhere; }
   table {
     width: 100%;
     border-collapse: collapse;
@@ -635,7 +636,6 @@
 <link rel="stylesheet" href="/static/theme.css">
 <link rel="stylesheet" href="/static/home-assistant.css">
 <script src="/static/theme.js"></script>
-<script src="/static/cost-chart.js"></script>
 </head>
 <body data-page="dashboard">
   <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
@@ -655,7 +655,7 @@
 
   </div>
   <div class="dashboard-hero">
-    <div class="total" id="total" data-i18n="common.loading">Loading...</div>
+    <section class="total"><div id="total" data-i18n="common.loading">Loading...</div><div id="total-costs" class="total-costs" aria-live="polite" hidden></div></section>
     <section class="history-stack">
       <div class="history-toolbar">
         <strong data-i18n="dashboard.history">History</strong>
@@ -844,8 +844,6 @@ let currentSystemInfo = {
   power_supplies: [],
   smbios_available: false,
 };
-const costCurve=window.PowerWatchCostChart?.create({endpoint:"/api/tariffs-fr/series",redraw:()=>renderChart()});
-let lastLiveCostRefresh=0;
 let historyMeta = { label: t("dashboard.live10m"), bucketSeconds: 0, rangeSeconds: 600 };
 
 const SENSOR_ICONS = {
@@ -1110,7 +1108,6 @@ function appendLiveSnapshot(data) {
   liveReadings = liveReadings.filter((reading) => new Date(reading.timestamp).getTime() >= cutoff);
   lastReadings = liveReadings;
   historyMeta = { label: t("dashboard.live10m"), bucketSeconds: 0, rangeSeconds: 600,from:cutoff,to:now };
-  if(now-lastLiveCostRefresh>15000){lastLiveCostRefresh=now;void costCurve?.refresh(cutoff,now);}
 }
 
 function renderSummary(summary) {
@@ -1521,7 +1518,6 @@ async function loadHistory(amount, unit, label, showStatus = true) {
       rangeSeconds: Math.max(1, (to - from) / 1000),from,to,
     };
 
-    void costCurve?.refresh(from,to);
     renderSummary(payload.summary);
     renderChart();
     setStatus("");
@@ -1550,7 +1546,7 @@ function enterLiveMode() {
   document.getElementById("history-custom").open = false;
   lastReadings = liveReadings;
   historyMeta = { label: t("dashboard.live10m"), bucketSeconds: 0, rangeSeconds: 600 };
-  const now=Date.now();historyMeta.from=now-600000;historyMeta.to=now;void costCurve?.refresh(historyMeta.from,now);
+  const now=Date.now();historyMeta.from=now-600000;historyMeta.to=now;
   renderLiveSummary();
   renderChart();
   setStatus("");
@@ -1697,7 +1693,6 @@ function renderLegend(seriesKeys) {
     btn.innerHTML = `<span class="swatch" style="background:${color}"></span>${label}`;
     legend.appendChild(btn);
   });
-  costCurve?.legend(legend);
 }
 
 function renderChart() {
@@ -1725,7 +1720,7 @@ function renderChart() {
 
   caption.textContent = t("dashboard.chartCaption", { label: historyMeta.label, points: lastReadings.length, resolution: formatBucket(historyMeta.bucketSeconds), updated: formatTime(Date.now()) });
 
-  if (visibleReadings.length === 0 && !costCurve?.active()) {
+  if (visibleReadings.length === 0) {
     ctx.fillStyle = themeColor("--muted","#8b949e");
     ctx.font = "13px monospace";
     ctx.fillText(t("dashboard.allHidden"), 16, height / 2);
@@ -1737,7 +1732,7 @@ function renderChart() {
   const maxTime = historyMeta.to??Math.max(...allTimes);
   const maxWatts = Math.max(...visibleReadings.map((r) => r.watts), 1);
 
-  const padding = { top: 16, right: costCurve?.active()?86:12, bottom: 32, left: 48 };
+  const padding = { top: 16, right: 12, bottom: 32, left: 48 };
   const w = width - padding.left - padding.right;
   const h = height - padding.top - padding.bottom;
   const x = (t) => padding.left + ((t - minTime) / Math.max(maxTime - minTime, 1)) * w;
@@ -1790,7 +1785,6 @@ function renderChart() {
     ctx.stroke();
   }
 
-  costCurve?.draw(ctx,{min:minTime,max:maxTime,left:padding.left,right:padding.right,top:padding.top,bottom:padding.bottom,width,height});
 
   if (hoverClientX !== null) {
     const rect = canvas.getBoundingClientRect();
@@ -1813,7 +1807,6 @@ function renderChart() {
         const label = componentDisplayLabels.get(key) || key;
         return `${label}: ${p.watts.toFixed(1)} W${range}`;
       });
-      const costText=costCurve?.tooltip(targetTime);if(costText)lines.push(costText);
       lines.unshift(new Date(targetTime).toLocaleString());
       const boxWidth = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 16;
       const boxHeight = lines.length * 16 + 10;
@@ -1892,9 +1885,24 @@ function pwCostText(energy, cost) {
   }
   const amount = cost.energy_cost_eur + cost.subscription_eur + projected;
   const money = amount.toLocaleString(PWI18n.language === "en" ? "en-US" : "fr-FR", {style:"currency",currency:"EUR",minimumFractionDigits:2,maximumFractionDigits:2});
-  const estimate = cost.projected_kwh > 0.0000001 ? (PWI18n.language === "en" ? " · historical estimate using later rates" : " · estimation historique au prix connu") : "";
-  const partial = cost.unpriced_kwh > 0.0000001 || energy.estimated_kwh > 0.0000001 ? ` · ${pwEnergyText("costPartial")}` : "";
+  const estimate = cost.projected_kwh > 0.0000001 || projected > 0.0000001 ? (PWI18n.language === "en" ? " · historical estimate using later rates" : " · estimation historique au prix connu") : "";
+  const partial = cost.unpriced_kwh > 0.0000001 || cost.missing_subscription_rate || energy.estimated_kwh > 0.0000001 ? ` · ${pwEnergyText("costPartial")}` : "";
   return `≈ ${money}${estimate}${partial}`;
+}
+function pwTotalCostsRender() {
+  const element=document.getElementById("total-costs");
+  element.hidden=powerwatchCosts?.enabled===false;
+  const english=PWI18n.language==="en";
+  const labels=english?["24 h","7 d","30 d","Cumulative total (since first reading)"]:["24 h","7 j","30 j","Total cumulé (depuis le premier relevé)"];
+  const title=document.createElement("strong");
+  title.textContent=english?"Estimated costs":"Coûts estimés";
+  element.replaceChildren(title,...["24h","7d","30d","all"].map((period,i)=>{
+    const cost=powerwatchCosts?.windows?.[period];
+    const row=document.createElement("div");
+    const text=powerwatchCosts?.enabled&&cost?.observed_seconds===0?pwEnergyText("costUnavailable"):pwCostText({first_seen_epoch:0,estimated_kwh:cost?.estimated_kwh||0},cost);
+    row.textContent=labels[i]+" : "+text;
+    return row;
+  }));
 }
 async function pwCostRefresh(params) {
   try {
@@ -1911,6 +1919,7 @@ function pwEnergyFormat(entry) {
   return `${v.toLocaleString(PWI18n.language === "en" ? "en-US" : "fr-FR", {maximumFractionDigits:v < 1 ? 4 : 2})} kWh`;
 }
 function pwEnergyRender() {
+  pwTotalCostsRender();
   if (!powerwatchEnergy) return;
   for (const id of ["24h","7d","30d","all"]) {
     const entry = powerwatchEnergy.windows[id];
@@ -1948,6 +1957,7 @@ async function pwEnergyRefresh() {
     await pwCostRefresh(params);
   } catch (error) {
     powerwatchEnergy=null;powerwatchCosts=null;pwCostFailed=true;
+    pwTotalCostsRender();
     document.getElementById("energy-details").textContent = `${pwEnergyText("loadError")}: ${error.message}`;
   }
 }
