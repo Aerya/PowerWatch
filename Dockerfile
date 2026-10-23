@@ -1,11 +1,23 @@
 FROM rust:1-bookworm AS builder
 
+# eMudhra: refresh the OS trust store for this security update.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /src
 COPY . .
 
-RUN cargo build --release -p powerwatch-cli -p powerwatch-tui -p powerwatch-web -p powerwatch-hub
+RUN cargo build --locked --release -p powerwatch-cli -p powerwatch-tui -p powerwatch-web -p powerwatch-hub
 
 FROM debian:bookworm-slim
+
+# eMudhra: refresh the OS trust store for this security update.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl procps dmidecode \
