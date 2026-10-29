@@ -38,3 +38,13 @@ test('disabled pricing and failed requests clear old costs and settings changes 
  pending=curve.refresh(1000,5000);requests[2].resolve({ok:false,status:503});await pending;assert.equal(curve.active(),undefined);assert.match(curve.tooltip(4000),/indisponible/);
  events['storage']({key:'powerwatchTariffsChanged'});assert.equal(requests.length,4);respond(requests[3],{enabled:false,points:[]});
 });
+
+test('large cost histories draw without an argument overflow and retain the final maximum',async()=>{
+ const {curve,requests}=setup();const pending=curve.refresh(1000,300000000);
+ const points=Array.from({length:200000},(_,i)=>point(i+1,i===199999?100:1));
+ respond(requests[0],{enabled:true,points});await pending;
+ const labels=[];let lines=0;
+ const ctx={save(){},restore(){},fillText:t=>labels.push(t),beginPath(){},rect(){},clip(){},setLineDash(){},moveTo(){},lineTo(x,y){assert.ok(Number.isFinite(x)&&Number.isFinite(y));lines++;},stroke(){}};
+ curve.draw(ctx,{min:1000,max:300000000,left:40,right:80,top:16,bottom:32,width:800,height:300});
+ assert.equal(lines,199999);assert.ok(labels.includes('100,000 €'));
+});

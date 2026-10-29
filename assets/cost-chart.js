@@ -25,7 +25,9 @@
     function active(){return shown&&data?.enabled&&data.points?.some((p,i)=>i>0&&Number.isFinite(p.cost_eur));}
     function draw(ctx,{min,max,left,right,top,bottom,width,height}){
       if(!active())return;
-      const points=data.points,values=points.map(p=>p.cost_eur).filter(Number.isFinite),ceiling=Math.max(...values,0.001);
+      const points=data.points;
+      let ceiling=0.001;
+      for(const point of points){if(Number.isFinite(point.cost_eur))ceiling=Math.max(ceiling,point.cost_eur);}
       const x=t=>left+(t-min)/Math.max(1,max-min)*(width-left-right),y=v=>height-bottom-v/ceiling*(height-top-bottom);
       const color=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#58a6ff';
       ctx.save();ctx.font='10px monospace';ctx.textAlign='left';ctx.fillStyle=color;

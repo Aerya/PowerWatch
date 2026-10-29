@@ -458,6 +458,8 @@ Les cumuls sont persistés en SQLite, indépendamment de la rétention de l'hist
 
 ## Historique
 
+Le graphique du Hub prend en charge les historiques volumineux de plusieurs machines, y compris sur 30 jours et plus : le calcul de l’échelle ne dépend plus de la limite d’arguments JavaScript. Les relevés et les cumuls énergétiques sont conservés. Sur une installation concernée par un graphique vide, mettez à jour le Hub puis rechargez la page.
+
 Les graphiques affichent la puissance en watts. Le bloc **Total** de PowerWatch, le **Total infrastructure** et chaque carte machine du Hub présentent le **coût estimé cumulé depuis le premier relevé** en grand. Un menu placé en dessous affiche le coût sur les dernières **24 h**, **7 jours** ou **30 jours**. Chaque carte conserve sa propre période sélectionnée pendant les actualisations. Le bouton **i**, accessible au survol et au clavier, précise que les coûts sont indicatifs et en partie issus d’estimations de consommation. Les mentions répétées « partiel » et « estimation historique » sont retirées de ces récapitulatifs.
 
 Le cumul couvre tout l’historique disponible ; les périodes ne sont pas additionnées. Le total infrastructure suit les machines activées et incluses dans le total habituel, indépendamment du filtre des compteurs énergétiques. L’abonnement facultatif y est compté une seule fois par site ; les cartes machines affichent uniquement le coût de leur consommation, sans répéter cet abonnement. Sans relevés ou sans montant calculable, le récapitulatif affiche **Indisponible**. Les compteurs énergétiques détaillés conservent les informations de couverture et de tarification.

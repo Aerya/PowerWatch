@@ -830,16 +830,15 @@ function drawHistory(points,{updateLegend=true}={}){
   }
 
   const visible=series.filter(key=>!hiddenSeries.has(key));
-  const values=[];
+  let maxW=1;
   lastHistory.forEach(point=>visible.forEach(key=>{
     const value=valueFor(point,key);
-    if(Number.isFinite(value))values.push(value);
+    if(Number.isFinite(value))maxW=Math.max(maxW,value);
   }));
 
   const pad={l:44,r:12,t:16,b:32};
   const minT=new Date(lastHistory[0].timestamp).getTime();
   const maxT=new Date(lastHistory[lastHistory.length-1].timestamp).getTime();
-  const maxW=Math.max(1,...values);
   const x=t=>pad.l+((t-minT)/Math.max(1,maxT-minT))*(w-pad.l-pad.r);
   const y=v=>pad.t+(h-pad.t-pad.b)-(v/maxW)*(h-pad.t-pad.b);
 

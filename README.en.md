@@ -457,6 +457,8 @@ The energy ledger is stored in SQLite independently of the Watts-history retenti
 
 ## History
 
+The Hub chart supports large histories from multiple machines, including ranges of 30 days and longer: axis scaling no longer depends on the JavaScript argument limit. Readings and energy totals are preserved. If an installation displays a blank chart, update the Hub and reload the page.
+
 Charts display power in watts. The PowerWatch **Total** card, the Hub **Total infrastructure** card and every Hub node card prominently display the **estimated cumulative cost since the first reading**. A dropdown below shows the cost for the last **24 hours**, **7 days** or **30 days**. Each card keeps its own selected period during refreshes. The **i** button, available on hover and keyboard focus, explains that costs are indicative and partly derived from consumption estimates. Repeated partial and historical-estimate labels are removed from these summaries.
 
 The cumulative amount covers all available history; overlapping periods are not added together. The infrastructure total follows enabled nodes included in the normal total, independently of the energy-counter filter. Optional standing charges are counted once per site in that total; individual node cards show energy costs only, without repeating standing charges. Without readings or a calculable amount, the summary displays **Unavailable**. Detailed energy counters retain their coverage and pricing information.
